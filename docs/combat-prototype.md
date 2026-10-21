@@ -55,9 +55,11 @@ Three constraints shaped the camera and the geometry, and each is load-bearing:
 
 ### The planet rolls under the ship
 
-The ground is a sphere of `PLANET_RADIUS = 80` whose centre tracks the ship's
-planar position, so the ship is always at the sphere's pole and the limb always
-circles the screen. **The planet is the travel mechanism, not a backdrop**: every
+The ground is a sphere of `PLANET_RADIUS = 400` whose centre tracks the ship's
+planar position, so the ship is always at the sphere's pole. At this size the
+limb sits outside the frame: the surface fills the screen and reads as a
+continuous terrain rather than a globe. **The planet is the travel mechanism, not
+a backdrop**: every
 physics frame the arena turns it by exactly the arc length the ship covered,
 about the axis perpendicular to the movement:
 
@@ -70,8 +72,9 @@ Three consequences, and all three are deliberate:
 
 - **No boundary.** The surface under the ship is replaced as the planet turns, so
   a straight line never hits a wall. Travelling `2 * PI * PLANET_RADIUS`
-  (≈ 503 units) brings the original terrain back under the ship: the planet is
-  finite and circumnavigable, and "cover the whole planet" is a lap, not a wall.
+  (≈ 2513 units, about 94 s at top speed) brings the original terrain back under
+  the ship: the planet is finite and circumnavigable, and "cover the whole
+  planet" is a lap, not a wall.
 - **The geometry never moves in world space.** A sphere is rotation-invariant, so
   rotating it changes no vertex, no normal and no silhouette — only the shader's
   object-space input. That is why the roll is cheap and why it cannot desync from
@@ -82,9 +85,14 @@ Three consequences, and all three are deliberate:
 
 `PLANET_RADIUS` is the one number that sets the scale of the fantasy. A larger
 radius means a longer lap and a flatter horizon; a smaller one means a curvier
-surface with the limb closer to the ship. At 80 the limb is in frame around the
-ship and the terrain drops away visibly ahead, which is what makes the surface
-read as a globe rather than a plane.
+surface with the limb closer to the ship. At 400 a lap is ≈ 2513 units (≈ 94 s of
+flight), which is the "there is a lot of planet to cross" the design wants. The
+price is curvature: the camera looks 75° down from 51.5 units above the surface,
+so past a radius of about 100 the top of the screen meets the ground before the
+horizon and the limb leaves the frame. The planet then reads as a continuous
+surface, not a globe. Getting the limb back would need a camera about
+`0.54 * PLANET_RADIUS` above the ground, which shrinks the ship and the fight to
+nothing — a bigger planet is incompatible with a close cockpit.
 
 The surface itself is a procedural shader
 (`levels/arena/planet_surface.gdshader`), not a texture. It samples **object
@@ -108,15 +116,18 @@ cannot tell they are moving.
    - **Fan** — 5 fast aimed bullets. Dash or sidestep. Tests reaction.
 4. **Is the dash a decision or a reflex?** 0.16 s burst, 0.85 s cooldown, and it
    grants invulnerability, so it doubles as an escape.
-5. **Does flying over the planet read as a planet?** The ground is a real sphere
-   with a visible limb, the ship can fly in one direction forever, and the surface
-   turns under it so the whole planet passes beneath the ship. Surface detail is
-   the orientation landmark: on a uniform plane a player cannot tell they are
-   moving, so the ground is an object-space fBm shader with topographic isolines
-   rather than a flat colour. `tests/smoke_test.tscn` drives a long run through
+5. **Does flying over the planet read as a planet?** The ground is a real sphere,
+   the ship can fly in one direction forever, and the surface turns under it so
+   the whole planet passes beneath the ship. At the current radius the limb is
+   outside the frame, so the planet is sold by the rolling terrain and by the lap,
+   not by a visible edge. Surface detail is the orientation landmark: on a uniform
+   plane a player cannot tell they are moving, so the ground is an object-space
+   fBm shader with topographic isolines rather than a flat colour. Enemies live on
+   the planet too: they roam the surface, engage when the ship comes close and are
+   left behind when it leaves. `tests/smoke_test.tscn` drives a long run through
    input actions and fails if the ship stops being able to travel, if the planet
-   drifts off the ship, or if the planet turns by anything other than
-   `distance / PLANET_RADIUS`.
+   drifts off the ship, if the planet turns by anything other than
+   `distance / PLANET_RADIUS`, or if a turret follows the ship.
 
 ## Tuning knobs
 
@@ -135,7 +146,9 @@ All values are named constants at the top of each script.
 | Surface look | `levels/arena/planet_surface.gdshader` | noise scales, palette stops, contour count and strength |
 | Camera framing | `entities/player/player.tscn` | `CameraRig` position, pitch, `Camera3D.fov` |
 | Camera shake | `entities/player/player_camera.gd` | `MAX_OFFSET`, `DECAY_PER_SECOND` |
-| Enemy orbit | `entities/enemy/turret.gd` | `ORBIT_SPEED`, `FLEE_DISTANCE`; spawn radius in `arena.gd` `PATROL_RADIUS` |
+| Enemy engagement | `entities/enemy/turret.gd` | `AGGRO_RADIUS`, `LEASH_RADIUS`, `ORBIT_RADIUS`, `PURSUIT_SPEED`, `STRAFE_SPEED` |
+| Enemy roaming | `entities/enemy/turret.gd` | `ROAM_SPEED`, `ROAM_LEG_MIN`, `ROAM_LEG_MAX`, `ROAM_LEG_TIME` |
+| Encounter streaming | `levels/arena/arena.gd` | `MAX_ENEMIES`, `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE` |
 
 ## Architecture
 
@@ -144,9 +157,9 @@ common/global_event_bus.gd      lifecycle signals only (< 15 events)
 common/hit_spark.*              self-freeing 3D impact flash
 combat/projectile.*             one shared bullet, team decides layers + shape
 entities/player/                CharacterBody3D, camera rig, aim, dash, HP
-entities/enemy/turret.gd        turret: telegraph -> pattern -> recover, orbits the ship
+entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 ui/hud/                         listens to the bus, never touches the player
-levels/arena/arena.gd           rolling planet sphere, stars, enemy spawning
+levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
 ```
 
 Visuals are built in code (`_build_visual()`) instead of being serialised into
@@ -192,7 +205,11 @@ actions, so it exercises the same path a player does.
 - **No art.** Every visual is a runtime placeholder mesh built in code; the
   pre-rendered asset pipeline (D-02) is untouched, and whether entities become
   real-time meshes at all is OPEN-06.
-- **No wave escalation.** One enemy respawns on a 1.2 s timer, so difficulty is
-  flat (FR-10 is still a proposal, not implemented).
+- **No wave escalation.** A population of up to 3 turrets is streamed around the
+  ship, so the planet stays inhabited and the difficulty stays flat (FR-10 is
+  still a proposal, not implemented).
+- **The planet no longer shows a limb.** At `PLANET_RADIUS = 400` the surface
+  fills the frame, so the star field is effectively scenery and the "globe" read
+  comes from rolling terrain, not from a visible edge.
 - **i-frames and dash are prototypes of FR-09 and FR-11**, which remain
   unconfirmed product requirements — try them and decide, do not assume.

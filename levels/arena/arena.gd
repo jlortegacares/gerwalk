@@ -14,18 +14,38 @@ extends Node3D
 ## only the terrain painted in object space flows past. Travelling 2 * PI *
 ## PLANET_RADIUS brings the same terrain back under the ship, which is what makes
 ## the planet finite and circumnavigable without a wall at the edge.
+##
+## Encounters are streamed rather than placed: turrets roam the surface on their
+## own and are spawned ahead of the ship, so travelling is how the player finds
+## them and leaving them behind is how the planet stays worth crossing.
 
-const PLANET_RADIUS: float = 80.0
+## A lap is 2 * PI * PLANET_RADIUS, so this single number is "how much planet
+## there is to cross". At 400 a lap is about 2513 units, roughly 94 seconds of
+## uninterrupted flight at the ship's top speed.
+##
+## It is also the curvature knob: the camera sits 51.5 units above the surface,
+## and past a radius of about 100 the top of the screen meets the ground before
+## the horizon, so the limb leaves the frame and the planet reads as a surface
+## instead of a globe.
+const PLANET_RADIUS: float = 400.0
 const GROUND_Y: float = -1.5
 const PLANET_SEGMENTS: int = 96
 const PLANET_RINGS: int = 48
 
-## The orbit has to fit inside the visible ground. At the 75 degree camera pitch
-## the bottom of the screen is only about 26 units behind the ship, so a wider
-## orbit puts the turret below the frame while it keeps firing.
-const PATROL_RADIUS: float = 22.0
+## Encounters. The planet is far too large to hold a fixed set of turrets around
+## the ship, so the arena streams them: a small population follows the player at
+## a distance, spawning off screen ahead and freeing whoever was left behind.
+const MAX_ENEMIES: int = 3
+const SPAWN_INTERVAL: float = 2.0
+const FIRST_SPAWN_DISTANCE: float = 30.0
+const FIRST_SPAWN_ANGLE: float = 0.42
+const SPAWN_DISTANCE_MIN: float = 85.0
+const SPAWN_DISTANCE_MAX: float = 110.0
+## Half-width of the cone around the ship's heading where new turrets appear.
+const SPAWN_HEADING_SPREAD: float = 0.7
+const DESPAWN_DISTANCE: float = 190.0
+const SPAWN_SEED: int = 20261022
 
-const RESPAWN_DELAY: float = 1.2
 const ENEMY_SCENE: PackedScene = preload("res://entities/enemy/turret.tscn")
 
 const STAR_COUNT: int = 700
@@ -35,7 +55,8 @@ const STAR_SEED: int = 20261021
 
 const SURFACE_SHADER: Shader = preload("res://levels/arena/planet_surface.gdshader")
 
-var _spawn_index: int = 0
+var _spawn_timer: float = 0.0
+var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _planet: Node3D
 var _last_player_position: Vector3 = Vector3.ZERO
 
@@ -51,17 +72,23 @@ func _ready() -> void:
 	_build_environment()
 	_build_stars()
 	_build_planet()
+
 	_last_player_position = _player.global_position
-	_spawn_enemy()
+	_rng.seed = SPAWN_SEED
+	# One turret within engagement range so the prototype starts with a fight;
+	# the streaming spawner brings the rest once the ship starts exploring.
+	_spawn_timer = SPAWN_INTERVAL
+	_spawn_enemy(FIRST_SPAWN_DISTANCE, FIRST_SPAWN_ANGLE)
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	var current: Vector3 = _player.global_position
 	var movement: Vector3 = current - _last_player_position
 	_last_player_position = current
 
 	_planet.global_position = Vector3(current.x, GROUND_Y - PLANET_RADIUS, current.z)
 	_roll_planet(movement)
+	_maintain_population(delta)
 
 
 ## Rotates the planet so the surface moves opposite to the ship, by exactly the
@@ -164,23 +191,59 @@ func _build_planet() -> void:
 	add_child(_planet)
 
 
-func _spawn_enemy() -> void:
+## Keeps a small population of turrets around the ship. Whoever was left farther
+## than the despawn radius is freed, which stops a long flight from piling up idle
+## nodes, and the replacement spawns ahead of the ship so exploring keeps
+## producing encounters instead of emptying the planet.
+func _maintain_population(delta: float) -> void:
+	_spawn_timer = maxf(_spawn_timer - delta, 0.0)
+
+	var alive: int = 0
+	for node in _enemies.get_children():
+		var enemy: Enemy = node as Enemy
+		if enemy == null or enemy.is_queued_for_deletion():
+			continue
+		if _planar_distance(enemy.global_position) > DESPAWN_DISTANCE:
+			enemy.queue_free()
+			continue
+		alive += 1
+
+	if alive >= MAX_ENEMIES or _spawn_timer > 0.0:
+		return
+
+	_spawn_timer = SPAWN_INTERVAL
+	_spawn_enemy(
+		_rng.randf_range(SPAWN_DISTANCE_MIN, SPAWN_DISTANCE_MAX),
+		_spawn_angle()
+	)
+
+
+func _planar_distance(point: Vector3) -> float:
+	return Vector2(
+		point.x - _player.global_position.x,
+		point.z - _player.global_position.z
+	).length()
+
+
+## Bias new turrets to the hemisphere the ship is heading into. A plain ring
+## would drop half of them behind the player, where they are despawned without
+## ever being seen.
+func _spawn_angle() -> float:
+	var heading: Vector2 = Vector2(_player.velocity.x, _player.velocity.z)
+	var base: float = _rng.randf() * TAU
+	if heading.length() > 2.0:
+		base = heading.angle()
+	return base + _rng.randf_range(-SPAWN_HEADING_SPREAD, SPAWN_HEADING_SPREAD)
+
+
+func _spawn_enemy(distance: float, angle: float) -> void:
 	var enemy: Enemy = ENEMY_SCENE.instantiate()
 	_enemies.add_child(enemy)
 
-	# Spawn beside the ship, alternating flanks, so the first pattern is readable
-	# instead of arriving from outside the camera. The angle is relative to the
-	# ship, not to the world: the world origin means nothing now that the planet
-	# rolls and the ship can be anywhere.
-	var flank: float = 0.62 if _spawn_index % 2 == 0 else -0.62
-	_spawn_index += 1
-
-	enemy.setup_orbit(PATROL_RADIUS, flank)
+	var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * distance
+	enemy.setup_spawn(_player.global_position + offset)
 	enemy.killed.connect(_on_enemy_killed)
 
 
 func _on_enemy_killed() -> void:
 	GlobalEventBus.enemy_killed.emit()
-	await get_tree().create_timer(RESPAWN_DELAY).timeout
-	if is_inside_tree():
-		_spawn_enemy()

@@ -28,6 +28,7 @@ func _ready() -> void:
 	await _test_movement()
 	await _test_firing()
 	await _test_enemy_patterns()
+	await _test_enemies_roam_the_planet()
 
 	_clear_enemies()
 	_clear_projectiles()
@@ -35,6 +36,10 @@ func _ready() -> void:
 
 	await _test_travel_is_unbounded()
 	await _test_planet_rolls_with_the_player()
+
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
 
 	await _test_damage_and_iframes()
 	await _test_death()
@@ -85,18 +90,7 @@ func _test_firing() -> void:
 
 func _test_enemy_patterns() -> void:
 	var enemies: Array[Node] = get_tree().get_nodes_in_group(&"enemy")
-	_check(enemies.size() == 1, "one enemy is spawned (found %d)" % enemies.size())
-
-	if not enemies.is_empty():
-		var enemy: Enemy = enemies[0] as Enemy
-		var distance: float = Vector2(
-			enemy.global_position.x - _player.global_position.x,
-			enemy.global_position.z - _player.global_position.z
-		).length()
-		_check(
-			absf(distance - Arena.PATROL_RADIUS) < 1.0,
-			"enemy orbits the player at the patrol radius (%.1f units)" % distance
-		)
+	_check(enemies.size() >= 1, "the planet is populated (found %d)" % enemies.size())
 
 	var saw_enemy_bullets: bool = false
 	for _i in 300:
@@ -106,6 +100,50 @@ func _test_enemy_patterns() -> void:
 			break
 
 	_check(saw_enemy_bullets, "enemy emits a bullet pattern within 5 s")
+
+	if not enemies.is_empty():
+		var enemy: Enemy = enemies[0] as Enemy
+		var distance: float = _flat_distance(enemy.global_position, _player.global_position)
+		_check(
+			absf(distance - Enemy.ORBIT_RADIUS) < 8.0,
+			"the engaged turret holds the ring radius (%.1f units)" % distance
+		)
+
+
+## A large planet is only worth exploring if enemies belong to it. A turret pinned
+## to the ship would follow the player forever and the trip would change nothing,
+## so this drives the ship away and asserts both halves of the behaviour: the
+## turret is left behind, and it keeps moving on its own.
+func _test_enemies_roam_the_planet() -> void:
+	var enemies: Array[Node] = get_tree().get_nodes_in_group(&"enemy")
+	if enemies.is_empty():
+		_check(false, "an enemy is available for the roaming check")
+		return
+
+	var enemy: Enemy = enemies[0] as Enemy
+	var start: Vector3 = enemy.global_position
+
+	_player.global_position = enemy.global_position + Vector3(0.0, 0.0, 120.0)
+	_player.velocity = Vector3.ZERO
+
+	for _i in 90:
+		await get_tree().physics_frame
+
+	if not is_instance_valid(enemy):
+		_check(false, "the turret survives the run")
+		return
+
+	var separation: float = _flat_distance(enemy.global_position, _player.global_position)
+	var roamed: float = _flat_distance(enemy.global_position, start)
+
+	_check(
+		separation > 90.0,
+		"the turret does not follow the ship (%.1f units behind)" % separation
+	)
+	_check(
+		roamed > 1.0,
+		"the turret roams the planet on its own (%.1f units in 1.5 s)" % roamed
+	)
 
 
 ## The planet has no boundary any more: the surface under the ship is replaced as
@@ -214,7 +252,15 @@ func _planet_offset(planet: Node3D) -> float:
 	return Vector2(offset.x, offset.z).length()
 
 
+func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
 func _test_damage_and_iframes() -> void:
+	# The encounter phase can legitimately land a hit, and this check is about
+	# invulnerability frames, not about arriving at full health.
+	_player.set("_hp", Player.MAX_HP)
+
 	var event_bus_health: Array[int] = []
 	GlobalEventBus.player_health_changed.connect(
 		func(current: int, _maximum: int) -> void: event_bus_health.append(current)

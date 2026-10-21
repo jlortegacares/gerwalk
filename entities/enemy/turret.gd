@@ -1,16 +1,21 @@
 class_name Enemy
 extends CharacterBody3D
-## Orbital turret. Circles the ship at a fixed radius, so it stays engaged even
-## though the planet has no edge and the ship can fly in one direction forever.
+## Planet turret. It lives on the planet: it roams the surface on its own until
+## the ship comes close, then it chases the ship, orbits it and fires. Fly far
+## enough and it loses interest and goes back to roaming, which is what lets the
+## player leave an encounter behind and find another one.
+##
 ## Alternates a slow dense ring with a fast narrow fan, and telegraphs before each
 ## pattern so deaths stay attributable.
 ##
-## Positions are computed on the y = 0 play plane. The orbit is centred on the
-## player, not on the world origin: the origin is meaningless once the arena is
-## unbounded.
+## Positions are computed on the y = 0 play plane, so hitboxes stay planar. The
+## turret keeps its own world position instead of deriving it from the ship: the
+## planet is large enough to explore, and an enemy pinned to the ship would make
+## exploring pointless.
 
 enum State {
-	APPROACH,
+	ROAM,
+	ENGAGED,
 	TELEGRAPH,
 	RECOVER,
 	DEAD,
@@ -22,10 +27,26 @@ enum Pattern {
 }
 
 const MAX_HP: int = 10
-const ORBIT_SPEED: float = 0.30
-const FLEE_DISTANCE: float = 17.0
-const FLEE_LOCK_TIME: float = 1.4
+
+## Engagement. Pursuit speed is deliberately below the ship's top speed (26.8):
+## the player must always be able to break away instead of being towed forever.
+const AGGRO_RADIUS: float = 46.0
+const LEASH_RADIUS: float = 78.0
+const ORBIT_RADIUS: float = 22.0
+const PURSUIT_SPEED: float = 24.0
+const STRAFE_SPEED: float = 7.0
+## Delay between noticing the ship and the first telegraph. Without it the first
+## pattern arrives before the player can read the new threat.
 const APPROACH_TIME: float = 1.2
+
+## Roaming. The turret crosses the surface on its own between waypoints, so the
+## planet is inhabited rather than populated by static props.
+const ROAM_SPEED: float = 7.5
+const ROAM_LEG_MIN: float = 12.0
+const ROAM_LEG_MAX: float = 38.0
+const ROAM_LEG_TIME: float = 5.0
+const ROAM_ARRIVAL_DISTANCE: float = 0.8
+
 const TELEGRAPH_TIME: float = 0.42
 const RECOVER_TIME: float = 1.85
 
@@ -46,16 +67,15 @@ signal killed
 @export var bullet_scene: PackedScene
 
 var _hp: int = MAX_HP
-var _state: State = State.APPROACH
+var _state: State = State.ROAM
 var _pattern: Pattern = Pattern.RING
-var _timer: float = APPROACH_TIME
+var _timer: float = 0.0
 var _player: Player = null
 var _hit_flash: float = 0.0
 
-var _orbit_radius: float = 30.0
-var _angle: float = 0.0
-var _angular_direction: float = 1.0
-var _flee_lock: float = 0.0
+var _roam_target: Vector3 = Vector3.ZERO
+var _roam_timer: float = 0.0
+var _strafe_direction: float = 1.0
 
 var _visual: Node3D
 var _material: StandardMaterial3D
@@ -69,10 +89,10 @@ func _ready() -> void:
 	_build_aim_beam()
 
 
-func setup_orbit(radius: float, angle: float) -> void:
-	_orbit_radius = radius
-	_angle = angle
-	_sync_position()
+## Called by the arena right after the turret enters the tree.
+func setup_spawn(spawn_position: Vector3) -> void:
+	global_position = spawn_position
+	_pick_roam_target()
 
 
 func _physics_process(delta: float) -> void:
@@ -85,41 +105,90 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(_player):
 		_player = _find_player()
 
+	if _player == null:
+		return
+
+	var distance: float = _planar_distance_to(_player.global_position)
+	if _state == State.ROAM:
+		if distance < AGGRO_RADIUS:
+			_enter_engaged()
+	elif distance > LEASH_RADIUS:
+		_enter_roam()
+		return
+
 	_timer -= delta
-	_flee_lock = maxf(_flee_lock - delta, 0.0)
 
 	match _state:
-		State.APPROACH:
-			_tick_orbit(delta)
+		State.ROAM:
+			_tick_roam(delta)
+		State.ENGAGED:
+			_tick_engaged(delta)
 			if _timer <= 0.0:
 				_enter_telegraph()
 		State.TELEGRAPH:
+			_tick_engaged(delta)
 			_tick_telegraph()
 			if _timer <= 0.0:
 				_fire_pattern()
 				_enter_recover()
 		State.RECOVER:
+			_tick_engaged(delta)
 			if _timer <= 0.0:
 				_enter_telegraph()
 
 
-func _tick_orbit(delta: float) -> void:
-	if _player != null and _flee_lock <= 0.0:
-		if global_position.distance_to(_player.global_position) < FLEE_DISTANCE:
-			_angular_direction *= -1.0
-			_flee_lock = FLEE_LOCK_TIME
+func _tick_roam(delta: float) -> void:
+	_roam_timer -= delta
+	var to_target: Vector3 = _roam_target - global_position
+	to_target.y = 0.0
 
-	_angle = wrapf(_angle + _angular_direction * ORBIT_SPEED * delta, 0.0, TAU)
-	_sync_position()
+	if _roam_timer <= 0.0 or to_target.length() < ROAM_ARRIVAL_DISTANCE:
+		_pick_roam_target()
+		return
+
+	global_position += to_target.normalized() * ROAM_SPEED * delta
 
 
-## The orbit follows the ship. If it were anchored to a world point, flying away
-## would leave the turret behind and the arena would go silent.
-func _sync_position() -> void:
-	var centre: Vector3 = Vector3.ZERO
-	if is_instance_valid(_player):
-		centre = _player.global_position
-	global_position = centre + Vector3(cos(_angle), 0.0, sin(_angle)) * _orbit_radius
+func _pick_roam_target() -> void:
+	var angle: float = randf() * TAU
+	var distance: float = randf_range(ROAM_LEG_MIN, ROAM_LEG_MAX)
+	_roam_target = global_position + Vector3(cos(angle), 0.0, sin(angle)) * distance
+	_roam_timer = ROAM_LEG_TIME
+
+
+## Holding the ring: chase when far, back off when the player dashes in, strafe
+## in between. Steering in world space (instead of recomputing the position from
+## the ship) is what makes the leash possible at all.
+func _tick_engaged(delta: float) -> void:
+	var offset: Vector3 = _player.global_position - global_position
+	offset.y = 0.0
+	var distance: float = offset.length()
+	if distance < 0.001:
+		return
+
+	var to_player: Vector3 = offset / distance
+	var step: Vector3
+	if distance > ORBIT_RADIUS * 1.2:
+		step = to_player * PURSUIT_SPEED
+	elif distance < ORBIT_RADIUS * 0.8:
+		step = -to_player * PURSUIT_SPEED
+	else:
+		step = Vector3(-to_player.z, 0.0, to_player.x) * (STRAFE_SPEED * _strafe_direction)
+
+	global_position += step * delta
+
+
+func _enter_engaged() -> void:
+	_state = State.ENGAGED
+	_timer = APPROACH_TIME
+	_strafe_direction = 1.0 if randf() < 0.5 else -1.0
+
+
+func _enter_roam() -> void:
+	_state = State.ROAM
+	_aim_beam.visible = false
+	_set_body_color(BASE_COLOR)
+	_pick_roam_target()
 
 
 func _enter_telegraph() -> void:
@@ -132,14 +201,13 @@ func _tick_telegraph() -> void:
 	var progress: float = 1.0 - clampf(_timer / TELEGRAPH_TIME, 0.0, 1.0)
 	_set_body_color(BASE_COLOR.lerp(TELEGRAPH_COLOR, progress))
 
-	if _player != null:
-		var offset: Vector3 = _player.global_position - global_position
-		offset.y = 0.0
-		var distance: float = offset.length()
-		if distance > 0.001:
-			_aim_beam.position = offset * 0.5
-			_aim_beam.rotation.y = atan2(offset.x, offset.z)
-			_aim_beam.scale.z = distance
+	var offset: Vector3 = _player.global_position - global_position
+	offset.y = 0.0
+	var distance: float = offset.length()
+	if distance > 0.001:
+		_aim_beam.position = offset * 0.5
+		_aim_beam.rotation.y = atan2(offset.x, offset.z)
+		_aim_beam.scale.z = distance
 
 
 func _enter_recover() -> void:
@@ -150,7 +218,7 @@ func _enter_recover() -> void:
 
 
 func _fire_pattern() -> void:
-	if _player == null or bullet_scene == null:
+	if bullet_scene == null:
 		return
 
 	var to_player: Vector3 = _player.global_position - global_position
@@ -193,6 +261,10 @@ func _die() -> void:
 	_state = State.DEAD
 	killed.emit()
 	queue_free()
+
+
+func _planar_distance_to(point: Vector3) -> float:
+	return Vector2(point.x - global_position.x, point.z - global_position.z).length()
 
 
 func _find_player() -> Player:

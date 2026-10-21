@@ -4,7 +4,9 @@ Top-down twin-stick shooter (360°) in a real-time 3D scenario, built in Godot.
 The player flies over a planet's surface, stays locked to the screen centre, and
 fights bullet-hell patterns with a segmented HP bar instead of one-hit death.
 The planet rolls under the ship as it travels, so the whole surface can be
-circumnavigated without hitting a boundary.
+circumnavigated without hitting a boundary. Turrets roam the surface on their
+own and engage when the ship comes close, so travelling is how encounters are
+found.
 
 - **Engine:** Godot 4.7.2 stable, Forward+ (pinned)
 - **Requirements:** [docs/requirements.md](docs/requirements.md)
