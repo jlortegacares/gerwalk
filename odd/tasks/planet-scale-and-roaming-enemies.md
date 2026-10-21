@@ -1,7 +1,7 @@
 # Planet scale and roaming enemies
 
 Branch: `main` (work-unit commits)
-Work unit: `3e71b83` — feat: enlarge the planet and let enemies roam it
+Work unit: `ea84898` — feat: enlarge the planet and let enemies roam it
 Delivery: `ask-on-risk` default, no chain forecast (about 350 authored lines)
 Test runner: `./run.sh --headless tests/smoke_test.tscn`
 
