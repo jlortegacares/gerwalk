@@ -1,11 +1,13 @@
 class_name Enemy
 extends CharacterBody3D
-## Orbital turret. Circles the arena at a fixed radius, so it can never wedge
-## itself against the boundary. Alternates a slow dense ring with a fast narrow
-## fan, and telegraphs before each pattern so deaths stay attributable.
+## Orbital turret. Circles the ship at a fixed radius, so it stays engaged even
+## though the planet has no edge and the ship can fly in one direction forever.
+## Alternates a slow dense ring with a fast narrow fan, and telegraphs before each
+## pattern so deaths stay attributable.
 ##
-## Positions are computed on the y = 0 play plane. The arena root sits at the
-## world origin, so the arena centre is the origin too.
+## Positions are computed on the y = 0 play plane. The orbit is centred on the
+## player, not on the world origin: the origin is meaningless once the arena is
+## unbounded.
 
 enum State {
 	APPROACH,
@@ -21,15 +23,8 @@ enum Pattern {
 
 const MAX_HP: int = 10
 const ORBIT_SPEED: float = 0.30
-const FLEE_DISTANCE: float = 23.0
+const FLEE_DISTANCE: float = 17.0
 const FLEE_LOCK_TIME: float = 1.4
-## The turret cannot wander further than this from the player's angle. Without a
-## leash it orbits out of view and shoots from off-screen, which breaks failure
-## attribution: the player cannot name what hit them.
-const ANGULAR_LEASH: float = 1.25
-## Keep the orbit clear of the planet edge so the turret is never clamped on top
-## of the boundary line.
-const EDGE_CLEARANCE: float = 8.0
 const APPROACH_TIME: float = 1.2
 const TELEGRAPH_TIME: float = 0.42
 const RECOVER_TIME: float = 1.85
@@ -69,12 +64,13 @@ var _aim_beam: MeshInstance3D
 
 func _ready() -> void:
 	add_to_group(&"enemy")
+	_player = _find_player()
 	_build_visual()
 	_build_aim_beam()
 
 
-func setup_orbit(radius: float, angle: float, arena_radius: float) -> void:
-	_orbit_radius = clampf(radius, EDGE_CLEARANCE, arena_radius - EDGE_CLEARANCE)
+func setup_orbit(radius: float, angle: float) -> void:
+	_orbit_radius = radius
 	_angle = angle
 	_sync_position()
 
@@ -113,18 +109,17 @@ func _tick_orbit(delta: float) -> void:
 			_angular_direction *= -1.0
 			_flee_lock = FLEE_LOCK_TIME
 
-	if _player != null:
-		var player_angle: float = atan2(_player.global_position.z, _player.global_position.x)
-		var angle_gap: float = wrapf(player_angle - _angle, -PI, PI)
-		if absf(angle_gap) > ANGULAR_LEASH:
-			_angular_direction = signf(angle_gap)
-
 	_angle = wrapf(_angle + _angular_direction * ORBIT_SPEED * delta, 0.0, TAU)
 	_sync_position()
 
 
+## The orbit follows the ship. If it were anchored to a world point, flying away
+## would leave the turret behind and the arena would go silent.
 func _sync_position() -> void:
-	global_position = Vector3(cos(_angle), 0.0, sin(_angle)) * _orbit_radius
+	var centre: Vector3 = Vector3.ZERO
+	if is_instance_valid(_player):
+		centre = _player.global_position
+	global_position = centre + Vector3(cos(_angle), 0.0, sin(_angle)) * _orbit_radius
 
 
 func _enter_telegraph() -> void:

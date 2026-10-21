@@ -1,37 +1,32 @@
 class_name Arena
 extends Node3D
-## Planetary arena: the planet's surface *is* the play field. The ship flies over
-## it, the camera keeps the ship centred, and the orbital ring is gone.
+## Planetary arena: the planet's surface is the play field. The ship flies over it,
+## the camera keeps the ship centred, and the planet rolls under it as the ship
+## travels, so there is no boundary and the whole surface is reachable.
 ##
 ## Everything gameplay-relevant happens on the y = 0 plane. The ground sits just
-## below that plane and starts curving away just past the play boundary, so the
-## surface reads as a planet without forcing the ship, the enemies or the bullets
-## to follow a curved height field. Hitboxes stay planar; the curvature is scenery.
+## below that plane, so hitboxes stay planar while the curvature is scenery.
 ##
-## Geometry note: the ground is a surface of revolution, flat out to ARENA_RADIUS
-## and falling away on a quadratic profile to RIM_DROP at GROUND_OUTER_RADIUS.
-## Beyond that radius the mesh simply ends, which is the planet's limb. Because the
-## drop starts exactly at the play boundary, the player sees the surface roll away
-## into space as they reach the edge - the visual confirmation that the planet ends
-## there. The ship never walks that slope: the boundary clamp runs on the flat part
-## only, and anything outside ARENA_RADIUS is scenery.
+## Rolling model: the planet is a sphere whose centre tracks the ship's planar
+## position and whose orientation accumulates one rotation of |movement| /
+## PLANET_RADIUS about the axis perpendicular to the movement. A sphere is
+## rotation-invariant, so the geometry and normals never change in world space -
+## only the terrain painted in object space flows past. Travelling 2 * PI *
+## PLANET_RADIUS brings the same terrain back under the ship, which is what makes
+## the planet finite and circumnavigable without a wall at the edge.
 
-const ARENA_RADIUS: float = 55.0
+const PLANET_RADIUS: float = 80.0
 const GROUND_Y: float = -1.5
-const GROUND_FLAT_RADIUS: float = 55.0
-const GROUND_OUTER_RADIUS: float = 96.0
-const RIM_DROP: float = 50.0
-const GROUND_RINGS: int = 64
-const GROUND_SEGMENTS: int = 128
+const PLANET_SEGMENTS: int = 96
+const PLANET_RINGS: int = 48
 
-const BOUNDARY_RING_THICKNESS: float = 0.14
-const BOUNDARY_RING_COLOR: Color = Color(0.24, 0.9, 0.79, 0.35)
+## The orbit has to fit inside the visible ground. At the 75 degree camera pitch
+## the bottom of the screen is only about 26 units behind the ship, so a wider
+## orbit puts the turret below the frame while it keeps firing.
+const PATROL_RADIUS: float = 22.0
 
 const RESPAWN_DELAY: float = 1.2
 const ENEMY_SCENE: PackedScene = preload("res://entities/enemy/turret.tscn")
-
-const PATROL_RADIUS_RATIO: float = 0.55
-const ENEMY_CLEARANCE: float = 8.0
 
 const STAR_COUNT: int = 700
 const STAR_MIN_DISTANCE: float = 320.0
@@ -41,6 +36,8 @@ const STAR_SEED: int = 20261021
 const SURFACE_SHADER: Shader = preload("res://levels/arena/planet_surface.gdshader")
 
 var _spawn_index: int = 0
+var _planet: Node3D
+var _last_player_position: Vector3 = Vector3.ZERO
 
 @onready var _player: Player = %Player
 @onready var _enemies: Node3D = %Enemies
@@ -48,17 +45,37 @@ var _spawn_index: int = 0
 
 func _ready() -> void:
 	add_to_group(&"arena")
+	# The planet must roll after the player has moved this physics frame, not
+	# before it, or the terrain lags one frame behind the ship and shimmers.
+	process_physics_priority = 100
 	_build_environment()
 	_build_stars()
-	_build_ground()
-	_build_boundary_ring()
+	_build_planet()
+	_last_player_position = _player.global_position
 	_spawn_enemy()
 
 
-## Ring the turret patrols. It stays well inside the boundary so the player can
-## always close the gap and the fight never drifts off the visible surface.
-func patrol_radius() -> float:
-	return ARENA_RADIUS * PATROL_RADIUS_RATIO
+func _physics_process(_delta: float) -> void:
+	var current: Vector3 = _player.global_position
+	var movement: Vector3 = current - _last_player_position
+	_last_player_position = current
+
+	_planet.global_position = Vector3(current.x, GROUND_Y - PLANET_RADIUS, current.z)
+	_roll_planet(movement)
+
+
+## Rotates the planet so the surface moves opposite to the ship, by exactly the
+## arc length travelled. Rolling without slipping: the ship covers d, the sphere
+## turns d / radius.
+func _roll_planet(movement: Vector3) -> void:
+	var distance: float = Vector2(movement.x, movement.z).length()
+	if distance <= 0.0001:
+		return
+
+	var axis: Vector3 = Vector3(-movement.z, 0.0, movement.x).normalized()
+	var spin: Basis = Basis(axis, distance / PLANET_RADIUS)
+	var basis: Basis = (spin * _planet.global_transform.basis).orthonormalized()
+	_planet.global_transform = Transform3D(basis, _planet.global_position)
 
 
 func _build_environment() -> void:
@@ -118,48 +135,18 @@ func _build_stars() -> void:
 	instance.multimesh = multimesh
 	instance.material_override = star_material
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(instance)
+	# Parented to the player so the sky travels with the ship. A lap is wider than
+	# the star shell, and stars anchored to the world origin would be left behind
+	# as an empty sky after a few hundred units.
+	_player.add_child(instance)
 
 
-func _build_ground() -> void:
-	var vertices: PackedVector3Array = PackedVector3Array()
-	var normals: PackedVector3Array = PackedVector3Array()
-	var indices: PackedInt32Array = PackedInt32Array()
-
-	var stride: int = GROUND_SEGMENTS + 1
-
-	for ring in range(GROUND_RINGS + 1):
-		var radius: float = GROUND_OUTER_RADIUS * float(ring) / float(GROUND_RINGS)
-		var height: float = GROUND_Y + _ground_drop(radius)
-		var slope: float = _ground_slope(radius)
-
-		for segment in range(stride):
-			var angle: float = TAU * float(segment) / float(GROUND_SEGMENTS)
-			var cos_angle: float = cos(angle)
-			var sin_angle: float = sin(angle)
-			vertices.append(Vector3(cos_angle * radius, height, sin_angle * radius))
-			# The profile is a surface of revolution, so the normal is analytic:
-			# no normal generation pass can invert it on a winding mistake.
-			normals.append(
-				Vector3(-slope * cos_angle, 1.0, -slope * sin_angle).normalized()
-			)
-
-	for ring in range(GROUND_RINGS):
-		for segment in range(GROUND_SEGMENTS):
-			var near: int = ring * stride + segment
-			var near_next: int = near + 1
-			var far: int = near + stride
-			var far_next: int = far + 1
-			indices.append_array([near, far, near_next, near_next, far, far_next])
-
-	var arrays: Array = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = vertices
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_INDEX] = indices
-
-	var ground_mesh: ArrayMesh = ArrayMesh.new()
-	ground_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+func _build_planet() -> void:
+	var ground_mesh: SphereMesh = SphereMesh.new()
+	ground_mesh.radius = PLANET_RADIUS
+	ground_mesh.height = PLANET_RADIUS * 2.0
+	ground_mesh.radial_segments = PLANET_SEGMENTS
+	ground_mesh.rings = PLANET_RINGS
 
 	var material: ShaderMaterial = ShaderMaterial.new()
 	material.shader = SURFACE_SHADER
@@ -169,62 +156,26 @@ func _build_ground() -> void:
 	ground.mesh = ground_mesh
 	ground.material_override = material
 	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(ground)
 
-
-## Height of the surface relative to the play plane: flat through the play area,
-## then a quadratic roll-off. Starting the curve with zero slope is what keeps the
-## seam between the flat disc and the curved rim invisible.
-func _ground_drop(radius: float) -> float:
-	if radius <= GROUND_FLAT_RADIUS:
-		return 0.0
-	var span: float = GROUND_OUTER_RADIUS - GROUND_FLAT_RADIUS
-	var t: float = (radius - GROUND_FLAT_RADIUS) / span
-	return -RIM_DROP * t * t
-
-
-func _ground_slope(radius: float) -> float:
-	if radius <= GROUND_FLAT_RADIUS:
-		return 0.0
-	var span: float = GROUND_OUTER_RADIUS - GROUND_FLAT_RADIUS
-	var t: float = (radius - GROUND_FLAT_RADIUS) / span
-	return -2.0 * RIM_DROP * t / span
-
-
-## The play boundary is invisible in the ground itself, so it needs a line: an
-## invisible wall on open terrain is the one failure the player cannot attribute.
-func _build_boundary_ring() -> void:
-	var mesh: TorusMesh = TorusMesh.new()
-	mesh.inner_radius = ARENA_RADIUS - BOUNDARY_RING_THICKNESS
-	mesh.outer_radius = ARENA_RADIUS + BOUNDARY_RING_THICKNESS
-	mesh.rings = 128
-	mesh.ring_segments = 6
-
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = BOUNDARY_RING_COLOR
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-
-	var instance: MeshInstance3D = MeshInstance3D.new()
-	instance.name = "BoundaryRing"
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position.y = GROUND_Y + 0.05
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(instance)
+	_planet = Node3D.new()
+	_planet.name = "Planet"
+	_planet.position = Vector3(0.0, GROUND_Y - PLANET_RADIUS, 0.0)
+	_planet.add_child(ground)
+	add_child(_planet)
 
 
 func _spawn_enemy() -> void:
 	var enemy: Enemy = ENEMY_SCENE.instantiate()
 	_enemies.add_child(enemy)
 
-	# Spawn on the player's side of the arena, alternating flanks. Spawning at a
-	# fixed angle drops the enemy outside the camera on the first frame.
+	# Spawn beside the ship, alternating flanks, so the first pattern is readable
+	# instead of arriving from outside the camera. The angle is relative to the
+	# ship, not to the world: the world origin means nothing now that the planet
+	# rolls and the ship can be anywhere.
 	var flank: float = 0.62 if _spawn_index % 2 == 0 else -0.62
-	var player_angle: float = atan2(_player.global_position.z, _player.global_position.x)
 	_spawn_index += 1
 
-	enemy.setup_orbit(patrol_radius(), player_angle + flank, ARENA_RADIUS)
+	enemy.setup_orbit(PATROL_RADIUS, flank)
 	enemy.killed.connect(_on_enemy_killed)
 
 

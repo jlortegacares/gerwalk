@@ -42,8 +42,8 @@ Three constraints shaped the camera and the geometry, and each is load-bearing:
 1. **The player is pinned to the screen centre.** `CameraRig` is a `Node3D`
    parented to the player, and the `Camera3D` is its child. The rig only ever
    translates with the player, so the player projects to the exact centre of the
-   viewport (measured at 0.05 px in the smoke test, at the spawn and again at the
-   planet edge). Shake uses `h_offset` / `v_offset`, which move the image without
+   viewport (measured at 0.05 px in the smoke test, at the spawn and again after a
+   long run). Shake uses `h_offset` / `v_offset`, which move the image without
    moving the camera target.
 2. **The camera is world-aligned and never rotates.** It keeps straight bullets
    straight on screen. Rotating it with the ship's heading would make every
@@ -53,18 +53,45 @@ Three constraints shaped the camera and the geometry, and each is load-bearing:
    as a top-down shooter while still giving the surface a horizon and letting the
    ship throw a shadow, which is what sells altitude.
 
-The ground is a surface of revolution built at runtime: flat out to
-`ARENA_RADIUS = 55` and falling away on a quadratic profile to `RIM_DROP = 50` at
-`GROUND_OUTER_RADIUS = 96`, where the mesh simply ends. The drop starts exactly at
-the play boundary, so reaching the edge shows the surface rolling away into space
-— the visual confirmation that the planet ends there instead of the player hitting
-an invisible wall. Everything past `ARENA_RADIUS` is scenery: the boundary is a
-radial clamp in `player.gd`, so no wall geometry can be tunnelled by a dash.
+### The planet rolls under the ship
+
+The ground is a sphere of `PLANET_RADIUS = 80` whose centre tracks the ship's
+planar position, so the ship is always at the sphere's pole and the limb always
+circles the screen. **The planet is the travel mechanism, not a backdrop**: every
+physics frame the arena turns it by exactly the arc length the ship covered,
+about the axis perpendicular to the movement:
+
+```gdscript
+axis  = Vector3(-movement.z, 0.0, movement.x).normalized()
+angle = distance / PLANET_RADIUS          # rolling without slipping
+```
+
+Three consequences, and all three are deliberate:
+
+- **No boundary.** The surface under the ship is replaced as the planet turns, so
+  a straight line never hits a wall. Travelling `2 * PI * PLANET_RADIUS`
+  (≈ 503 units) brings the original terrain back under the ship: the planet is
+  finite and circumnavigable, and "cover the whole planet" is a lap, not a wall.
+- **The geometry never moves in world space.** A sphere is rotation-invariant, so
+  rotating it changes no vertex, no normal and no silhouette — only the shader's
+  object-space input. That is why the roll is cheap and why it cannot desync from
+  the collision plane.
+- **The roll is applied after the player moves.** `Arena.process_physics_priority
+  = 100` makes the arena step last; otherwise the terrain would lag one frame
+  behind the ship and shimmer.
+
+`PLANET_RADIUS` is the one number that sets the scale of the fantasy. A larger
+radius means a longer lap and a flatter horizon; a smaller one means a curvier
+surface with the limb closer to the ship. At 80 the limb is in frame around the
+ship and the terrain drops away visibly ahead, which is what makes the surface
+read as a globe rather than a plane.
 
 The surface itself is a procedural shader
-(`levels/arena/planet_surface.gdshader`), not a texture. World-space fBm keeps
-the same detail whether the ship is on top of it or near the horizon, and the
-topographic isolines are the motion reference: on a uniform surface the player
+(`levels/arena/planet_surface.gdshader`), not a texture. It samples **object
+space** with 3D value noise: the terrain has to be painted onto the sphere so it
+turns with it, and the ship sits at the pole of its own patch, where any spherical
+UV layout collapses. 3D noise has no poles and is uniform over the whole planet.
+The topographic isolines are the motion reference: on a uniform surface the player
 cannot tell they are moving.
 
 ## What this build is meant to answer
@@ -81,14 +108,15 @@ cannot tell they are moving.
    - **Fan** — 5 fast aimed bullets. Dash or sidestep. Tests reaction.
 4. **Is the dash a decision or a reflex?** 0.16 s burst, 0.85 s cooldown, and it
    grants invulnerability, so it doubles as an escape.
-5. **Does flying over the planet read as a planet?** The whole disc is playable,
-   the ship crosses it in a few seconds, and the surface rolls away into space at
-   the boundary, so the planet has a visible edge rather than a lane wall. Surface
-   detail is the orientation landmark: on a uniform plane a player cannot tell
-   they are moving, so the ground is a world-space fBm shader with topographic
-   isolines rather than a flat colour. `tests/smoke_test.tscn` drives a crossing
-   of the surface through input actions and fails if the player leaves the disc
-   or leaves the screen centre.
+5. **Does flying over the planet read as a planet?** The ground is a real sphere
+   with a visible limb, the ship can fly in one direction forever, and the surface
+   turns under it so the whole planet passes beneath the ship. Surface detail is
+   the orientation landmark: on a uniform plane a player cannot tell they are
+   moving, so the ground is an object-space fBm shader with topographic isolines
+   rather than a flat colour. `tests/smoke_test.tscn` drives a long run through
+   input actions and fails if the ship stops being able to travel, if the planet
+   drifts off the ship, or if the planet turns by anything other than
+   `distance / PLANET_RADIUS`.
 
 ## Tuning knobs
 
@@ -102,11 +130,12 @@ All values are named constants at the top of each script.
 | Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
-| Arena topology | `levels/arena/arena.gd` | `ARENA_RADIUS`, `GROUND_FLAT_RADIUS`, `GROUND_OUTER_RADIUS`, `RIM_DROP` |
-| Surface look | `levels/arena/planet_surface.gdshader` | fBm scales, palette stops, contour count and strength |
+| Planet scale and lap length | `levels/arena/arena.gd` | `PLANET_RADIUS` (lap = `2 * PI * PLANET_RADIUS`), `PLANET_SEGMENTS`, `PLANET_RINGS` |
+| Ground height | `levels/arena/arena.gd` | `GROUND_Y` |
+| Surface look | `levels/arena/planet_surface.gdshader` | noise scales, palette stops, contour count and strength |
 | Camera framing | `entities/player/player.tscn` | `CameraRig` position, pitch, `Camera3D.fov` |
 | Camera shake | `entities/player/player_camera.gd` | `MAX_OFFSET`, `DECAY_PER_SECOND` |
-| Enemy orbit | `entities/enemy/turret.gd` | `ORBIT_SPEED`, `ANGULAR_LEASH`, `FLEE_DISTANCE` |
+| Enemy orbit | `entities/enemy/turret.gd` | `ORBIT_SPEED`, `FLEE_DISTANCE`; spawn radius in `arena.gd` `PATROL_RADIUS` |
 
 ## Architecture
 
@@ -115,9 +144,9 @@ common/global_event_bus.gd      lifecycle signals only (< 15 events)
 common/hit_spark.*              self-freeing 3D impact flash
 combat/projectile.*             one shared bullet, team decides layers + shape
 entities/player/                CharacterBody3D, camera rig, aim, dash, HP
-entities/enemy/turret.gd        turret: telegraph -> pattern -> recover, orbits the arena
+entities/enemy/turret.gd        turret: telegraph -> pattern -> recover, orbits the ship
 ui/hud/                         listens to the bus, never touches the player
-levels/arena/arena.gd           planet surface mesh, boundary ring, stars
+levels/arena/arena.gd           rolling planet sphere, stars, enemy spawning
 ```
 
 Visuals are built in code (`_build_visual()`) instead of being serialised into
@@ -136,12 +165,26 @@ is a projection of `player_health_changed`. Nothing in the UI mutates gameplay.
 
 # Render one real frame to /tmp/gerwalk_frame.png for visual review
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn
+
+# Same, after travelling: the terrain must not match the resting frame
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --travel 180 --out /tmp/gerwalk_moved.png
 ```
 
 Both exit non-zero on failure. The smoke test drives input through `InputMap`
 actions, so it exercises the same path a player does.
 
 ## Known gaps
+
+- **The ship is always at the top of the planet.** Because the sphere follows the
+  camera, the player never sees the planet from outside or approaches an edge —
+  the whole planet is traversed as terrain passing under the ship, not as a globe
+  you fly around. Rendering it any other way would mean rotating the camera or
+  curving the play plane, and both break planar hitboxes.
+- **The roll is visible only through the terrain.** A sphere is rotation-invariant,
+  so the only thing that moves is the shader's object-space pattern. Dark terrain
+  plus slow movement makes the scroll hard to read; the isolines exist partly for
+  that reason.
 
 - **Bullets are one node each.** At 400 concurrent bullets this will need a
   pooled manager or `PhysicsServer3D` (NFR-05). Not measured yet.

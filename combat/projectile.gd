@@ -34,14 +34,10 @@ var _velocity: Vector3 = Vector3.ZERO
 var _damage: int = 1
 var _team: Team = Team.PLAYER
 var _life: float = LIFETIME
-var _arena: Arena = null
 
 
 func _ready() -> void:
 	body_entered.connect(_on_body_entered)
-	var arena_node: Node = get_tree().get_first_node_in_group(&"arena")
-	if arena_node is Arena:
-		_arena = arena_node
 
 
 func setup(direction: Vector3, speed: float, team: Team, damage: int = 1) -> void:
@@ -92,19 +88,9 @@ func _physics_process(delta: float) -> void:
 	global_position += _velocity * delta
 	_life -= delta
 
+	# The planet has no edge, so lifetime is the only bound on a missed shot.
 	if _life <= 0.0:
 		queue_free()
-		return
-
-	# Area3D has no continuous collision detection. At 78 units/s a bullet can
-	# skip the planet edge entirely, so the disc is enforced radially too, using
-	# the same offset-free planar radius the arena uses.
-	if _arena != null:
-		var local: Vector3 = _arena.to_local(global_position)
-		var radius: float = Vector2(local.x, local.z).length()
-		if radius > Arena.ARENA_RADIUS:
-			_spawn_impact()
-			queue_free()
 
 
 func _on_body_entered(body: Node3D) -> void:

@@ -6,6 +6,7 @@ extends Node
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
 
 var _failures: Array[String] = []
+var _arena: Arena = null
 var _player: Player = null
 var _died_count: int = 0
 
@@ -13,13 +14,13 @@ var _died_count: int = 0
 func _ready() -> void:
 	GlobalEventBus.player_died.connect(func() -> void: _died_count += 1)
 
-	var arena: Node = load(ARENA_SCENE).instantiate()
-	add_child(arena)
+	_arena = load(ARENA_SCENE).instantiate()
+	add_child(_arena)
 
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 
-	_player = arena.get_node("%Player")
+	_player = _arena.get_node("%Player")
 	_check(_player != null, "arena exposes a Player")
 	_check(_player is CharacterBody3D, "player is a CharacterBody3D")
 
@@ -32,8 +33,8 @@ func _ready() -> void:
 	_clear_projectiles()
 	await get_tree().physics_frame
 
-	await _test_arena_holds_player()
-	await _test_cross_the_surface()
+	await _test_travel_is_unbounded()
+	await _test_planet_rolls_with_the_player()
 
 	await _test_damage_and_iframes()
 	await _test_death()
@@ -88,11 +89,13 @@ func _test_enemy_patterns() -> void:
 
 	if not enemies.is_empty():
 		var enemy: Enemy = enemies[0] as Enemy
-		var position: Vector3 = enemy.global_position
-		var radius: float = Vector2(position.x, position.z).length()
+		var distance: float = Vector2(
+			enemy.global_position.x - _player.global_position.x,
+			enemy.global_position.z - _player.global_position.z
+		).length()
 		_check(
-			radius > 0.0 and radius < Arena.ARENA_RADIUS,
-			"enemy is spawned on the planet surface (r %.0f)" % radius
+			absf(distance - Arena.PATROL_RADIUS) < 1.0,
+			"enemy orbits the player at the patrol radius (%.1f units)" % distance
 		)
 
 	var saw_enemy_bullets: bool = false
@@ -105,55 +108,110 @@ func _test_enemy_patterns() -> void:
 	_check(saw_enemy_bullets, "enemy emits a bullet pattern within 5 s")
 
 
-func _test_arena_holds_player() -> void:
+## The planet has no boundary any more: the surface under the ship is replaced as
+## the planet rolls, so a straight line must keep going forever.
+func _test_travel_is_unbounded() -> void:
 	_player.global_position = Vector3.ZERO
 	_player.velocity = Vector3.ZERO
 	await get_tree().physics_frame
 
-	var furthest: float = 0.0
+	var planet: Node3D = _arena.get_node("Planet")
+	var worst_offset: float = 0.0
+
 	Input.action_press(&"move_right")
-	for _i in 240:
+	for _i in 300:
 		await get_tree().physics_frame
-		furthest = maxf(furthest, _radius_of(_player.global_position))
+		worst_offset = maxf(worst_offset, _planet_offset(planet))
 	Input.action_release(&"move_right")
 
 	_check(
-		furthest <= Arena.ARENA_RADIUS,
-		"the planet edge holds the player inside (max r %.1f)" % furthest
+		_player.global_position.x > 60.0,
+		"the player keeps travelling with no boundary (x %.1f)" % _player.global_position.x
 	)
 	_check(
-		furthest > Arena.ARENA_RADIUS - 3.0,
-		"the player reaches the planet edge (max r %.1f)" % furthest
+		absf(_player.global_position.z) < 0.1,
+		"travelling keeps the player on the play plane"
+	)
+	# One frame of slack: the assertion may resume before this frame's physics
+	# step, so at full speed the planet can legitimately be one step behind.
+	_check(
+		worst_offset < 1.0,
+		"the planet stays under the player while travelling (worst offset %.2f)" % worst_offset
 	)
 
-	# The camera is a child of the player, so the edge is exactly where a naive
-	# rig drifts. Re-check the centring away from the spawn point.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var settled_offset: float = _planet_offset(planet)
+	_check(
+		settled_offset < 0.01,
+		"the planet settles exactly under the player (offset %.4f)" % settled_offset
+	)
+
+	# The camera is a child of the player, so a drifting rig would show up here.
 	var camera: Camera3D = _player.camera
 	if camera != null:
 		var centre: Vector2 = get_viewport().get_visible_rect().size * 0.5
 		var projected: Vector2 = camera.unproject_position(_player.global_position)
 		var offset: float = projected.distance_to(centre)
-		_check(offset < 1.0, "player stays centred at the planet edge (off by %.2f px)" % offset)
+		_check(offset < 1.0, "player stays centred while travelling (off by %.2f px)" % offset)
 
 
-func _test_cross_the_surface() -> void:
-	_player.global_position = Vector3(-40.0, 0.0, 0.0)
+## Rolling without slipping: the planet must turn exactly distance / radius, about
+## the axis perpendicular to the movement, in the direction that makes the ground
+## flow backwards under the ship.
+func _test_planet_rolls_with_the_player() -> void:
+	var planet: Node3D = _arena.get_node("Planet")
+
+	_player.global_position = Vector3.ZERO
 	_player.velocity = Vector3.ZERO
 	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	var start_basis: Basis = planet.global_transform.basis
+	var start_position: Vector3 = _player.global_position
 
 	Input.action_press(&"move_right")
-	for _i in 220:
+	for _i in 90:
 		await get_tree().physics_frame
 	Input.action_release(&"move_right")
+	await get_tree().physics_frame
+
+	var travelled: Vector3 = _player.global_position - start_position
+	var distance: float = Vector2(travelled.x, travelled.z).length()
+	_check(distance > 20.0, "the roll test covers ground (%.1f units)" % distance)
+
+	# Movement is applied as a world-space pre-rotation, so current * start^-1 is
+	# the accumulated spin itself.
+	var spin: Basis = planet.global_transform.basis * start_basis.inverse()
+	var rotation: Quaternion = spin.get_rotation_quaternion()
+	var angle: float = rotation.get_angle()
+	var axis: Vector3 = rotation.get_axis()
+	var expected: float = distance / Arena.PLANET_RADIUS
 
 	_check(
-		_player.global_position.x > 40.0,
-		"the player crosses the planet surface (x %.1f)" % _player.global_position.x
+		absf(angle - expected) < 0.03,
+		"the planet turns distance / radius (%.3f rad, expected %.3f)" % [angle, expected]
 	)
 	_check(
-		absf(_player.global_position.z) < 0.1,
-		"crossing the surface keeps the player on the play plane"
+		axis.z > 0.95,
+		"moving right rolls the planet about +Z so the ground flows left (%s)" % axis
 	)
+
+	# No input, no roll: the surface must not creep while the ship hovers.
+	_player.velocity = Vector3.ZERO
+	for _i in 3:
+		await get_tree().physics_frame
+	var idle_basis: Basis = planet.global_transform.basis
+	for _i in 30:
+		await get_tree().physics_frame
+	var idle_spin: float = (planet.global_transform.basis * idle_basis.inverse())\
+		.get_rotation_quaternion().get_angle()
+	_check(idle_spin < 0.01, "the planet holds still while the ship hovers (%.4f rad)" % idle_spin)
+
+
+func _planet_offset(planet: Node3D) -> float:
+	var offset: Vector3 = planet.global_position - _player.global_position
+	return Vector2(offset.x, offset.z).length()
 
 
 func _test_damage_and_iframes() -> void:
@@ -184,10 +242,6 @@ func _test_death() -> void:
 	_check(int(_player.get("_hp")) == 0, "health drains to zero")
 	_check(_died_count > 0, "player_died reaches the event bus")
 	_check(not bool(_player.get("_alive")), "player enters a dead state")
-
-
-func _radius_of(position: Vector3) -> float:
-	return Vector2(position.x, position.z).length()
 
 
 func _clear_enemies() -> void:

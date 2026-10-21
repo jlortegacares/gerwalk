@@ -54,8 +54,8 @@ from classic bullet-hell shoot 'em ups.
 | FR-05 | Losing all HP ends the run. | At zero segments the run enters a game-over state and can be restarted. |
 | FR-06 | Enemies and bullets follow bullet-hell style patterns. | Enemies emit patterned projectile groups (spread, ring, aimed) that are individually dodgeable at the intended movement speed. |
 | FR-07 | The game runs on Godot with a real-time 3D scenario. | Projectile and impact effects render in the 3D scene without dropping the NFR-01 frame target. |
-| FR-08 | The visual style is pre-rendered 3D models. | Every character, enemy, prop, and effect ships as a 3D source model rendered offline to 2D sprites; no mixed-source or pixel-art assets in MVP. The scenario (planet surface, limb, boundaries) is real-time 3D geometry (D-03). |
-| FR-15 | The player stays centred on screen and can travel the planet surface. | The camera follows the player so the player projects to the screen centre within 1 px at every position on the surface, including the edge; the playable disc is crossable end to end and the boundary holds the player inside it. |
+| FR-08 | The visual style is pre-rendered 3D models. | Every character, enemy, prop, and effect ships as a 3D source model rendered offline to 2D sprites; no mixed-source or pixel-art assets in MVP. The scenario (planet surface and limb) is real-time 3D geometry (D-03). |
+| FR-15 | The player stays centred on screen and can travel the whole planet surface. | The camera follows the player so the player projects to the screen centre within 1 px at every position on the surface; the planet rotates under the ship as it travels, so there is no boundary and no direction is blocked; covering one circumference brings the original terrain back under the ship, which makes the surface finite and fully traversable. |
 
 ### Recommended baseline (needs product confirmation)
 
@@ -107,7 +107,7 @@ not stated in the brief.
 |----|----------|
 | D-01 | The brief does not reference an external progression archetype (action RPG, roguelike, arcade). Player advancement inside the MVP is wave-based only, tracked by score and run state. Persistent meta-progression stays out of scope (3.2). |
 | D-02 | Visual style is pre-rendered 3D models rendered offline to 2D sprites. Pixel art is out of scope. |
-| D-03 | The scenario is real-time 3D, not a 2D backdrop. The arena is a `Node3D` scene where the planet surface is the play field: the ground is a runtime surface of revolution that ends at the planet's limb, and a following `Camera3D` keeps the ship centred while it flies over it. Gameplay stays on the y = 0 plane so hitboxes remain planar and bullet patterns keep their twin-stick readability; the third dimension is presentation. The camera is a child of the player and does not rotate with the player's heading: a rotating camera would curve straight bullets on screen. Whether entities also become real-time meshes is OPEN-06. |
+| D-03 | The scenario is real-time 3D, not a 2D backdrop. The arena is a `Node3D` scene where the planet surface is the play field: the ground is a sphere whose centre tracks the ship, so the ship is always at its pole, and the planet rolls under the ship by the distance travelled, so there is no boundary and the whole surface is circumnavigable. A following `Camera3D` keeps the ship centred. Gameplay stays on the y = 0 plane so hitboxes remain planar and bullet patterns keep their twin-stick readability; the third dimension is presentation. The camera is a child of the player and does not rotate with the player's heading: a rotating camera would curve straight bullets on screen. Whether entities also become real-time meshes is OPEN-06. |
 
 ## 8. Success Criteria for MVP
 

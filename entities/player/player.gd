@@ -27,7 +27,6 @@ const DASH_DURATION: float = 0.16
 const DASH_COOLDOWN: float = 0.85
 
 const BODY_RADIUS: float = 1.1
-const COLLISION_RADIUS: float = 1.0
 const MUZZLE_DISTANCE: float = 1.8
 const BEAM_START: float = 2.4
 const BEAM_LENGTH: float = 2.0
@@ -77,7 +76,6 @@ func _physics_process(delta: float) -> void:
 	else:
 		_move(delta)
 
-	_clamp_to_arena()
 	_update_aim()
 	_update_firing()
 
@@ -96,27 +94,6 @@ func _move(delta: float) -> void:
 
 	velocity.y = 0.0
 	move_and_slide()
-
-
-## The planet has an edge, and the ground mesh curves away past it, so the
-## boundary cannot be a wall the ship slides along. One radial clamp on the flat
-## part is exact for a circular arena and cannot be tunnelled by a dash.
-func _clamp_to_arena() -> void:
-	var flat: Vector2 = Vector2(global_position.x, global_position.z)
-	var limit: float = Arena.ARENA_RADIUS - COLLISION_RADIUS
-	if flat.length() <= limit:
-		return
-
-	var outward: Vector2 = flat.normalized() if flat.length_squared() > 0.0 else Vector2.RIGHT
-	flat = outward * limit
-	global_position = Vector3(flat.x, global_position.y, flat.y)
-
-	# Only cancel the outward half of the velocity: the player must still be able
-	# to slide along the edge instead of sticking to it.
-	var radial_speed: float = velocity.x * outward.x + velocity.z * outward.y
-	if radial_speed > 0.0:
-		velocity.x -= outward.x * radial_speed
-		velocity.z -= outward.y * radial_speed
 
 
 func _start_dash() -> void:

@@ -1,14 +1,23 @@
 extends Node
 ## Development helper: renders a real frame to PNG so visuals can be reviewed
 ## without a human at the keyboard.
-## Run: <godot> --path . tools/capture_frame.tscn
+##
+##   <godot> --path . tools/capture_frame.tscn
+##   <godot> --path . tools/capture_frame.tscn -- --travel 180 --out /tmp/moved.png
+##
+## `--travel N` holds move_right for N physics frames before the capture, which is
+## how the rolling planet is checked: the terrain under the ship must change.
+## `--out PATH` overrides the output file.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
-const OUTPUT_PATH: String = "/tmp/gerwalk_frame.png"
+const DEFAULT_OUTPUT: String = "/tmp/gerwalk_frame.png"
 const WARMUP_FRAMES: int = 170
 
 
 func _ready() -> void:
+	var travel_frames: int = int(_argument("travel", "0"))
+	var output_path: String = _argument("out", DEFAULT_OUTPUT)
+
 	var arena: Node = load(ARENA_SCENE).instantiate()
 	add_child(arena)
 
@@ -18,15 +27,32 @@ func _ready() -> void:
 	Input.action_press(&"aim_right")
 	Input.action_press(&"fire")
 
-	for _i in WARMUP_FRAMES:
-		await get_tree().physics_frame
+	if travel_frames <= 0:
+		for _i in WARMUP_FRAMES:
+			await get_tree().physics_frame
+	else:
+		Input.action_press(&"move_right")
+		for _i in travel_frames:
+			await get_tree().physics_frame
+		Input.action_release(&"move_right")
+		for _i in 4:
+			await get_tree().physics_frame
 
 	await RenderingServer.frame_post_draw
 	var image: Image = get_viewport().get_texture().get_image()
-	var error: Error = image.save_png(OUTPUT_PATH)
+	var error: Error = image.save_png(output_path)
 	if error == OK:
-		print("Saved frame to ", OUTPUT_PATH)
+		print("Saved frame to ", output_path)
 	else:
 		printerr("Could not save frame: ", error_string(error))
 
 	get_tree().quit(0 if error == OK else 1)
+
+
+func _argument(name: String, fallback: String) -> String:
+	var args: PackedStringArray = OS.get_cmdline_user_args()
+	var flag: String = "--" + name
+	for index in args.size():
+		if args[index] == flag and index + 1 < args.size():
+			return args[index + 1]
+	return fallback
