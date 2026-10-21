@@ -56,6 +56,7 @@ from classic bullet-hell shoot 'em ups.
 | FR-07 | The game runs on Godot with a real-time 3D scenario. | Projectile and impact effects render in the 3D scene without dropping the NFR-01 frame target. |
 | FR-08 | The visual style is pre-rendered 3D models. | Every character, enemy, prop, and effect ships as a 3D source model rendered offline to 2D sprites; no mixed-source or pixel-art assets in MVP. The scenario (planet surface and limb) is real-time 3D geometry (D-03). |
 | FR-15 | The player stays centred on screen and can travel the whole planet surface. | The camera follows the player so the player projects to the screen centre within 1 px at every position on the surface; the planet rotates under the ship as it travels, so there is no boundary and no direction is blocked; covering one circumference brings the original terrain back under the ship, which makes the surface finite and fully traversable. |
+| FR-16 | The ship has a sustained afterburner fed by a turbo reserve. | Holding the afterburner with movement input moves the ship faster than normal top speed while the reserve lasts; the reserve drains only while burning and refills while at normal thrust; at zero the ship falls back to normal speed and does not re-arm until the burner is released. |
 
 ### Recommended baseline (needs product confirmation)
 

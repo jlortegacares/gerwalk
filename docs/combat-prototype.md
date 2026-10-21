@@ -23,7 +23,8 @@ window and is what CI uses.
 | Move | WASD | Left stick |
 | Aim | Mouse position | Right stick |
 | Fire | Left mouse button | Right stick deflection, or right shoulder |
-| Dash | Space or Shift | Left shoulder |
+| Afterburner (hold) | Shift | Right trigger |
+| Dash | Space | Left shoulder |
 | Restart | R (on the game-over screen) | Start |
 
 Aiming and firing are independent of movement by construction: `_move()` never
@@ -116,7 +117,13 @@ cannot tell they are moving.
    - **Fan** — 5 fast aimed bullets. Dash or sidestep. Tests reaction.
 4. **Is the dash a decision or a reflex?** 0.16 s burst, 0.85 s cooldown, and it
    grants invulnerability, so it doubles as an escape.
-5. **Does flying over the planet read as a planet?** The ground is a real sphere,
+5. **Can speed itself be a resource?** The afterburner is a tank, not a cooldown:
+   holding it tops out at 42 instead of 26.8 and drains the reserve in about
+   2.2 s, and the reserve only fills back while the burner is off (about 4.2 s
+   from empty). Emptying it latches until the button is released, so holding the
+   key at zero cannot stutter the ship between two speeds. The dash stays a
+   separate tool: a 0.16 s invulnerable burst does something the burner does not.
+6. **Does flying over the planet read as a planet?** The ground is a real sphere,
    the ship can fly in one direction forever, and the surface turns under it so
    the whole planet passes beneath the ship. At the current radius the limb is
    outside the frame, so the planet is sold by the rolling terrain and by the lap,
@@ -139,6 +146,9 @@ All values are named constants at the top of each script.
 | Fire rhythm | `entities/player/player.gd` | `FIRE_INTERVAL`, `BULLET_SPEED` |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
 | Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
+| Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
+| Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
+| Thruster plume | `entities/player/player.gd` | `THRUSTER_X`, `THRUSTER_Z`, flame lengths and alphas in `_update_afterburner_visual()` |
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
 | Planet scale and lap length | `levels/arena/arena.gd` | `PLANET_RADIUS` (lap = `2 * PI * PLANET_RADIUS`), `PLANET_SEGMENTS`, `PLANET_RINGS` |
@@ -156,7 +166,7 @@ All values are named constants at the top of each script.
 common/global_event_bus.gd      lifecycle signals only (< 15 events)
 common/hit_spark.*              self-freeing 3D impact flash
 combat/projectile.*             one shared bullet, team decides layers + shape
-entities/player/                CharacterBody3D, camera rig, aim, dash, HP
+entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 ui/hud/                         listens to the bus, never touches the player
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
@@ -167,8 +177,11 @@ the `.tscn` files. Placeholder geometry is a swap target, not an asset: when the
 pre-rendered pipeline lands (D-02) each entity can drop in a mesh or a sprite
 without touching the scene graph or the collision shapes.
 
-Ownership rule: the player owns its HP and only exposes `take_damage()`. The HUD
-is a projection of `player_health_changed`. Nothing in the UI mutates gameplay.
+Ownership rule: the player owns its HP and its turbo reserve, and only exposes
+`take_damage()`. The HUD is a projection of `player_health_changed` and
+`player_turbo_changed`. Nothing in the UI mutates gameplay. The turbo event fires
+once per whole reserve unit rather than once per physics frame: the bar is 234 px
+wide, so a unit is under 2.5 px and the bus stays quiet.
 
 ## Checks
 
@@ -202,6 +215,12 @@ actions, so it exercises the same path a player does.
 - **Bullets are one node each.** At 400 concurrent bullets this will need a
   pooled manager or `PhysicsServer3D` (NFR-05). Not measured yet.
 - **No audio.** Hit and dash feedback are visual only.
+- **The afterburner outruns everything on purpose.** `BOOST_SPEED` (42) sits far
+  above `PURSUIT_SPEED` (24), so a full reserve buys a clean disengage. The
+  reserve is the price; if escaping stops feeling earned, raise the drain before
+  lowering the speed.
+- **Shift no longer dashes.** It is the afterburner now; the dash is Space. The
+  keyboard mapping is the one binding that changed when the burner landed.
 - **No art.** Every visual is a runtime placeholder mesh built in code; the
   pre-rendered asset pipeline (D-02) is untouched, and whether entities become
   real-time meshes at all is OPEN-06.
