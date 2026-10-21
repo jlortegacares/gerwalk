@@ -3,6 +3,7 @@ extends Node
 ## Presentation listens here; gameplay never reaches into the UI.
 
 signal player_health_changed(current: int, maximum: int)
+signal player_turbo_changed(current: float, maximum: float)
 signal player_died
 signal enemy_killed
 signal camera_shake_requested(strength: float)

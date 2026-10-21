@@ -7,6 +7,8 @@ extends Node
 ##
 ## `--travel N` holds move_right for N physics frames before the capture, which is
 ## how the rolling planet is checked: the terrain under the ship must change.
+## `--boost N` holds move_right and boost for N frames and captures while still
+## burning, which is how the thruster plume and the turbo bar are reviewed.
 ## `--out PATH` overrides the output file.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
@@ -16,6 +18,7 @@ const WARMUP_FRAMES: int = 170
 
 func _ready() -> void:
 	var travel_frames: int = int(_argument("travel", "0"))
+	var boost_frames: int = int(_argument("boost", "0"))
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
 
 	var arena: Node = load(ARENA_SCENE).instantiate()
@@ -27,8 +30,13 @@ func _ready() -> void:
 	Input.action_press(&"aim_right")
 	Input.action_press(&"fire")
 
-	if travel_frames <= 0:
+	if travel_frames <= 0 and boost_frames <= 0:
 		for _i in WARMUP_FRAMES:
+			await get_tree().physics_frame
+	elif boost_frames > 0:
+		Input.action_press(&"move_right")
+		Input.action_press(&"boost")
+		for _i in boost_frames:
 			await get_tree().physics_frame
 	else:
 		Input.action_press(&"move_right")

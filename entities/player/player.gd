@@ -26,6 +26,19 @@ const DASH_SPEED: float = 64.0
 const DASH_DURATION: float = 0.16
 const DASH_COOLDOWN: float = 0.85
 
+## Afterburner. Normal thrust tops out at MAX_SPEED; the burner trades reserve for
+## a higher top speed, and the reserve only fills back while the burner is off.
+const BOOST_SPEED: float = 42.0
+const BOOST_ACCELERATION: float = 420.0
+const TURBO_MAX: float = 100.0
+const TURBO_DRAIN_PER_SECOND: float = 45.0
+const TURBO_RECHARGE_PER_SECOND: float = 24.0
+const FOV_BOOST_KICK: float = 5.0
+const FOV_RATE: float = 18.0
+
+const THRUSTER_X: float = -1.25
+const THRUSTER_Z: float = 0.55
+
 const BODY_RADIUS: float = 1.1
 const MUZZLE_DISTANCE: float = 1.8
 const BEAM_START: float = 2.4
@@ -48,17 +61,30 @@ var _dash_cooldown: float = 0.0
 var _dash_direction: Vector3 = Vector3.RIGHT
 var _alive: bool = true
 
+var _turbo: float = TURBO_MAX
+var _boosting: bool = false
+var _turbo_locked: bool = false
+var _turbo_shown: float = TURBO_MAX
+var _base_fov: float = 58.0
+
 var _visual: Node3D
 var _visual_material: StandardMaterial3D
 var _aim_beam: MeshInstance3D
+var _thruster_plumes_material: StandardMaterial3D
+var _thruster_cores_material: StandardMaterial3D
+var _thruster_plumes: Array[MeshInstance3D] = []
+var _thruster_cores: Array[MeshInstance3D] = []
 
 
 func _ready() -> void:
 	add_to_group(&"player")
 	camera = %Camera
+	_base_fov = camera.fov
 	_build_visual()
+	_build_thrusters()
 	_build_aim_beam()
 	GlobalEventBus.player_health_changed.emit.call_deferred(_hp, MAX_HP)
+	GlobalEventBus.player_turbo_changed.emit.call_deferred(_turbo, TURBO_MAX)
 
 
 func _physics_process(delta: float) -> void:
@@ -78,22 +104,97 @@ func _physics_process(delta: float) -> void:
 
 	_update_aim()
 	_update_firing()
+	_update_afterburner_visual(delta)
 
 
 func _move(delta: float) -> void:
 	var input_direction: Vector2 = Input.get_vector(
 		&"move_left", &"move_right", &"move_up", &"move_down"
 	)
-	# Screen up maps to -Z, so the ring reads the same as it did in 2D.
-	var target: Vector3 = Vector3(input_direction.x, 0.0, input_direction.y) * MAX_SPEED
+	var thrusting: bool = input_direction.length_squared() > 0.0
+	_update_boost(delta, thrusting)
 
-	if target.length_squared() > 0.0:
-		velocity = velocity.move_toward(target, ACCELERATION * delta)
+	var speed: float = BOOST_SPEED if _boosting else MAX_SPEED
+	var acceleration: float = BOOST_ACCELERATION if _boosting else ACCELERATION
+	# Screen up maps to -Z, so the ring reads the same as it did in 2D.
+	var target: Vector3 = Vector3(input_direction.x, 0.0, input_direction.y) * speed
+
+	if thrusting:
+		velocity = velocity.move_toward(target, acceleration * delta)
 	else:
 		velocity = velocity.move_toward(Vector3.ZERO, FRICTION * delta)
 
 	velocity.y = 0.0
 	move_and_slide()
+
+
+## The burner is a tank, not a cooldown: it drains while it is being used and
+## fills back whenever it is not. It only burns when the ship is actually
+## thrusting, so the reserve measures ground covered instead of button time.
+## Emptying it latches until the button is released; re-arming on a partial
+## refill would stutter the ship between two speeds while held.
+func _update_boost(delta: float, thrusting: bool) -> void:
+	var pressed: bool = Input.is_action_pressed(&"boost")
+	if not pressed:
+		_turbo_locked = false
+
+	_boosting = pressed and thrusting and not _turbo_locked and _turbo > 0.0
+
+	if _boosting:
+		_turbo = maxf(_turbo - TURBO_DRAIN_PER_SECOND * delta, 0.0)
+		if _turbo <= 0.0:
+			_turbo_locked = true
+			_boosting = false
+	else:
+		_turbo = minf(_turbo + TURBO_RECHARGE_PER_SECOND * delta, TURBO_MAX)
+
+	_emit_turbo()
+
+
+## One event per whole reserve unit instead of one per physics frame: the bar is
+## 234 px wide, so a unit is under 2.5 px. Smooth to the eye, quiet on the bus.
+func _emit_turbo() -> void:
+	var shown: float = roundf(_turbo)
+	if is_equal_approx(shown, _turbo_shown):
+		return
+	_turbo_shown = shown
+	GlobalEventBus.player_turbo_changed.emit(_turbo, TURBO_MAX)
+
+
+## Twin nozzles behind the hull. Two nested cones per nozzle: a wide blue plume
+## that carries the shape and a thin hot core that makes it glow, because a single
+## additive cone either reads as an opaque white arrow or fades into the ground.
+## The flame follows the forward component of the velocity, not the input: a ship
+## strafing with its nose elsewhere is not burning towards its nose, and a flame
+## that grew anyway would be a lie. The camera kicks out a little while burning,
+## which reads as speed on a featureless surface.
+func _update_afterburner_visual(delta: float) -> void:
+	var forward_speed: float = maxf(velocity.dot(_aim_direction), 0.0)
+	var thrust: float = clampf(forward_speed / BOOST_SPEED, 0.0, 1.0)
+	var heat: float = clampf(
+		(forward_speed - MAX_SPEED) / (BOOST_SPEED - MAX_SPEED), 0.0, 1.0
+	)
+
+	_layout_flames(_thruster_plumes, 0.50 + thrust * 2.30)
+	_layout_flames(_thruster_cores, 0.35 + thrust * 1.40)
+
+	_thruster_plumes_material.albedo_color = Color(
+		lerpf(0.22, 0.5, heat), lerpf(0.6, 0.85, heat), 1.0, 0.08 + thrust * 0.24
+	)
+	_thruster_cores_material.albedo_color = Color(0.88, 0.98, 1.0, 0.18 + thrust * 0.45)
+
+	if camera == null:
+		return
+	var target_fov: float = _base_fov + (FOV_BOOST_KICK if _boosting else 0.0)
+	camera.fov = move_toward(camera.fov, target_fov, FOV_RATE * delta)
+
+
+## The cone's tip trails behind the nozzle, so growing it must move it back by the
+## same amount or the base would detach from the hull.
+func _layout_flames(flames: Array[MeshInstance3D], length: float) -> void:
+	for flame in flames:
+		flame.scale = Vector3(1.0, length, 1.0)
+		flame.position.x = THRUSTER_X - length * 0.5
 
 
 func _start_dash() -> void:
@@ -268,6 +369,55 @@ func _build_visual() -> void:
 	core.mesh = core_mesh
 	core.material_override = core_material
 	_visual.add_child(core)
+
+
+## Two additive, unshaded cones per nozzle: a wide plume and a thin core. The
+## materials are shared by both nozzles, so one colour update per frame is enough
+## and the two sides can never drift apart.
+func _build_thrusters() -> void:
+	_thruster_plumes_material = _make_thruster_material(Color(0.22, 0.6, 1.0, 0.12))
+	_thruster_cores_material = _make_thruster_material(Color(0.88, 0.98, 1.0, 0.25))
+
+	_add_thruster(-THRUSTER_Z, 0.45, _thruster_plumes_material, _thruster_plumes)
+	_add_thruster(THRUSTER_Z, 0.45, _thruster_plumes_material, _thruster_plumes)
+	_add_thruster(-THRUSTER_Z, 0.20, _thruster_cores_material, _thruster_cores)
+	_add_thruster(THRUSTER_Z, 0.20, _thruster_cores_material, _thruster_cores)
+
+	_update_afterburner_visual(0.0)
+
+
+func _make_thruster_material(tint: Color) -> StandardMaterial3D:
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.albedo_color = tint
+	return material
+
+
+## Cone with its tip trailing behind: the mesh axis is local Y, so a quarter turn
+## about Z lays it along X, pointing away from the nose.
+func _add_thruster(
+	z_offset: float,
+	base_radius: float,
+	material: StandardMaterial3D,
+	into: Array[MeshInstance3D]
+) -> void:
+	var flame_mesh: CylinderMesh = CylinderMesh.new()
+	flame_mesh.top_radius = 0.0
+	flame_mesh.bottom_radius = base_radius
+	flame_mesh.height = 1.0
+	flame_mesh.radial_segments = 8
+
+	var flame: MeshInstance3D = MeshInstance3D.new()
+	flame.mesh = flame_mesh
+	flame.material_override = material
+	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flame.rotation.z = PI * 0.5
+	flame.position = Vector3(THRUSTER_X, 0.0, z_offset)
+	_visual.add_child(flame)
+	into.append(flame)
 
 
 func _build_aim_beam() -> void:

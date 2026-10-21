@@ -21,7 +21,9 @@ func _init() -> void:
 	_add("aim_down", [_axis(JOY_AXIS_RIGHT_Y, 1.0)])
 
 	_add("fire", [_mouse(MOUSE_BUTTON_LEFT), _button(JOY_BUTTON_RIGHT_SHOULDER)])
-	_add("dash", [_key(KEY_SPACE), _key(KEY_SHIFT), _button(JOY_BUTTON_LEFT_SHOULDER)])
+	# Dash is a short invulnerable burst; boost is the sustained afterburner.
+	_add("dash", [_key(KEY_SPACE), _button(JOY_BUTTON_LEFT_SHOULDER)])
+	_add("boost", [_key(KEY_SHIFT), _axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)])
 	_add("restart", [_key(KEY_R), _button(JOY_BUTTON_START)])
 
 	var error: Error = ProjectSettings.save()

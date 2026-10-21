@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://ui/hud/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://ui/hud/health_bar.gd" id="2_health"]
+[ext_resource type="Script" path="res://ui/hud/turbo_bar.gd" id="3_turbo"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -28,6 +29,19 @@ grow_vertical = 0
 mouse_filter = 2
 script = ExtResource("2_health")
 
+[node name="TurboBar" type="Control" parent="HudRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 36.0
+offset_top = -80.0
+offset_right = 270.0
+offset_bottom = -70.0
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("3_turbo")
+
 [node name="HintLabel" type="Label" parent="HudRoot"]
 layout_mode = 1
 offset_left = 36.0
@@ -36,7 +50,7 @@ offset_right = 900.0
 offset_bottom = 48.0
 theme_override_colors/font_color = Color(1, 1, 1, 0.45)
 theme_override_font_sizes/font_size = 13
-text = "WASD / left stick: move     mouse or right stick: aim and fire     Shift / LB: dash     R: restart"
+text = "WASD / left stick: move     mouse or right stick: aim and fire     Shift / RT: afterburner     Space / LB: dash     R: restart"
 
 [node name="GameOver" type="Control" parent="HudRoot"]
 unique_name_in_owner = true

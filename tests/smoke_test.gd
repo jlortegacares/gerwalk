@@ -29,6 +29,7 @@ func _ready() -> void:
 	await _test_firing()
 	await _test_enemy_patterns()
 	await _test_enemies_roam_the_planet()
+	await _test_afterburner()
 
 	_clear_enemies()
 	_clear_projectiles()
@@ -146,6 +147,89 @@ func _test_enemies_roam_the_planet() -> void:
 	)
 
 
+## The burner is a tank, not a cooldown, so this drives the whole cycle in one
+## run: burn, coast, burn out, release and re-arm. Those four states are the
+## mechanic; checking a single one of them would miss the transitions.
+func _test_afterburner() -> void:
+	var turbo_events: Array = []
+	var handler: Callable = func(current: float, maximum: float) -> void:
+		turbo_events.append(Vector2(current, maximum))
+	GlobalEventBus.player_turbo_changed.connect(handler)
+
+	_check(
+		is_equal_approx(float(_player.get("_turbo")), Player.TURBO_MAX),
+		"the turbo reserve starts full"
+	)
+
+	Input.action_press(&"move_right")
+	Input.action_press(&"boost")
+	var base_fov: float = _player.camera.fov
+	for _i in 90:
+		await get_tree().physics_frame
+
+	var boosting_fov: float = _player.camera.fov
+	var boosting_speed: float = _flat_speed()
+	var spent: float = float(_player.get("_turbo"))
+	Input.action_release(&"boost")
+
+	_check(
+		boosting_speed > Player.MAX_SPEED * 1.1,
+		"the afterburner beats normal top speed (%.1f u/s)" % boosting_speed
+	)
+	_check(
+		boosting_fov > base_fov + 1.0,
+		"burning widens the lens as a speed cue (%.1f -> %.1f)" % [base_fov, boosting_fov]
+	)
+	_check(
+		spent < Player.TURBO_MAX,
+		"the burner spends the reserve (%.0f left)" % spent
+	)
+
+	for _i in 60:
+		await get_tree().physics_frame
+	Input.action_release(&"move_right")
+	var refilled: float = float(_player.get("_turbo"))
+	_check(
+		refilled > spent,
+		"the reserve refills off the burner (%.0f -> %.0f)" % [spent, refilled]
+	)
+
+	# Burnout: with almost nothing left the burner must cut out and hand the ship
+	# back to normal thrust instead of holding the fast speed for free.
+	_player.set("_turbo", 3.0)
+	Input.action_press(&"move_right")
+	Input.action_press(&"boost")
+	for _i in 20:
+		await get_tree().physics_frame
+	var burnt_out_speed: float = _flat_speed()
+	_check(
+		burnt_out_speed <= Player.MAX_SPEED + 0.5,
+		"burnout hands the ship back to normal speed (%.1f u/s)" % burnt_out_speed
+	)
+
+	# Re-arm: releasing the button clears the lockout, so a refilled reserve can
+	# burn again on the next press.
+	Input.action_release(&"boost")
+	for _i in 60:
+		await get_tree().physics_frame
+	Input.action_press(&"boost")
+	for _i in 30:
+		await get_tree().physics_frame
+	var rearmed_speed: float = _flat_speed()
+	Input.action_release(&"boost")
+	Input.action_release(&"move_right")
+
+	_check(
+		rearmed_speed > Player.MAX_SPEED * 1.1,
+		"releasing the burner re-arms it (%.1f u/s)" % rearmed_speed
+	)
+	_check(not turbo_events.is_empty(), "turbo changes reach the event bus")
+
+	GlobalEventBus.player_turbo_changed.disconnect(handler)
+	for _i in 40:
+		await get_tree().physics_frame
+
+
 ## The planet has no boundary any more: the surface under the ship is replaced as
 ## the planet rolls, so a straight line must keep going forever.
 func _test_travel_is_unbounded() -> void:
@@ -254,6 +338,10 @@ func _planet_offset(planet: Node3D) -> float:
 
 func _flat_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+func _flat_speed() -> float:
+	return Vector2(_player.velocity.x, _player.velocity.z).length()
 
 
 func _test_damage_and_iframes() -> void:
