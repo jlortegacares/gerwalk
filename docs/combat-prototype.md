@@ -60,6 +60,21 @@ Missiles are passive: one launch every 1.6 s from alternating wings, angled 14°
 outward so the guidance curve is visible from the first frame, and only while a
 turret is inside 48 units. They never fire into empty space.
 
+The missile is the one projectile with a silhouette of its own
+(`Projectile.Style.MISSILE`): an off-white body, a tinted warhead cone and band, four
+swept fins and a lit exhaust cone, built along `+Z` because `rotation.y` maps that
+axis onto the flight vector. The style is a parameter of the weapon, not a guess from
+guidance: a homing plasma bolt stays a dart, and enemy fire stays an orb whatever the
+caller asks for.
+
+Each missile drops a puff of smoke every 0.022 s at its tail, and each puff is a node
+in the scene rather than a child of the missile. That is the whole point of the
+design: the smoke already in the air has to survive the impact that frees the shot.
+A puff grows from 0.10 to 0.55, fades out over 0.62 s and frees itself, and it
+inherits a fraction of the missile's speed so a guided turn leaves a curved trail
+instead of a straight line. The interval is tight enough that consecutive puffs
+overlap: a sparser one reads as a dotted line, not as smoke.
+
 The bomb is the emergency button. One charge detonates a 40-unit ring that cancels
 enemy fire inside it and pays 8 damage to every turret in range, in the same frame.
 The rack holds 5 and starts at 3; every 12 kills refunds one charge, and a full rack
@@ -438,6 +453,7 @@ All values are named constants at the top of each script.
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (interval, damage, turn rate, range, launch angle) |
+| Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
@@ -470,6 +486,7 @@ common/global_event_bus.gd      lifecycle signals only (< 15 events)
 common/hit_spark.*              self-freeing 3D impact flash
 combat/arsenal.gd               weapon catalogue: every number a player feels
 combat/projectile.*             one shared bullet, team decides layers + shape, guidance here
+combat/smoke_puff.gd            self-freeing trail puff, added to the scene, not the shot
 combat/bomb_wave.gd             expanding shockwave, presentation only
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
 entities/player/weapon_system.gd  primaries, missiles and the bomb, spawned per ship
