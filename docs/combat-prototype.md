@@ -23,6 +23,7 @@ window and is what CI uses.
 | Move | WASD | Left stick |
 | Aim | Mouse position | Right stick |
 | Fire | Left mouse button | Right stick deflection, or right shoulder |
+| Missile lock (hold) | Right mouse button / F | X |
 | Select weapon | 1 / 2 / 3 | D-pad left / right (cycle) |
 | Bomb | E | Y |
 | Afterburner (hold) | Shift | Right trigger |
@@ -56,9 +57,18 @@ does not. Guidance lives in the shared `Projectile` as an optional target and tu
 rate, so a bolt that outlives its target simply flies straight, and the missiles
 reuse the same mechanism rather than a second bullet class.
 
-Missiles are passive: one launch every 1.6 s from alternating wings, angled 14°
-outward so the guidance curve is visible from the first frame, and only while a
-turret is inside 48 units. They never fire into empty space.
+Missiles are a radar you fly, not a clock that fires. The rack only sees inside a
+55° cone around the aim, out to 48 units, and it never launches on its own: holding
+the missile button marks the nearest still-unmarked turret every 0.16 s, up to six,
+and letting go fires one missile per mark, each guided to its own target. Each
+missile leaves from alternating wings, angled 14° outward, so the guidance curve is
+visible from the first frame.
+
+The cooldown is what makes the hold mean something. A salvo empties the rack into
+0.45 s of downtime, so six quick taps cannot outrun six marks of held time: without
+it, mashing would be a strictly faster way to fire and the radar would be decoration.
+A mark is dropped the moment its turret dies or slips out of the cone, so the salvo
+only pays out targets the radar could still see.
 
 The missile is the one projectile with a silhouette of its own
 (`Projectile.Style.MISSILE`): an off-white body, a tinted warhead cone and band, four
@@ -74,6 +84,13 @@ A puff grows from 0.10 to 0.55, fades out over 0.62 s and frees itself, and it
 inherits a fraction of the missile's speed so a guided turn leaves a curved trail
 instead of a straight line. The interval is tight enough that consecutive puffs
 overlap: a sparser one reads as a dotted line, not as smoke.
+
+Every mark is visible. A lock puts a pulsing ring over the turret
+(`combat/lock_reticle.gd`): flat on the play plane and above the body, because that
+is what an angled camera reads as a ring around the unit instead of a line through
+it. The reticle is parented to the turret, so it dies with its target and follows
+it while it moves, and the HUD counts open marks while the button is down. A
+mechanic whose payoff depends on how long you held a button cannot be invisible.
 
 The bomb is the emergency button. One charge detonates a 40-unit ring that cancels
 enemy fire inside it and pays 8 damage to every turret in range, in the same frame.
@@ -452,7 +469,8 @@ All values are named constants at the top of each script.
 | Supersonic burst | `entities/player/player.gd` | `SHOCKWAVE_LENGTH`, `SHOCKWAVE_HALF_ANGLE` |
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
-| Missiles | `combat/arsenal.gd` | `MISSILE_*` (interval, damage, turn rate, range, launch angle) |
+| Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, lock interval, max locks, salvo cooldown, damage, turn rate, range, launch angle) |
+| Lock reticle | `combat/lock_reticle.gd` | `RADIUS`, `THICKNESS`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH` |
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
@@ -488,6 +506,7 @@ combat/arsenal.gd               weapon catalogue: every number a player feels
 combat/projectile.*             one shared bullet, team decides layers + shape, guidance here
 combat/smoke_puff.gd            self-freeing trail puff, added to the scene, not the shot
 combat/bomb_wave.gd             expanding shockwave, presentation only
+combat/lock_reticle.gd          world-space mark on a radar lock, dies with its turret
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
 entities/player/weapon_system.gd  primaries, missiles and the bomb, spawned per ship
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
@@ -517,11 +536,11 @@ muzzle distance tracks the nose so bullets leave the airframe instead of spawnin
 inside it.
 
 Weapons follow the same ownership rule. `WeaponSystem` holds the selected weapon,
-the bomb rack and the missile clock, and exposes only `select()`, `cycle()`,
-`fire_bomb()`, `kind()` and `bomb_charges()`; the player owns the input that drives
-it, and the HUD is a projection of `player_weapon_changed` and
-`player_bombs_changed`. `Arsenal` holds the tuning so no weapon hard-codes a
-cadence inside firing code.
+the bomb rack and the missile radar, and exposes only `select()`, `cycle()`,
+`fire_bomb()`, `kind()`, `bomb_charges()`, `lock_count()` and `max_locks()`; the
+player owns the input that drives it, and the HUD is a projection of
+`player_weapon_changed`, `player_bombs_changed` and `player_missile_locks_changed`.
+`Arsenal` holds the tuning so no weapon hard-codes a cadence inside firing code.
 
 Ownership rule: the player owns its HP and its turbo reserve, and only exposes
 `take_damage()`. The HUD is a projection of `player_health_changed` and
@@ -595,9 +614,10 @@ actions, so it exercises the same path a player does.
   never a mech standing on the terrain: the feet are levelled to the ground, not
   planted on it. A real landing pose needs a ground contact rule the movement code
   does not have.
-- **Missiles need a target.** With nothing inside 48 units the rack holds fire
-  instead of shooting straight, which trades the unguided-rocket fantasy for a
-  guaranteed return on the launch.
+- **The missile radar only looks forward.** A turret behind the nose is unmarkable
+  no matter how close it is, so a salvo is always a decision about where the ship
+  points. Marks are also not banked: turning away mid-hold drops them instead of
+  saving them for the next release.
 - **The bomb grants no invulnerability.** It cancels bullets inside its radius, so
   a pattern that arrives from outside the ring in the same frame still hurts.
 
