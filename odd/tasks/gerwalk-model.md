@@ -78,7 +78,7 @@ rules while still looking like the old mode. The blend now targets
 `_transform_target` while the transform runs and the test asserts the pose and the
 rules land together.
 
-L4. Iterations against the renders. Three passes through
+L4. Iterations against the renders. Several passes through
 `./run.sh tools/model_view.tscn -- --view quarter|side|front|top` thickened the
 legs, added the white knee collar, flattened the feet with a sole pivot that
 cancels the splay's roll, and grew the gunpod until it read as a rifle rather than
@@ -92,9 +92,10 @@ silhouette test exposed a pre-existing flake: `_test_damage_and_iframes` reset t
 health but not `_invulnerable`, so a hit landed moments earlier swallowed the
 first hit and the check passed or failed on timing. It now clears the frames too.
 
-L6. Docs. `docs/combat-prototype.md` gains the GERWALK model section, the pose
-table and two known gaps (the pod does not drive the muzzle, and leg length is
-bounded by the hover height).
+L6. Docs. `docs/combat-prototype.md` gains the GERWALK airframe section, the limb
+and preview rows in the file map, the preview commands, and two known gaps
+replacing the old "no legs" one (the pod does not drive the muzzle, and leg length
+is bounded by the hover height).
 
 L7. Risk: none. Geometry and posing only, no data, security, contract, concurrency
 or delivery surface; FIGHTER's flight model is untouched and asserted unchanged.

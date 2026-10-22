@@ -268,6 +268,39 @@ games rather than two gears of the same one.
 | Afterburner | 42 u/s | 60 u/s plus the shockwave cone |
 | Gun | free aim, 16° vulcan fan, base range | 0°, 4° fan, 1.35x muzzle speed, 1.4x range, no plasma lock |
 
+### The GERWALK airframe
+
+The rules above are the mode; the legs are how it reads. GERWALK is a VF-1's
+bird-legged stance, so the airframe grows a hip / knee / ankle chain on each side
+instead of a second mesh: a 0.34 x 0.42 thigh, a white collar at the knee, a
+0.22 x 0.26 shin and a 0.58 x 0.42 white foot with a dark heel. The legs are the
+engine nacelles and they are never hidden — FIGHTER folds them straight back along
+the fuselage with the feet under the tail.
+
+Four decisions keep the pose honest:
+
+- **The hip sits forward of the wing root and the thigh reaches forward as it
+  drops.** With a 75° camera, anything inside the wing plate's footprint is
+  invisible, so the feet have to land ahead of its leading edge. Measured, the
+  ankles sit at `x 1.02, z ±1.05` on a 4.15-long hull: forward of the wing and
+  outboard of its 0.50 half-width.
+- **GERWALK lifts the whole airframe.** A 1.70-unit leg cannot hang from a ship
+  that hovers 1.5 above the ground, so `GERWALK_LIFT = 0.35` raises the hull while
+  the soles keep their clearance (`-1.05` against `GROUND_Y = -1.5`). The switch
+  reads as the ship standing up.
+- **The feet are levelled twice.** The ankle undoes the knee's pitch and a sole
+  pivot undoes the hip's roll, so the white plates stay parallel to the ground
+  while the legs still splay outboard. Those plates plus the knee collars are most
+  of the silhouette from above.
+- **The gunpod is held, not parented.** It is a child of the visual, lerped
+  between a stowed centreline position under the belly and the live right-hand
+  position, so FIGHTER still carries it and nothing pops or re-parents mid-switch.
+
+The pose is driven by `_mode_blend` and every joint has a FIGHTER keyframe and a
+GERWALK keyframe. The blend follows the mode the switch is *committing to*, so the
+shape finishes changing exactly when the flight rules flip rather than one switch
+later.
+
 **The stick asks for a heading, it does not translate.** This is the whole mode
 in one sentence. The stick angle names the bearing the ship should be flying,
 the hull takes the short arc to it at a capped rate, and thrust follows the nose.
@@ -414,6 +447,8 @@ All values are named constants at the top of each script.
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUSTER_X`, `THRUSTER_Z`, `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()` |
 | Ship silhouette | `entities/player/player.gd` | fuselage stations in `_build_fuselage()`, wing outlines in `_build_wing()`, tail surfaces in `_build_empennage()` |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK` (degrees on top of the wing's built-in leading-edge sweep) |
+| GERWALK limbs | `entities/player/player.gd` | `LEG_*` (hip, thigh, shin, angles, splay, foot), `ARM_*`, `GERWALK_LIFT`, `GUNPOD_*`, `GUNMETAL_COLOR`; posed in `_update_mode_pose()` |
+| Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter`, `--fighter 1`, `--size`, `--out` (orthographic turntable for silhouette checks) |
 | Muzzle clears the nose | `entities/player/player.gd` | `MUZZLE_DISTANCE`, `BEAM_START` |
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
@@ -500,6 +535,12 @@ wide, so a unit is under 2.5 px and the bus stays quiet.
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --bomb 1 --out /tmp/gerwalk_bomb.png
 
+# Review the airframe alone, orthographic, in both modes (silhouette debugging)
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/model_view.tscn \
+    -- --view quarter --out /tmp/gerwalk_quarter.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/model_view.tscn \
+    -- --view top --fighter 1 --out /tmp/fighter_top.png
+
 # Review the modes: the swept FIGHTER silhouette, then the supersonic burst cone
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --fighter 26 --out /tmp/gerwalk_fighter.png
@@ -528,10 +569,15 @@ actions, so it exercises the same path a player does.
 - **Nothing is collected.** There is no pickup or power-level economy yet: the
   three archetypes are always available, and the bomb is fed by kills only. Raiden's
   weapon capsules would sit on top of this without touching the archetypes.
-- **GERWALK has no legs.** The silhouette morph is wings, stance and lean,
-  because the model was built as a hover jet: there are no arms, legs or exposed
-  pilot to fold out, so the mid-form of a Valkyrie does not exist yet. The rules
-  change with the mode; the airframe only suggests it.
+- **The gunpod does not fire.** Shots still leave the ship's centre along the aim
+  direction, which is what keeps a twin-stick bullet-hell readable; the held GU-11
+  is a silhouette prop, not a muzzle. Wiring the muzzle to the pod would put a
+  parallax offset between the crosshair and the bullet.
+- **The legs are as long as the hover height allows.** They hang 1.7 units below a
+  hull that floats 1.5 above the ground, so the stance is a hovering GERWALK and
+  never a mech standing on the terrain: the feet are levelled to the ground, not
+  planted on it. A real landing pose needs a ground contact rule the movement code
+  does not have.
 - **Missiles need a target.** With nothing inside 48 units the rack holds fire
   instead of shooting straight, which trades the unguided-rocket fantasy for a
   guaranteed return on the launch.
