@@ -51,10 +51,10 @@ S8. **The HUD names the mode.** `player_mode_changed` drives a label that reads
 
 | ID | Spec | Route | Status |
 |----|------|-------|--------|
-| T1 | S1, S2, S3, S5, S8: mode state, transform input, fighter kinematics, yaw trim, barrel roll, HUD label | inline | |
-| T2 | S4, S6: fighter weapon profile, 40% range, no plasma lock, shockwave cone | inline | |
-| T3 | S7: silhouette morph and transition flash | inline | |
-| T4 | Tests and docs | inline | |
+| T1 | S1, S2, S3, S5, S8: mode state, transform input, fighter kinematics, yaw trim, barrel roll, HUD label | inline | done, 69e7f3e |
+| T2 | S4, S6: fighter weapon profile, 40% range, no plasma lock, shockwave cone | inline | done, 69e7f3e |
+| T3 | S7: silhouette morph and transition flash | inline | done, 69e7f3e |
+| T4 | Tests and docs | inline | done, 69e7f3e + a6b24e6 |
 
 ## Log
 
@@ -79,3 +79,18 @@ made the play plane unreadable at this camera distance.
 L4 (decision): transformation grants no i-frames. A free dodge on the core
 mechanic would make every other defensive tool optional, and the spec asks for a
 mode, not an escape.
+
+L5 (evidence): `./run.sh --headless tests/smoke_test.tscn` is green twice at 92
+assertions. Measured: fighter cruise 48.2 u/s (180%), 180 deg reversal in about
+0.45 s, 128 u/s fighter rounds with 4.9 s of flight, 8.0 deg fan, 21 frames to a
+full stop (0.35 s), barrel roll -7.0 units with the heading intact, front fire
+destroyed and rear fire spared. Captures: `/tmp/gw-fighter.png` (swept silhouette,
+HUD `FIGHTER`, tight nose stream) and `/tmp/gw-fighter-boost.png` (cyan cone,
+drained turbo) against `/tmp/gw-gerwalk.png` (wings forward).
+
+L6 (decision): the camera lead is capped at 0.6 world units. Measured projection
+scale is 22.3 px/unit, so the 0.95 units a proportional lead would demand at
+fighter speed read as 21 px and broke FR-15's 16 px promise; 0.6 lands at 13.4 px
+and leaves the hover's 0.54 unsaturated. Cancelling the trim during the barrel
+roll was the other correction: the trim was bending the course the jink was
+supposed to escape.

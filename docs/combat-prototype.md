@@ -26,12 +26,15 @@ window and is what CI uses.
 | Select weapon | 1 / 2 / 3 | D-pad left / right (cycle) |
 | Bomb | E | Y |
 | Afterburner (hold) | Shift | Right trigger |
-| Dash | Space | Left shoulder |
+| Dash | Space | Left stick click |
+| Transform | Q | Left bumper |
 | Restart | R (on the game-over screen) | Start |
 
-Aiming and firing are independent of movement by construction: `_move()` never
-reads the aim vector and `_update_aim()` never reads the movement vector. The
-right stick also fires, so a pad player never has to reach for the trigger.
+Aiming and firing are independent of movement by construction: `_move_gerwalk()`
+never reads the aim vector and `_update_aim()` never reads the movement vector.
+The right stick also fires, so a pad player never has to reach for the trigger.
+That independence is a GERWALK property; FIGHTER deliberately gives it up, which
+is what the next section is about.
 
 ## The arsenal
 
@@ -157,7 +160,7 @@ the player needs, and the genre forgives neither. The split this build uses is
 | Hull direction | 1800 deg/s, so a 180 flip lands in six frames | `VISUAL_TURN_RATE = 1800` |
 | Bank | up to 32 deg, from lateral drift plus turn rate | `MAX_BANK`, `YAW_BANK`, `BANK_RATE` |
 | Dash | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one | `DASH_SPEED`, `DASH_DURATION` |
-| Camera lead | `velocity * 0.02`, about 8 px at cruise and 12 under the burner | `LAG_SECONDS`, `LAG_RATE` |
+| Camera lead | `velocity * 0.02`, about 8 px at cruise and 12 under the burner, saturating at 0.6 units | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX` |
 
 **Acceleration is quantised, so it has to fit in whole frames.** At 60 physics
 ticks, 0.05 s is three ticks and 0.08 s is five. 420 u/s² reaches 26.8 u/s in
@@ -201,6 +204,70 @@ by acceleration and by the dash and decaying in about a third of a second, so a
 constant cruise gives a subtle trail and launching from rest or punching the dash
 gives a flash without touching handling.
 
+## Two modes: GERWALK and FIGHTER
+
+Q, or LB on a pad, transforms the ship in place. The two modes are different
+games rather than two gears of the same one.
+
+| | GERWALK | FIGHTER |
+|---|---|---|
+| Translation | 360°, instant, independent of the nose | none: the ship only travels along its nose |
+| Top speed | 26.8 | 48.2, the 180% of the hover the spec asks for |
+| Acceleration | 0.067 s to cruise | 0.054 s to cruise |
+| Stop | 0.050 s on the brake | 0.35 s of air drag |
+| Aim | mouse or right stick, instantly | the nose, and only the nose |
+| Hull turn | 1800 °/s, presentation only | 400 °/s, and it is the turn rate the game reads |
+| Dash | 3.17x burst, 0.12 s, i-frames | barrel roll, 55 u/s sideways over 0.20 s, heading kept |
+| Afterburner | 42 u/s | 60 u/s plus the shockwave cone |
+| Gun | free aim, 16° vulcan fan, base range | 0°, 4° fan, 1.35x muzzle speed, 1.4x range, no plasma lock |
+
+**The stick asks for a heading, it does not translate.** This is the whole mode
+in one sentence. The stick angle names the bearing the ship should be flying,
+the hull takes the short arc to it at a capped rate, and thrust follows the nose.
+The alternative reading — the stick commands a yaw rate — cannot explain the
+spec's own braking rule: with the stick held, a rate model keeps the ship flying.
+Only a heading request makes "release the stick and the ship stops in 0.35 s"
+true, because the stick is what asks for thrust.
+
+**The turn cap is the mode, not a limiter on it.** 400 °/s sits in the requested
+360–450 band and turns a 180 into 0.45 s, so a reversal is a decision you make
+before you need it. Pushing the stick the other way does not flip the nose: the
+ship banks through the arc and arrives pointing backwards. Anyone who wants to
+snap around on the spot has the hover, one button away.
+
+**Stopping is drag, not a brake.** `FIGHTER_DRAG` is derived from the spec's
+number rather than tuned beside it: `FIGHTER_SPEED / 0.35`. From the burner the
+same drag takes 0.44 s, which is the honest price of the extra speed.
+
+**The switch costs 0.28 s and buys nothing.** Weapons are locked, the ship takes
+no thrust, and it grants no invulnerability. A free dodge on the same button that
+changes the whole airframe would make the dash and the bomb optional. Momentum is
+preserved, and on entry the heading snaps to the direction the ship is already
+travelling, so transforming never teleports the velocity onto a new axis.
+
+**The gun points at the nose in FIGHTER, and the 0° rule is about the gun.** The
+right stick stops aiming, so every primary fires down the longitudinal axis with
+1.4x range and a 1.35x muzzle speed. Plasma loses the lock-on that gives it its
+identity in the hover. Missiles and the bomb are untouched: they are
+fire-and-forget systems of their own, not the main gun, and the spec's constraint
+is about where the gun points. The right stick keeps two small jobs instead of an
+aim: it bends the requested bearing by up to 8° and nudges the course at 60 °/s
+while coasting, and the dash becomes a barrel roll that steps the ship sideways
+without turning the nose.
+
+**The shockwave is a rule, not an aura.** While the burner is lit in FIGHTER, any
+enemy projectile inside a 7-unit cone of ±30° off the nose is destroyed in the
+same frame, and that cone is drawn, so the picture and the hitbox are the same
+shape. Every current enemy shot counts as weak: the filter is geometry, not a
+damage threshold. A head-on run through a ring pattern is what the mode is for.
+
+**The camera lead saturates.** FR-15 promises the ship never leads the frame by
+more than 16 px. At 180% speed and then 60 u/s the proportional lead would reach
+0.96 and 1.2 world units, which is over 20 px on this camera, so `LAG_MAX` caps
+the lead at 0.6 units instead of letting it scale with speed. The ship stays
+framed at fighter cruise; the camera reads the speed through the FOV kick and the
+terrain, not through the ship sliding off centre.
+
 ## What this build is meant to answer
 
 1. **Does 360° aiming read clearly?** The aim line is there to check it, not to
@@ -239,6 +306,13 @@ gives a flash without touching handling.
    drifts off the ship, if the planet turns by anything other than
    `distance / PLANET_RADIUS`, or if a turret follows the ship.
 
+8. **Does the mode change the fight, or only the speed?** FIGHTER is not a
+   faster GERWALK: it removes strafing and free aim, doubles the price of a bad
+   line, and hands back a turn arc, a jink and a cone that eats bullets.
+   Transforming is the answer to "how do I get out of this" as often as it is the
+   answer to "how do I get there". If it reads as a speed toggle, the mode has no
+   reason to exist and the numbers are the wrong place to fix it.
+
 ## Tuning knobs
 
 All values are named constants at the top of each script.
@@ -248,7 +322,12 @@ All values are named constants at the top of each script.
 | Movement weight | `entities/player/player.gd` | `MAX_SPEED`, `ACCELERATION`, `FRICTION` |
 | Fine control | `entities/player/player.gd` | `MOVE_DEADZONE` |
 | Hull turn and bank | `entities/player/player.gd` | `VISUAL_TURN_RATE`, `MAX_BANK`, `YAW_BANK`, `BANK_RATE` |
-| Camera spring | `entities/player/player_camera.gd` | `LAG_SECONDS`, `LAG_RATE`, `MAX_OFFSET`, `DECAY_PER_SECOND` |
+| Camera spring and lead cap | `entities/player/player_camera.gd` | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX`, `MAX_OFFSET`, `DECAY_PER_SECOND` |
+| Mode split | `entities/player/player.gd` | `FIGHTER_SPEED`, `FIGHTER_BOOST_SPEED`, `FIGHTER_ACCELERATION`, `FIGHTER_TURN_RATE`, `FIGHTER_STOP_TIME`, `FIGHTER_MIN_THROTTLE` |
+| Transformation | `entities/player/player.gd` | `TRANSFORM_TIME`, `FIGHTER_NOSE_PITCH` |
+| Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED` |
+| Supersonic burst | `entities/player/player.gd` | `SHOCKWAVE_LENGTH`, `SHOCKWAVE_HALF_ANGLE` |
+| Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (interval, damage, turn rate, range, launch angle) |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
@@ -343,6 +422,12 @@ wide, so a unit is under 2.5 px and the bus stays quiet.
     -- --weapon 2 --out /tmp/gerwalk_laser.png
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --bomb 1 --out /tmp/gerwalk_bomb.png
+
+# Review the modes: the swept FIGHTER silhouette, then the supersonic burst cone
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --fighter 26 --out /tmp/gerwalk_fighter.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --fighter 2 --boost 26 --out /tmp/gerwalk_burst.png
 ```
 
 Both exit non-zero on failure. The smoke test drives input through `InputMap`
@@ -366,6 +451,10 @@ actions, so it exercises the same path a player does.
 - **Nothing is collected.** There is no pickup or power-level economy yet: the
   three archetypes are always available, and the bomb is fed by kills only. Raiden's
   weapon capsules would sit on top of this without touching the archetypes.
+- **GERWALK has no legs.** The silhouette morph is wings, stance and lean,
+  because the model was built as a hover jet: there are no arms, legs or exposed
+  pilot to fold out, so the mid-form of a Valkyrie does not exist yet. The rules
+  change with the mode; the airframe only suggests it.
 - **Missiles need a target.** With nothing inside 48 units the rack holds fire
   instead of shooting straight, which trades the unguided-rocket fantasy for a
   guaranteed return on the launch.
