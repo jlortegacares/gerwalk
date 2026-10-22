@@ -20,17 +20,25 @@ extends Node3D
 ## them and leaving them behind is how the planet stays worth crossing.
 
 ## A lap is 2 * PI * PLANET_RADIUS, so this single number is "how much planet
-## there is to cross". At 400 a lap is about 2513 units, roughly 94 seconds of
-## uninterrupted flight at the ship's top speed.
+## there is to cross". At 1600 a lap is about 10053 units, roughly 6 minutes at
+## GERWALK cruise and 3.5 at FIGHTER cruise.
 ##
 ## It is also the curvature knob: the camera sits 51.5 units above the surface,
 ## and past a radius of about 100 the top of the screen meets the ground before
 ## the horizon, so the limb leaves the frame and the planet reads as a surface
 ## instead of a globe.
-const PLANET_RADIUS: float = 400.0
+const PLANET_RADIUS: float = 1600.0
 const GROUND_Y: float = -1.5
-const PLANET_SEGMENTS: int = 96
-const PLANET_RINGS: int = 48
+
+## Tessellation has to track the radius, or the ground bobs. The facets are
+## chords, so the surface sits below the true sphere by roughly
+## (vertex spacing)^2 / (8 * radius) at the centre of each triangle. With the old
+## 400-unit planet and 96 segments that gap was 0.21 units; at 1600 the same
+## segment count would make it 0.86 units and the terrain would visibly rise and
+## fall under the ship as the facets roll past. Doubling both counts keeps the
+## gap at 0.21 units for a quarter of the curvature.
+const PLANET_SEGMENTS: int = 192
+const PLANET_RINGS: int = 96
 
 ## Encounters. The planet is far too large to hold a fixed set of turrets around
 ## the ship, so the arena streams them: a small population follows the player at
@@ -177,6 +185,9 @@ func _build_planet() -> void:
 
 	var material: ShaderMaterial = ShaderMaterial.new()
 	material.shader = SURFACE_SHADER
+	# The city chart is measured in units, so the shader needs the radius to turn
+	# its cube-sphere coordinates into distances.
+	material.set_shader_parameter("planet_radius", PLANET_RADIUS)
 
 	var ground: MeshInstance3D = MeshInstance3D.new()
 	ground.name = "Ground"

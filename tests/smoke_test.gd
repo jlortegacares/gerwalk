@@ -964,8 +964,8 @@ func _test_planet_rolls_with_the_player() -> void:
 	var expected: float = distance / Arena.PLANET_RADIUS
 
 	_check(
-		absf(angle - expected) < 0.03,
-		"the planet turns distance / radius (%.3f rad, expected %.3f)" % [angle, expected]
+		absf(angle - expected) < maxf(0.002, expected * 0.1),
+		"the planet turns distance / radius (%.4f rad, expected %.4f)" % [angle, expected]
 	)
 	_check(
 		axis.z > 0.95,
