@@ -146,6 +146,8 @@ func _cache_bones() -> void:
 ## Poses the airframe. `gerwalk` runs 0 (fighter) to 1 (stance); `sweep` is the
 ## wing sweep in degrees, positive aft.
 func _pose(gerwalk: float, sweep: float) -> void:
+	if _thigh.size() < 2:
+		return
 	for idx in _rest:
 		_skeleton.set_bone_pose_rotation(idx, _rest[idx])
 
@@ -191,4 +193,6 @@ func hand_anchor() -> Vector3:
 ## The two engine nozzles, which are also the feet: the flames follow them so a
 ## stance that swings the legs forward drags the exhaust with it.
 func nozzle_anchors() -> Array[Vector3]:
+	if _nozzles.size() < 2:
+		return []
 	return [_anchor(_nozzles[0]), _anchor(_nozzles[1])]

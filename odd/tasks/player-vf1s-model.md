@@ -102,7 +102,13 @@ zoom: a few dark slivers detach from the hull near the wing root in GERWALK, mos
 likely the `Text.003` decal mesh under `GUN.R`. They are 2-3 px at the real camera
 distance, so they are recorded here rather than chased.
 
-L6: The 12 embedded textures were also extracted to PNG next to the GLB while
-probing (40 MB). The `.import` file depends only on the generated `.scn`, which
-proves the textures stayed embedded, so those PNGs were deleted before committing.
-`models/vf-1s/textures/` (41 MB) is the unpacked source and stays untracked.
+L6: WRONG on the first attempt, corrected here. Godot's glTF importer extracts the
+embedded images to files next to the source, and the imported scene references
+them by path, so the `[deps]` block listing only the `.scn` does NOT mean the
+textures are embedded. Deleting the extracted PNGs made the model fail to load
+mid-scene: the skeleton never resolved, `build()` returned with empty bone arrays
+and the player went invisible (`Out of bounds get index '0'` on `Array[int]`). The
+fix is to remove the `.import` and `.godot/imported/Vf-01_BRoid_ULa.glb-*`, let
+Godot re-import, and commit the 12 regenerated textures with their `.import`
+files. `build()` also guards its bone arrays now, so a failed load costs the model
+and not the whole player.
