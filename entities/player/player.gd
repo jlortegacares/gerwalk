@@ -129,6 +129,41 @@ const ACCENT_COLOR: Color = Color(0.34, 0.22, 0.17, 1.0)
 const NOSE_COLOR: Color = Color(0.93, 0.94, 0.89, 1.0)
 const CANOPY_COLOR: Color = Color(0.20, 0.27, 0.23, 1.0)
 const BEAM_COLOR: Color = Color(0.24, 0.9, 0.8, 1.0)
+## The GU-11 gunpod is the one near-black piece on the airframe. It is not pure
+## black: at this scale the faces have to separate or the rifle reads as a smudge.
+const GUNMETAL_COLOR: Color = Color(0.27, 0.28, 0.32, 1.0)
+
+## GERWALK is the VF-1's bird-legged stance, and the legs are the airframe's
+## nacelles: they are never hidden. FIGHTER folds them straight back along the
+## fuselage with the feet under the tail; GERWALK swings them down and out, knees
+## forward, feet under the nose.
+##
+## The legs are longer than the hover height can hide, so GERWALK lifts the whole
+## airframe by `GERWALK_LIFT` and the feet keep the same clearance: the ship stands
+## up out of the fighter instead of dragging its feet through the planet.
+const GERWALK_LIFT: float = 0.35
+const LEG_HIP: Vector3 = Vector3(0.10, -0.02, 0.40)
+const LEG_THIGH: float = 0.95
+const LEG_SHIN: float = 0.75
+const LEG_THIGH_ANGLE: float = 46.0      # down and forward from the hip
+const LEG_KNEE_ANGLE: float = 24.0       # the shin folds back under the thigh
+const LEG_SPLAY: float = 28.0            # degrees outboard, per side
+const LEG_FOOT_LENGTH: float = 0.58
+
+## The arm is short and the shoulder sits at the wing root, so the hand ends up
+## beside the nose where the gunpod belongs in the reference photos.
+const ARM_SHOULDER: Vector3 = Vector3(0.45, 0.0, 0.44)
+const ARM_UPPER: float = 0.30
+const ARM_FOREARM: float = 0.28
+const ARM_UPPER_ANGLE: float = 50.0      # down and forward
+const ARM_ELBOW_ANGLE: float = 30.0
+const ARM_SPLAY: float = 34.0
+
+## Where the gunpod rides when there is no hand to hold it: centreline, under the
+## belly, which is where a VF-1 carries it in FIGHTER.
+const GUNPOD_STOWED: Vector3 = Vector3(0.48, -0.27, 0.0)
+const GUNPOD_LENGTH: float = 0.90
+const GUNPOD_BARREL: float = 0.46
 
 @export var bullet_scene: PackedScene
 @export var impact_scene: PackedScene
@@ -177,6 +212,10 @@ var _nose_material: StandardMaterial3D
 var _canopy_material: StandardMaterial3D
 var _wing_right: Node3D
 var _wing_left: Node3D
+var _leg_joints: Array[Dictionary] = []
+var _arm_joints: Array[Dictionary] = []
+var _gunpod: Node3D
+var _gunmetal_material: StandardMaterial3D
 var _thruster_plumes_material: StandardMaterial3D
 var _thruster_cores_material: StandardMaterial3D
 var _thruster_plumes: Array[MeshInstance3D] = []
@@ -423,9 +462,11 @@ func _update_afterburner_visual(delta: float) -> void:
 
 	# The silhouette is the mode read from above: FIGHTER locks the wings fully aft
 	# and dips the nose, GERWALK holds them forward and level like a hovering
-	# airframe. The blend rides the same 0.28 s as the switch, so the shape and the
-	# rules arrive together.
-	var target_blend: float = 1.0 if _mode == Mode.FIGHTER else 0.0
+	# airframe. The blend follows the mode the switch is committing *to*, not the
+	# mode the rules still use, so the shape finishes changing exactly when the
+	# rules flip instead of one whole switch later.
+	var visual_mode: Mode = _transform_target if _transform_time > 0.0 else _mode
+	var target_blend: float = 1.0 if visual_mode == Mode.FIGHTER else 0.0
 	_mode_blend = move_toward(_mode_blend, target_blend, delta / TRANSFORM_TIME)
 	_visual.rotation.z = deg_to_rad(FIGHTER_NOSE_PITCH) * _mode_blend
 
@@ -435,6 +476,7 @@ func _update_afterburner_visual(delta: float) -> void:
 	var sweep: float = deg_to_rad(lerpf(WING_SWEEP_FORWARD, WING_SWEEP_BACK, sweep_t))
 	_wing_right.rotation.y = -sweep
 	_wing_left.rotation.y = sweep
+	_update_mode_pose()
 
 	_thruster_plumes_material.albedo_color = Color(
 		lerpf(0.22, 0.5, heat),
@@ -744,11 +786,13 @@ func _build_visual() -> void:
 	_accent_material = _ship_material(ACCENT_COLOR, 0.05)
 	_nose_material = _ship_material(NOSE_COLOR, 0.20)
 	_canopy_material = _ship_material(CANOPY_COLOR, 0.25)
+	_gunmetal_material = _ship_material(GUNMETAL_COLOR, 0.0)
 
 	_build_fuselage()
 	_build_wings()
 	_build_empennage()
 	_build_canopy()
+	_build_limbs()
 
 
 func _ship_material(color: Color, glow: float) -> StandardMaterial3D:
@@ -857,6 +901,189 @@ func _build_canopy() -> void:
 	canopy.position = Vector3(0.62, 0.24, 0.0)
 	canopy.scale = Vector3(0.95, 0.44, 0.40)
 	_visual.add_child(canopy)
+
+
+## The legs, the arms and the gunpod. Each one hangs off a joint chain so the mode
+## switch can pose it: the hull is rigid, but the limbs are what make GERWALK read
+## as a mech instead of a jet with its wings forward.
+func _build_limbs() -> void:
+	for side in [-1.0, 1.0]:
+		_leg_joints.append(_build_leg(float(side)))
+		_arm_joints.append(_build_arm(float(side)))
+	_gunpod = _build_gunpod()
+
+
+## Hip, knee and ankle. The meshes are boxes on purpose: an engine nacelle is a
+## machined block and reads better with hard edges than with another loft.
+func _build_leg(side: float) -> Dictionary:
+	var hip: Node3D = Node3D.new()
+	hip.position = Vector3(LEG_HIP.x, LEG_HIP.y, LEG_HIP.z * side)
+	_visual.add_child(hip)
+
+	var thigh: MeshInstance3D = _block(Vector3(LEG_THIGH, 0.34, 0.42), _body_material)
+	thigh.position = Vector3(LEG_THIGH * 0.5, 0.0, 0.0)
+	hip.add_child(thigh)
+
+	var knee: Node3D = Node3D.new()
+	knee.position = Vector3(LEG_THIGH, 0.0, 0.0)
+	hip.add_child(knee)
+
+	var shin: MeshInstance3D = _block(Vector3(LEG_SHIN, 0.22, 0.26), _body_material)
+	shin.position = Vector3(LEG_SHIN * 0.5, 0.0, 0.0)
+	knee.add_child(shin)
+
+	# A white collar wraps the joint and is fatter than both the thigh and the
+	# shin, so the knee breaks the leg into two clear segments from any angle.
+	var cap: MeshInstance3D = _block(Vector3(0.20, 0.40, 0.48), _nose_material)
+	knee.add_child(cap)
+
+	var ankle: Node3D = Node3D.new()
+	ankle.position = Vector3(LEG_SHIN, 0.0, 0.0)
+	knee.add_child(ankle)
+
+	# The splay rolls the whole leg outboard, which would tilt the soles like a
+	# bird's talon. This pivot cancels that roll, so the white plates stay parallel
+	# to the ground while the leg above them still reaches outboard.
+	var sole: Node3D = Node3D.new()
+	ankle.add_child(sole)
+
+	var foot: MeshInstance3D = _block(Vector3(LEG_FOOT_LENGTH, 0.13, 0.42), _nose_material)
+	foot.position = Vector3(0.22, -0.08, 0.0)
+	sole.add_child(foot)
+
+	var heel: MeshInstance3D = _block(Vector3(0.20, 0.12, 0.34), _accent_material)
+	heel.position = Vector3(-0.12, -0.06, 0.0)
+	sole.add_child(heel)
+
+	return {"side": side, "hip": hip, "knee": knee, "ankle": ankle, "sole": sole}
+
+
+## Shoulder, elbow and hand. The hand is an empty pivot: the gunpod is not parented
+## to it, because the pod has to stow on the belly in FIGHTER while the arm folds
+## away from it.
+func _build_arm(side: float) -> Dictionary:
+	var shoulder: Node3D = Node3D.new()
+	shoulder.position = Vector3(ARM_SHOULDER.x, ARM_SHOULDER.y, ARM_SHOULDER.z * side)
+	_visual.add_child(shoulder)
+
+	var upper: MeshInstance3D = _block(Vector3(ARM_UPPER, 0.20, 0.22), _accent_material)
+	upper.position = Vector3(ARM_UPPER * 0.5, 0.0, 0.0)
+	shoulder.add_child(upper)
+
+	var elbow: Node3D = Node3D.new()
+	elbow.position = Vector3(ARM_UPPER, 0.0, 0.0)
+	shoulder.add_child(elbow)
+
+	var forearm: MeshInstance3D = _block(Vector3(ARM_FOREARM, 0.18, 0.18), _body_material)
+	forearm.position = Vector3(ARM_FOREARM * 0.5, 0.0, 0.0)
+	elbow.add_child(forearm)
+
+	var hand: Node3D = Node3D.new()
+	hand.position = Vector3(ARM_FOREARM, 0.0, 0.0)
+	elbow.add_child(hand)
+
+	var fist: MeshInstance3D = _block(Vector3(0.14, 0.16, 0.16), _nose_material)
+	fist.position = Vector3(0.05, 0.0, 0.0)
+	hand.add_child(fist)
+
+	return {"side": side, "shoulder": shoulder, "elbow": elbow, "hand": hand}
+
+
+## The GU-11. The origin is the grip, so placing the pod at the hand puts the
+## receiver in front of it and the stock behind, exactly as it is carried.
+func _build_gunpod() -> Node3D:
+	var pod: Node3D = Node3D.new()
+	_visual.add_child(pod)
+
+	var body: MeshInstance3D = _block(
+		Vector3(GUNPOD_LENGTH, 0.26, 0.26), _gunmetal_material
+	)
+	body.position = Vector3(GUNPOD_LENGTH * 0.5 - 0.30, 0.0, 0.0)
+	pod.add_child(body)
+
+	var barrel: MeshInstance3D = _block(
+		Vector3(GUNPOD_BARREL, 0.11, 0.11), _gunmetal_material
+	)
+	barrel.position = Vector3(GUNPOD_LENGTH - 0.30 + GUNPOD_BARREL * 0.5, 0.0, 0.0)
+	pod.add_child(barrel)
+
+	var stock: MeshInstance3D = _block(Vector3(0.22, 0.18, 0.16), _accent_material)
+	stock.position = Vector3(-0.40, 0.0, 0.0)
+	pod.add_child(stock)
+
+	var grip: MeshInstance3D = _block(Vector3(0.12, 0.22, 0.16), _accent_material)
+	grip.position = Vector3(0.0, -0.18, 0.0)
+	pod.add_child(grip)
+
+	var sight: MeshInstance3D = _block(Vector3(0.24, 0.10, 0.10), _accent_material)
+	sight.position = Vector3(0.08, 0.17, 0.0)
+	pod.add_child(sight)
+
+	return pod
+
+
+## The mode switch is a pose, not a swap: every joint has a FIGHTER keyframe and a
+## GERWALK keyframe and `_mode_blend` carries the limbs between them over the same
+## 0.28 s the flight rules take. Nothing pops in or out, and FIGHTER keeps the legs
+## as the nacelles the fighter silhouette already had.
+func _update_mode_pose() -> void:
+	if _leg_joints.is_empty():
+		return
+	var fighter: float = _mode_blend
+	var gerwalk: float = 1.0 - fighter
+	_visual.position.y = GERWALK_LIFT * gerwalk
+
+	for joint in _leg_joints:
+		var side: float = float(joint["side"])
+		var hip: Node3D = joint["hip"] as Node3D
+		var knee: Node3D = joint["knee"] as Node3D
+		var ankle: Node3D = joint["ankle"] as Node3D
+		var sole: Node3D = joint["sole"] as Node3D
+
+		# Down is a roll around the leg's Z axis; outboard is a pitch around its X.
+		# Godot's Euler order is YXZ, so the yaw that folds the leg aft is applied
+		# before the drop, and the leg swings out of the fuselage instead of through
+		# it.
+		hip.rotation = Vector3(
+			deg_to_rad(-LEG_SPLAY * side * gerwalk),
+			PI * fighter,
+			deg_to_rad(-LEG_THIGH_ANGLE * gerwalk)
+		)
+		knee.rotation.z = deg_to_rad(-LEG_KNEE_ANGLE * gerwalk)
+		# The foot comes back to level twice over: the ankle undoes the knee's pitch
+		# and the sole undoes the hip's roll. Big flat white plates facing the
+		# camera are most of what makes the stance read in GERWALK.
+		ankle.rotation.z = deg_to_rad((LEG_THIGH_ANGLE + LEG_KNEE_ANGLE) * gerwalk)
+		sole.rotation.x = deg_to_rad(LEG_SPLAY * side * gerwalk)
+
+	for joint in _arm_joints:
+		var side: float = float(joint["side"])
+		var shoulder: Node3D = joint["shoulder"] as Node3D
+		var elbow: Node3D = joint["elbow"] as Node3D
+		shoulder.rotation = Vector3(
+			deg_to_rad(-ARM_SPLAY * side * gerwalk),
+			PI * fighter,
+			deg_to_rad(-ARM_UPPER_ANGLE * gerwalk)
+		)
+		elbow.rotation.z = deg_to_rad(ARM_ELBOW_ANGLE * gerwalk)
+
+	# The pod follows the right hand in GERWALK and stows on the centreline in
+	# FIGHTER. Reading the hand instead of re-deriving its position keeps the pod
+	# glued to the grip while the arm is still moving through the switch.
+	var hand: Node3D = null
+	for joint in _arm_joints:
+		if float(joint["side"]) > 0.0:
+			hand = joint["hand"] as Node3D
+	if _gunpod == null or hand == null:
+		return
+	var held: Vector3 = _visual.to_local(hand.global_position)
+	_gunpod.position = GUNPOD_STOWED.lerp(held, gerwalk)
+
+
+func _block(size: Vector3, material: StandardMaterial3D) -> MeshInstance3D:
+	var mesh: BoxMesh = BoxMesh.new()
+	mesh.size = size
+	return _mesh_node(mesh, material)
 
 
 func _mesh_node(mesh: Mesh, material: StandardMaterial3D) -> MeshInstance3D:

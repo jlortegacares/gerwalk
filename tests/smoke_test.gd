@@ -45,6 +45,7 @@ func _ready() -> void:
 
 	await _test_maneuverability()
 	await _test_transformation()
+	await _test_gerwalk_silhouette()
 
 	_clear_enemies()
 	_clear_projectiles()
@@ -469,6 +470,75 @@ func _test_transformation() -> void:
 	Input.action_release(&"aim_up")
 	_player.velocity = Vector3.ZERO
 	await get_tree().physics_frame
+
+
+## The GERWALK silhouette is a pose, not a second mesh: the legs swing down and
+## outboard with the feet under the nose where the near-overhead camera can see
+## them, the gunpod rides in the right hand, and FIGHTER folds both back into the
+## airframe without dropping anything through the planet.
+func _test_gerwalk_silhouette() -> void:
+	var legs: Array = _player.get("_leg_joints")
+	var arms: Array = _player.get("_arm_joints")
+	var pod: Node3D = _player.get("_gunpod")
+	var hull: Node3D = _player.get("_visual")
+	_check(legs.size() == 2, "the airframe carries two legs")
+	_check(arms.size() == 2, "the airframe carries two arms")
+	if legs.size() < 2 or arms.size() < 2 or pod == null or hull == null:
+		return
+
+	var ankles: Array[Vector3] = []
+	for joint in legs:
+		ankles.append(hull.to_local((joint["ankle"] as Node3D).global_position))
+	_check(
+		absf(ankles[0].z + ankles[1].z) < 0.05,
+		"the legs splay symmetrically (z %.2f / %.2f)" % [ankles[0].z, ankles[1].z]
+	)
+	_check(absf(ankles[0].z) > 0.85, "the legs stand wide (z %.2f)" % absf(ankles[0].z))
+	_check(ankles[0].y < -0.9, "the legs hang below the hull (y %.2f)" % ankles[0].y)
+	_check(ankles[0].x > 0.8, "the feet land ahead of the wing root (x %.2f)" % ankles[0].x)
+	var sole: float = (legs[0]["ankle"] as Node3D).global_position.y - 0.15
+	_check(
+		sole > Arena.GROUND_Y + 0.2,
+		"the soles stay clear of the ground (%.2f vs %.2f)" % [sole, Arena.GROUND_Y]
+	)
+
+	var right_hand: Node3D = null
+	for joint in arms:
+		if float(joint["side"]) > 0.0:
+			right_hand = joint["hand"] as Node3D
+	_check(right_hand != null, "the right arm ends in a hand")
+	if right_hand != null:
+		_check(
+			pod.global_position.distance_to(right_hand.global_position) < 0.05,
+			"the gunpod is in the right hand in GERWALK"
+		)
+	var held: Vector3 = hull.to_local(pod.global_position)
+	_check(held.z > 0.5, "the gunpod is carried outboard (z %.2f)" % held.z)
+	_check(held.x > 0.7, "the gunpod reaches ahead of the shoulder (x %.2f)" % held.x)
+
+	_player.call("_start_transform")
+	for _i in 20:
+		await get_tree().physics_frame
+	_check(_player.is_fighter(), "the silhouette test reaches FIGHTER")
+	_check(
+		float(_player.get("_mode_blend")) > 0.99,
+		"the pose arrives with the rules (blend %.2f)" % float(_player.get("_mode_blend"))
+	)
+	var tucked: Vector3 = hull.to_local((legs[0]["ankle"] as Node3D).global_position)
+	_check(tucked.x < -1.0, "FIGHTER folds the legs back along the fuselage (x %.2f)" % tucked.x)
+	_check(tucked.y > -0.4, "FIGHTER lifts the feet into the tail (y %.2f)" % tucked.y)
+	var stowed: Vector3 = hull.to_local(pod.global_position)
+	_check(absf(stowed.z) < 0.15, "FIGHTER stows the gunpod on the centreline (z %.2f)" % stowed.z)
+	_check(stowed.y < -0.2, "the stowed gunpod rides under the belly (y %.2f)" % stowed.y)
+
+	_player.call("_start_transform")
+	for _i in 20:
+		await get_tree().physics_frame
+	var dropped: Vector3 = hull.to_local((legs[0]["ankle"] as Node3D).global_position)
+	_check(
+		not _player.is_fighter() and dropped.y < -0.9,
+		"the switch back drops the legs again (y %.2f)" % dropped.y
+	)
 
 
 func _release_all_input() -> void:
@@ -1073,8 +1143,11 @@ func _sideways_airspeed() -> float:
 
 func _test_damage_and_iframes() -> void:
 	# The encounter phase can legitimately land a hit, and this check is about
-	# invulnerability frames, not about arriving at full health.
+	# invulnerability frames, not about arriving at full health. The frames are
+	# cleared too: an enemy hit a moment earlier would swallow the first one and
+	# the test would pass or fail on timing.
 	_player.set("_hp", Player.MAX_HP)
+	_player.set("_invulnerable", 0.0)
 
 	var event_bus_health: Array[int] = []
 	GlobalEventBus.player_health_changed.connect(
