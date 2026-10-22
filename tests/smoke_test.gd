@@ -284,11 +284,38 @@ func _test_transformation() -> void:
 		"one frame cannot reverse the heading (%.0f deg)"
 		% rad_to_deg(after_one.angle_to(before_turn))
 	)
+	var yaw_before: float = atan2(-before_turn.z, before_turn.x)
+	var peak_bank: float = 0.0
+	var peak_lean: float = 0.0
 	for _i in 30:
 		await get_tree().physics_frame
+		var roll: float = _player.get("_visual").rotation.x
+		if absf(roll) > absf(peak_bank):
+			peak_bank = roll
+			var heading: Vector3 = _player.get("_heading")
+			var right: Vector3 = Vector3(-heading.z, 0.0, heading.x)
+			peak_lean = _player.get("_visual").global_transform.basis.y.dot(right)
 	var reversed: Vector3 = _player.get("_heading")
+	var turned: float = angle_difference(yaw_before, atan2(-reversed.z, reversed.x))
 	_check(reversed.dot(before_turn) < -0.9, "the heading completes a 180 in about 0.45 s")
 	Input.action_release(&"move_left")
+
+	# The hull banks into the turn like a wing. A car yaws flat; a fighter drops
+	# the wing on the inside of the turn and raises it when the stick centres, so
+	# the airframe's own up vector leans the way the nose is going.
+	_check(
+		rad_to_deg(absf(peak_bank)) >= 35.0,
+		"a fighter banks into the turn (%.1f deg)" % rad_to_deg(peak_bank)
+	)
+	_check(
+		signf(peak_lean) == -signf(turned),
+		"the wing drops on the inside of the turn (%.1f deg roll, %.0f deg turn)"
+		% [rad_to_deg(peak_bank), rad_to_deg(turned)]
+	)
+	for _i in 40:
+		await get_tree().physics_frame
+	var levelled: float = absf(rad_to_deg(_player.get("_visual").rotation.x))
+	_check(levelled < 4.0, "the fighter levels out when the turn ends (%.1f deg)" % levelled)
 
 	# S4: fighter rounds leave faster, live 40% longer and keep a tight fan.
 	var weapons: WeaponSystem = _player.get_node("Weapons")

@@ -243,7 +243,7 @@ the player needs, and the genre forgives neither. The split this build uses is
 | Fine control | a 20% tilt settles at 3.0 u/s, about a ninth of cruise | `MOVE_DEADZONE = 0.10` |
 | Shot direction | instant: the stick angle of this frame | `_aim_direction` |
 | Hull direction | 1800 deg/s, so a 180 flip lands in six frames | `VISUAL_TURN_RATE = 1800` |
-| Bank | up to 32 deg, from lateral drift plus turn rate | `MAX_BANK`, `YAW_BANK`, `BANK_RATE` |
+| Bank | up to 32 deg in GERWALK from lateral drift plus turn rate; a fighter rolls 50 deg into a full-rate turn | `MAX_BANK`, `YAW_BANK`, `FIGHTER_BANK`, `BANK_RATE` |
 | Dash | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one | `DASH_SPEED`, `DASH_DURATION` |
 | Camera lead | `velocity * 0.02`, about 8 px at cruise and 12 under the burner, saturating at 0.6 units | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX` |
 
@@ -271,11 +271,18 @@ six frames on a 180 and reads as a snap roll instead of a teleport. Nothing
 gameplay-facing reads `_visual.rotation`.
 
 **Bank is presentation only.** Collision stays the flat capsule on `y = 0`; the
-32 deg roll lives on `_visual.rotation.x` and cannot change what the ship can
-graze. It is derived from the body rather than the input — lateral drift relative
-to the nose, plus a smaller lean into fast nose turns — so it also appears when a
-dash or a drift happens to move the ship sideways, and it settles back to level in
-about a fifth of a second.
+roll lives on `_visual.rotation.x` and cannot change what the ship can graze.
+GERWALK derives it from the body — lateral drift relative to the nose, plus a
+smaller lean into fast aim turns — so it also appears when a dash or a drift
+moves the ship sideways. FIGHTER derives it from the turn rate alone, and the rate
+is normalised against the rate that mode can turn at: a fighter noses round at
+400 deg/s while the aiming ring snaps at 1800, so normalising both against the
+ring would leave the fighter banking a quarter of what the turn asks for. A
+full-rate turn rolls `FIGHTER_BANK` (50 deg) into the inside of the arc, so the
+wing drops on the side the nose is going. Reading the drift term there as well
+would have been worse than ignoring it, because in that mode the drift is mostly
+the crosswind: it left the fighter leaning a constant 8 deg at headings it was
+flying straight. Both rules settle back to level in about a fifth of a second.
 
 **The dash is an injection, not an acceleration.** The dash branch overwrites
 `velocity` with `_dash_direction * DASH_SPEED` for 0.12 s, so the old inertia is
@@ -470,7 +477,7 @@ All values are named constants at the top of each script.
 |------|------|----------|
 | Movement weight | `entities/player/player.gd` | `MAX_SPEED`, `ACCELERATION`, `FRICTION` |
 | Fine control | `entities/player/player.gd` | `MOVE_DEADZONE` |
-| Hull turn and bank | `entities/player/player.gd` | `VISUAL_TURN_RATE`, `MAX_BANK`, `YAW_BANK`, `BANK_RATE` |
+| Hull turn and bank | `entities/player/player.gd` | `VISUAL_TURN_RATE`, `MAX_BANK`, `YAW_BANK`, `FIGHTER_BANK`, `BANK_RATE` |
 | Camera spring and lead cap | `entities/player/player_camera.gd` | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX`, `MAX_OFFSET`, `DECAY_PER_SECOND` |
 | Mode split | `entities/player/player.gd` | `FIGHTER_SPEED`, `FIGHTER_BOOST_SPEED`, `FIGHTER_ACCELERATION`, `FIGHTER_TURN_RATE` |
 | Fighter flight model | `entities/player/player.gd` | `FIGHTER_STALL_SPEED` (glide floor), `FIGHTER_DRAG` (cruise to stall), `FIGHTER_GRIP` (course lag), `WIND` |

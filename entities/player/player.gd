@@ -50,6 +50,10 @@ const VISUAL_TURN_RATE: float = 1800.0
 ## that has no banking at all.
 const MAX_BANK: float = 32.0
 const YAW_BANK: float = 10.0
+## How far a fighter rolls into a full-rate turn. The airframe has no bank of its
+## own, so this is the wing the player reads the turn from: a car yaws flat, a jet
+## drops a wing and pulls.
+const FIGHTER_BANK: float = 50.0
 const BANK_RATE: float = 10.0
 const THRUST_KICK_DECAY: float = 3.0
 
@@ -571,14 +575,19 @@ func _start_barrel_roll() -> void:
 ## the nose rolls the hull into that drift, and a fast nose turn adds a smaller
 ## lean into the turn. Both settle back to level once the movement stops.
 func _update_bank(delta: float) -> void:
+	var fighter: bool = _mode == Mode.FIGHTER
 	var right: Vector3 = Vector3(-_aim_direction.z, 0.0, _aim_direction.x)
 	var lateral: float = clampf(velocity.dot(right) / MAX_SPEED, -1.0, 1.0)
+	# The rate has to be read against the rate *this mode* can turn at. A fighter
+	# noses round at 400 deg/s and the aiming ring at 1800, so normalising both
+	# against the ring would leave the fighter banking a quarter as far as asked.
+	var turn_rate: float = FIGHTER_TURN_RATE if fighter else VISUAL_TURN_RATE
 	var yaw_rate: float = 0.0
 	if delta > 0.0:
 		yaw_rate = clampf(
 			angle_difference(_visual_yaw_prev, _visual_yaw)
 			/ delta
-			/ deg_to_rad(VISUAL_TURN_RATE),
+			/ deg_to_rad(turn_rate),
 			-1.0,
 			1.0
 		)
@@ -591,9 +600,14 @@ func _update_bank(delta: float) -> void:
 		return
 
 	# A fighter leans into the turn with the whole wing, because in this mode the
-	# entire bank comes from the turn: there is no lateral drift to read.
-	var yaw_bank: float = MAX_BANK * 0.8 if _mode == Mode.FIGHTER else YAW_BANK
-	var target: float = deg_to_rad(MAX_BANK * lateral - yaw_bank * yaw_rate)
+	# entire bank comes from the turn: there is no lateral drift to read. Reading
+	# it anyway is worse than not reading it — the drift term would pick up the
+	# crosswind and leave the ship leaning at headings it was not turning through.
+	var target: float
+	if fighter:
+		target = -deg_to_rad(FIGHTER_BANK) * yaw_rate
+	else:
+		target = deg_to_rad(MAX_BANK * lateral - YAW_BANK * yaw_rate)
 	_bank = lerpf(_bank, target, 1.0 - exp(-BANK_RATE * delta))
 	_visual.rotation.x = _bank
 
