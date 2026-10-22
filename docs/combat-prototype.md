@@ -23,12 +23,48 @@ window and is what CI uses.
 | Move | WASD | Left stick |
 | Aim | Mouse position | Right stick |
 | Fire | Left mouse button | Right stick deflection, or right shoulder |
+| Select weapon | 1 / 2 / 3 | D-pad left / right (cycle) |
+| Bomb | E | Y |
 | Afterburner (hold) | Shift | Right trigger |
 | Dash | Space | Left shoulder |
 | Restart | R (on the game-over screen) | Start |
 
 Aiming and firing are independent of movement by construction: `_move()` never
-reads the aim vector and `_update_aim()` never reads the movement vector.
+reads the aim vector and `_update_aim()` never reads the movement vector. The
+right stick also fires, so a pad player never has to reach for the trigger.
+
+## The arsenal
+
+Primary fire is a choice, not a pickup economy: keys 1-3 select a weapon directly
+and the D-pad cycles. Each archetype answers a different aim problem.
+
+| Weapon | Shape of the shot | What it rewards |
+|--------|-------------------|-----------------|
+| Vulcan | Three pellets per shot in a 32° fan, every 0.085 s | Forgiving aim: the spread catches a turret drifting off the crosshair |
+| Laser | Hit-scan beam, damage on a 0.05 s tick | Tracking: the beam only pays while it stays on the target |
+| Plasma | Slow bolt that locks a turret inside a 30° cone and curves onto it | Lining up once: the shot corrects after it leaves the nose |
+
+The laser stops at the first thing it meets, so the drawn beam is the truth about
+what it can hit. Damage ticks on its own clock instead of the visual refresh, which
+is what lets a continuous beam pay out in steady bites instead of one burst frame.
+
+Plasma is semi-automatic in the literal sense: the lock needs the aim, the flight
+does not. Guidance lives in the shared `Projectile` as an optional target and turn
+rate, so a bolt that outlives its target simply flies straight, and the missiles
+reuse the same mechanism rather than a second bullet class.
+
+Missiles are passive: one launch every 1.6 s from alternating wings, angled 14°
+outward so the guidance curve is visible from the first frame, and only while a
+turret is inside 48 units. They never fire into empty space.
+
+The bomb is the emergency button. One charge detonates a 40-unit ring that cancels
+enemy fire inside it and pays 8 damage to every turret in range, in the same frame.
+The rack holds 5 and starts at 3; every 12 kills refunds one charge, and a full rack
+stops banking progress it cannot spend. The ring is presentation only: the damage
+and the cancel already happened when it spawned.
+
+None of this touches the ship's velocity. Firing never costs translation speed, and
+`tests/smoke_test.tscn` asserts it by holding fire and comparing top speed.
 
 ## 3D presentation and the camera
 
@@ -124,7 +160,12 @@ cannot tell they are moving.
    from empty). Emptying it latches until the button is released, so holding the
    key at zero cannot stutter the ship between two speeds. The dash stays a
    separate tool: a 0.16 s invulnerable burst does something the burner does not.
-6. **Does flying over the planet read as a planet?** The ground is a real sphere,
+6. **Does the arsenal change how the fight reads, or only how fast it ends?**
+   The three primaries answer different aim problems — spread, tracking, one-shot
+   alignment — so switching is a decision about the fight in front of you. The bomb
+   is a resource tied to kills rather than a cooldown, which makes hoarding it a
+   choice with a cost.
+7. **Does flying over the planet read as a planet?** The ground is a real sphere,
    the ship can fly in one direction forever, and the surface turns under it so
    the whole planet passes beneath the ship. At the current radius the limb is
    outside the frame, so the planet is sold by the rolling terrain and by the lap,
@@ -144,7 +185,10 @@ All values are named constants at the top of each script.
 | Feel | File | Constant |
 |------|------|----------|
 | Movement weight | `entities/player/player.gd` | `MAX_SPEED`, `ACCELERATION`, `FRICTION` |
-| Fire rhythm | `entities/player/player.gd` | `FIRE_INTERVAL`, `BULLET_SPEED` |
+| Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
+| Missiles | `combat/arsenal.gd` | `MISSILE_*` (interval, damage, turn rate, range, launch angle) |
+| Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
+| Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
 | Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
@@ -169,8 +213,11 @@ All values are named constants at the top of each script.
 ```
 common/global_event_bus.gd      lifecycle signals only (< 15 events)
 common/hit_spark.*              self-freeing 3D impact flash
-combat/projectile.*             one shared bullet, team decides layers + shape
+combat/arsenal.gd               weapon catalogue: every number a player feels
+combat/projectile.*             one shared bullet, team decides layers + shape, guidance here
+combat/bomb_wave.gd             expanding shockwave, presentation only
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
+entities/player/weapon_system.gd  primaries, missiles and the bomb, spawned per ship
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 ui/hud/                         listens to the bus, never touches the player
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
@@ -197,6 +244,13 @@ is the reference aircraft's signature and a free speed cue beside the plume. The
 muzzle distance tracks the nose so bullets leave the airframe instead of spawning
 inside it.
 
+Weapons follow the same ownership rule. `WeaponSystem` holds the selected weapon,
+the bomb rack and the missile clock, and exposes only `select()`, `cycle()`,
+`fire_bomb()`, `kind()` and `bomb_charges()`; the player owns the input that drives
+it, and the HUD is a projection of `player_weapon_changed` and
+`player_bombs_changed`. `Arsenal` holds the tuning so no weapon hard-codes a
+cadence inside firing code.
+
 Ownership rule: the player owns its HP and its turbo reserve, and only exposes
 `take_damage()`. The HUD is a projection of `player_health_changed` and
 `player_turbo_changed`. Nothing in the UI mutates gameplay. The turbo event fires
@@ -215,6 +269,12 @@ wide, so a unit is under 2.5 px and the bus stays quiet.
 # Same, after travelling: the terrain must not match the resting frame
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --travel 180 --out /tmp/gerwalk_moved.png
+
+# Review one weapon at a time (1 vulcan, 2 laser, 3 plasma) and the bomb ring
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --weapon 2 --out /tmp/gerwalk_laser.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --bomb 1 --out /tmp/gerwalk_bomb.png
 ```
 
 Both exit non-zero on failure. The smoke test drives input through `InputMap`
@@ -231,6 +291,18 @@ actions, so it exercises the same path a player does.
   so the only thing that moves is the shader's object-space pattern. Dark terrain
   plus slow movement makes the scroll hard to read; the isolines exist partly for
   that reason.
+
+- **The laser does not pierce.** It stops at the first body it meets, which keeps
+  the drawn beam honest; a piercing beam is a different weapon and needs its own
+  damage model (per-target ticks) before it can ship.
+- **Nothing is collected.** There is no pickup or power-level economy yet: the
+  three archetypes are always available, and the bomb is fed by kills only. Raiden's
+  weapon capsules would sit on top of this without touching the archetypes.
+- **Missiles need a target.** With nothing inside 48 units the rack holds fire
+  instead of shooting straight, which trades the unguided-rocket fantasy for a
+  guaranteed return on the launch.
+- **The bomb grants no invulnerability.** It cancels bullets inside its radius, so
+  a pattern that arrives from outside the ring in the same frame still hurts.
 
 - **Bullets are one node each.** At 400 concurrent bullets this will need a
   pooled manager or `PhysicsServer3D` (NFR-05). Not measured yet.

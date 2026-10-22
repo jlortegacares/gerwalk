@@ -56,6 +56,10 @@ from classic bullet-hell shoot 'em ups.
 | FR-07 | The game runs on Godot with a real-time 3D scenario. | Projectile and impact effects render in the 3D scene without dropping the NFR-01 frame target. |
 | FR-08 | The visual style is pre-rendered 3D models. | Every character, enemy, prop, and effect ships as a 3D source model rendered offline to 2D sprites; no mixed-source or pixel-art assets in MVP. The scenario (planet surface and limb) is real-time 3D geometry (D-03). |
 | FR-15 | The player stays centred on screen and can travel the whole planet surface. | The camera follows the player so the player projects to the screen centre within 1 px at every position on the surface; the planet rotates under the ship as it travels, so there is no boundary and no direction is blocked; covering one circumference brings the original terrain back under the ship, which makes the surface finite and fully traversable. |
+| FR-12 | Primary fire is continuous and three archetypes differ in behaviour. | Holding fire sustains the selected weapon: vulcan fires a wide spread fan, laser fires a concentrated straight ray of high DPS, plasma fires a flexible shot with semi-automatic lock-on. Firing never reduces translation speed. |
+| FR-17 | The player selects a primary weapon directly, with no pickup economy. | Keys 1/2/3 select vulcan, laser or plasma immediately; the D-pad left/right cycles them; the HUD names the active weapon. |
+| FR-18 | Homing missiles fire automatically at a fixed interval. | With a target inside 48 units the ship launches one guided missile every 1.6 s from alternating wings, with no player input; with no target it does not fire. |
+| FR-19 | A limited bomb cancels enemy fire and damages nearby enemies. | One charge detonates a 40-unit blast that frees enemy projectiles and deals heavy damage in the same frame; the rack starts at 3, caps at 5 and gains one charge per 12 kills. |
 | FR-16 | The ship has a sustained afterburner fed by a turbo reserve. | Holding the afterburner with movement input moves the ship faster than normal top speed while the reserve lasts; the reserve drains only while burning and refills while at normal thrust; at zero the ship falls back to normal speed and does not re-arm until the burner is released. |
 
 ### Recommended baseline (needs product confirmation)
@@ -68,7 +72,6 @@ not stated in the brief.
 | FR-09 | Damage grants brief invulnerability frames and a visual/haptic cue. | Without i-frames, overlapping bullet clusters delete the whole HP bar in one frame, contradicting P2. |
 | FR-10 | Difficulty escalates across waves (enemy count, pattern density, speed). | Bullet-hell tension requires a rising curve; a flat loop loses P2's "tension". |
 | FR-11 | A dodge/dash or equivalent evasion tool with cooldown. | Gives the player agency against dense patterns; supports P2. |
-| FR-12 | Weapons differ in fire rate, spread, and projectile behavior. | Pillar 1 is much weaker if every weapon is a straight shot. |
 | FR-13 | Score or run-progress readout persists across the run. | Needed so wave escalation has a visible stake. |
 | FR-14 | Input rebinding and pause menu. | Standard accessibility baseline for PC and console release. |
 
@@ -121,7 +124,7 @@ not stated in the brief.
 ## 9. Next Steps
 
 1. Initialize the Godot project and pin the engine version (OPEN-04).
-2. Convert FR-09..FR-14 from "proposed" to confirmed or dropped.
+2. Convert FR-09..FR-11 and FR-13..FR-14 from "proposed" to confirmed or dropped.
 3. Produce a combat feel prototype: one arena, one enemy, one weapon, HP bar.
 4. Define the pre-rendered asset pipeline: source DCC, render resolution, light
    rig, and sprite export settings (D-02, NFR-04).
