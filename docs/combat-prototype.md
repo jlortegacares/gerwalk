@@ -23,7 +23,7 @@ window and is what CI uses.
 | Move | WASD | Left stick |
 | Aim | Mouse position | Right stick |
 | Fire | Left mouse button | Right stick deflection, or right shoulder |
-| Missile lock (hold) | Right mouse button / F | X |
+| Missile salvo (hold) | Right mouse button / F | X |
 | Select weapon | 1 / 2 / 3 | D-pad left / right (cycle) |
 | Bomb | E | Y |
 | Afterburner (hold) | Shift | Right trigger |
@@ -58,17 +58,23 @@ rate, so a bolt that outlives its target simply flies straight, and the missiles
 reuse the same mechanism rather than a second bullet class.
 
 Missiles are a radar you fly, not a clock that fires. The rack only sees inside a
-55° cone around the aim, out to 48 units, and it never launches on its own: holding
-the missile button marks the nearest still-unmarked turret every 0.16 s, up to six,
-and letting go fires one missile per mark, each guided to its own target. Each
-missile leaves from alternating wings, angled 14° outward, so the guidance curve is
-visible from the first frame.
+55° cone around the aim, out to 48 units, and it never launches on its own. Holding
+the missile button loads one missile every 0.3 s, up to six, and letting go fires the
+whole load at once: the hold decides how many, the radar decides who. Held time does
+not need company to count, so a lone contact takes every missile; with more contacts
+the load is spread round-robin from the nearest outwards, so three missiles over two
+turrets land 2/1 and never 3/0. Each missile still chases its own target, leaves from
+alternating wings and is angled 14° outward, so the guidance curve is visible from
+the first frame.
+
+The load only grows while the radar holds a contact, so a salvo cannot be pre-charged
+in empty sky and dumped the instant a turret appears. A tap shorter than one interval
+loads nothing at all and fires nothing: the hold is the weapon, not the press.
 
 The cooldown is what makes the hold mean something. A salvo empties the rack into
-0.45 s of downtime, so six quick taps cannot outrun six marks of held time: without
-it, mashing would be a strictly faster way to fire and the radar would be decoration.
-A mark is dropped the moment its turret dies or slips out of the cone, so the salvo
-only pays out targets the radar could still see.
+0.45 s of downtime, so mashing cannot beat held time: without it, hold-release spam
+would be a strictly faster way to fire and the radar would be decoration. Contacts are
+re-read every frame, so a salvo only spreads over turrets the radar can see right now.
 
 The missile is the one projectile with a silhouette of its own
 (`Projectile.Style.MISSILE`): an off-white body, a tinted warhead cone and band, four
@@ -85,12 +91,13 @@ inherits a fraction of the missile's speed so a guided turn leaves a curved trai
 instead of a straight line. The interval is tight enough that consecutive puffs
 overlap: a sparser one reads as a dotted line, not as smoke.
 
-Every mark is visible. A lock puts a pulsing ring over the turret
-(`combat/lock_reticle.gd`): flat on the play plane and above the body, because that
-is what an angled camera reads as a ring around the unit instead of a line through
-it. The reticle is parented to the turret, so it dies with its target and follows
-it while it moves, and the HUD counts open marks while the button is down. A
-mechanic whose payoff depends on how long you held a button cannot be invisible.
+Every contact is visible. While the button is down, each turret the radar holds
+carries a pulsing ring (`combat/lock_reticle.gd`): flat on the play plane and above
+the body, because that is what an angled camera reads as a ring around the unit
+instead of a line through it. The reticle is parented to the turret, so it dies with
+its target and follows it while it moves, and the HUD counts the loaded missiles while
+the button is down. A mechanic whose payoff depends on how long you held a button
+cannot be invisible, and a salvo that spreads has to show what it will spread over.
 
 The bomb is the emergency button. One charge detonates a 40-unit ring that cancels
 enemy fire inside it and pays 8 damage to every turret in range, in the same frame.
@@ -469,7 +476,7 @@ All values are named constants at the top of each script.
 | Supersonic burst | `entities/player/player.gd` | `SHOCKWAVE_LENGTH`, `SHOCKWAVE_HALF_ANGLE` |
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
-| Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, lock interval, max locks, salvo cooldown, damage, turn rate, range, launch angle) |
+| Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load interval, max salvo, salvo cooldown, damage, turn rate, range, launch angle) |
 | Lock reticle | `combat/lock_reticle.gd` | `RADIUS`, `THICKNESS`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH` |
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
@@ -537,9 +544,9 @@ inside it.
 
 Weapons follow the same ownership rule. `WeaponSystem` holds the selected weapon,
 the bomb rack and the missile radar, and exposes only `select()`, `cycle()`,
-`fire_bomb()`, `kind()`, `bomb_charges()`, `lock_count()` and `max_locks()`; the
+`fire_bomb()`, `kind()`, `bomb_charges()`, `salvo_count()` and `max_salvo()`; the
 player owns the input that drives it, and the HUD is a projection of
-`player_weapon_changed`, `player_bombs_changed` and `player_missile_locks_changed`.
+`player_weapon_changed`, `player_bombs_changed` and `player_missile_salvo_changed`.
 `Arsenal` holds the tuning so no weapon hard-codes a cadence inside firing code.
 
 Ownership rule: the player owns its HP and its turbo reserve, and only exposes
@@ -614,10 +621,12 @@ actions, so it exercises the same path a player does.
   never a mech standing on the terrain: the feet are levelled to the ground, not
   planted on it. A real landing pose needs a ground contact rule the movement code
   does not have.
-- **The missile radar only looks forward.** A turret behind the nose is unmarkable
-  no matter how close it is, so a salvo is always a decision about where the ship
-  points. Marks are also not banked: turning away mid-hold drops them instead of
-  saving them for the next release.
+- **The missile radar only looks forward.** A turret behind the nose is a contact
+  for nothing, so a salvo is always a decision about where the ship points. The load
+  is also not banked: turning away mid-hold stops it growing, and slipping all
+  contacts drops the rack instead of saving it for the next release. With fewer
+  missiles than contacts the nearest ones take the hits, because the spread runs
+  from the head of the pool.
 - **The bomb grants no invulnerability.** It cancels bullets inside its radius, so
   a pattern that arrives from outside the ring in the same frame still hurts.
 
