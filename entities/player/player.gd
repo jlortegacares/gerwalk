@@ -78,10 +78,27 @@ const FIGHTER_ACCELERATION: float = 900.0
 const FIGHTER_TURN_RATE: float = 400.0
 const FIGHTER_STOP_TIME: float = 0.35
 const FIGHTER_MIN_THROTTLE: float = 0.4
-## Drag is derived, not tuned: the spec fixes the stop at 0.35 s from cruise, so
-## that is the number the constant answers to. From the burner it takes 0.44 s,
-## which is the honest price of the extra speed.
-const FIGHTER_DRAG: float = FIGHTER_SPEED / FIGHTER_STOP_TIME
+## A fighter never stalls to zero: with the stick released it keeps gliding at the
+## throttle's own floor, so "no input" and "the lightest touch" are the same
+## speed. 19.3 u/s, 40% of cruise.
+const FIGHTER_STALL_SPEED: float = FIGHTER_SPEED * FIGHTER_MIN_THROTTLE
+## Drag is derived, not tuned: the airspeed falls from cruise to the stall speed
+## in the same 0.35 s the old full stop took, so the fade feels identical and only
+## the floor moved. From the burner the same drag takes 0.44 s.
+const FIGHTER_DRAG: float = (FIGHTER_SPEED - FIGHTER_STALL_SPEED) / FIGHTER_STOP_TIME
+## How hard the airframe grips the air sideways, as a lateral acceleration. It
+## caps how fast the course can follow the nose: 190 / airspeed at cruise is about
+## 226 deg/s against a 400 deg/s nose, so a hard reversal opens a real skid, and
+## at stall speed the same grip turns the course faster than the nose can.
+const FIGHTER_GRIP: float = 190.0
+## Constant world wind, in units/s, blowing towards +X (screen right). Below the
+## stall speed, so even a coast straight into it still moves forwards, and 15% of
+## cruise, so it is felt without taking the ship for a ride. Only FIGHTER answers
+## to it: GERWALK is a ground-effect hover holding station, not an aircraft.
+const WIND: Vector3 = Vector3(7.0, 0.0, 0.0)
+## The transformation bleeds momentum at the old fighter drag, so the 0.28 s
+## switch feels exactly as it did before the flight model grew a stall speed.
+const TRANSFORM_DRAG: float = FIGHTER_SPEED / FIGHTER_STOP_TIME
 const FIGHTER_TRIM_DEGREES: float = 8.0
 const FIGHTER_YAW_TRIM: float = 60.0
 const FIGHTER_ROLL_TIME: float = 0.20
@@ -140,6 +157,10 @@ var _transform_target: Mode = Mode.GERWALK
 var _mode_blend: float = 0.0
 var _heading: Vector3 = Vector3.RIGHT
 var _roll_side: float = 1.0
+## The lateral push the barrel roll added last frame. It is not airspeed, so the
+## flight model subtracts it before reading the air: otherwise every jink tops up
+## the previous one and a 55 u/s roll ends up at 390.
+var _roll_velocity: Vector3 = Vector3.ZERO
 var _shockwave: Node3D
 
 var _turbo: float = TURBO_MAX
@@ -199,7 +220,7 @@ func _physics_process(delta: float) -> void:
 	elif _transform_time > 0.0:
 		# Mid-transformation the ship keeps its momentum but takes no thrust and
 		# fires nothing: the switch is a commitment, not a free dodge or a reset.
-		velocity = velocity.move_toward(Vector3.ZERO, FIGHTER_DRAG * 0.35 * delta)
+		velocity = velocity.move_toward(Vector3.ZERO, TRANSFORM_DRAG * 0.35 * delta)
 		velocity.y = 0.0
 		move_and_slide()
 	elif _mode == Mode.FIGHTER:
@@ -236,10 +257,17 @@ func _move_gerwalk(delta: float) -> void:
 
 
 ## Fighter: the stick asks for a heading and the hull takes the short arc to it at
-## a capped rate, so a reversal is a 0.45 s bank instead of a snap turn. The ship
-## always travels along its nose, thrust follows the nose, and releasing the stick
-## coasts to a stop in 0.35 s. There is no lateral drift, because strafing across
-## the nose is exactly what GERWALK is for.
+## a capped rate, so a reversal is a 0.45 s bank instead of a snap turn.
+##
+## The air, not the ground, is what the airframe answers to. Airspeed is the
+## velocity minus the wind, and it has two properties: where it points and how
+## fast it goes. The throttle owns the speed and the airframe owns how quickly the
+## course may follow the nose, which is the whole flight model in one line. Drive
+## the two axes independently instead and a turn manufactures airspeed out of
+## nothing.
+##
+## Releasing the stick is not a stop: the speed settles at the stall speed, so the
+## ship keeps gliding wherever its nose happens to point.
 func _move_fighter(delta: float) -> void:
 	var stick: Vector2 = Input.get_vector(
 		&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
@@ -270,27 +298,43 @@ func _move_fighter(delta: float) -> void:
 		yaw += deg_to_rad(FIGHTER_YAW_TRIM) * trim * delta
 
 	_heading = Vector3(cos(yaw), 0.0, -sin(yaw))
+	var right: Vector3 = Vector3(-_heading.z, 0.0, _heading.x)
+
+	# Airspeed is the velocity through the air: the ground velocity minus the wind.
+	# Tracking it as a course plus a magnitude is what lets wind slow a head-on run
+	# and push a downwind one without ever being confused with thrust.
+	var air: Vector3 = velocity - WIND - _roll_velocity
+	var airspeed: float = air.length()
+	var course: float = atan2(-air.z, air.x) if airspeed > 0.001 else yaw
+
+	# The nose may outrun the course. The grip is a lateral acceleration, so it
+	# turns the course faster at low speed and softer at cruise: that lag is the
+	# skid, and it is why a reversal arcs instead of pivoting on the spot.
+	var slew: float = (FIGHTER_GRIP / maxf(airspeed, 1.0)) * delta
+	course += clampf(angle_difference(course, yaw), -slew, slew)
 
 	var cruise: float = FIGHTER_BOOST_SPEED if _boosting else FIGHTER_SPEED
-	var wanted: float = cruise * (
-		FIGHTER_MIN_THROTTLE + (1.0 - FIGHTER_MIN_THROTTLE) * throttle
+	# With the stick released there is still a floor: the ship glides, it does not
+	# hang. It is the throttle's own minimum, so no input and a hair of input give
+	# the same speed and there is no seam between them.
+	var wanted: float = (
+		cruise * (FIGHTER_MIN_THROTTLE + (1.0 - FIGHTER_MIN_THROTTLE) * throttle)
+		if thrusting
+		else FIGHTER_STALL_SPEED
 	)
 	var rate: float = FIGHTER_ACCELERATION if thrusting else FIGHTER_DRAG
-	var forward: float = velocity.dot(_heading)
-	var next_speed: float = maxf(
-		move_toward(forward, wanted if thrusting else 0.0, rate * delta), 0.0
-	)
+	airspeed = move_toward(airspeed, wanted, rate * delta)
 
 	# The barrel roll is a lateral push that ramps in and out, so it never snaps
 	# the velocity sideways at either end of the jink.
 	var push: Vector3 = Vector3.ZERO
 	if _dash_time > 0.0:
 		var progress: float = 1.0 - _dash_time / FIGHTER_ROLL_TIME
-		var right: Vector3 = Vector3(-_heading.z, 0.0, _heading.x)
 		push = right * _roll_side * sin(progress * PI) * FIGHTER_ROLL_SPEED
 
-	velocity = _heading * next_speed + push
+	velocity = Vector3(cos(course), 0.0, -sin(course)) * airspeed + push + WIND
 	velocity.y = 0.0
+	_roll_velocity = push
 	move_and_slide()
 
 
@@ -301,6 +345,9 @@ func _start_transform() -> void:
 	_transform_target = Mode.GERWALK if _mode == Mode.FIGHTER else Mode.FIGHTER
 	_transform_time = TRANSFORM_TIME
 	_thrust_kick = 1.0
+	# A switch mid-roll must not leave the jink subtracted from the next frame's
+	# airspeed.
+	_roll_velocity = Vector3.ZERO
 	_spawn_impact()
 	GlobalEventBus.camera_shake_requested.emit(0.35)
 

@@ -219,8 +219,9 @@ func _test_maneuverability() -> void:
 
 
 ## The transformation contract: two real modes, a switch that costs commitment,
-## a fighter that flies nose-first at 180% with a capped turn and air drag, a gun
-## welded to the airframe, and a burner that shreds what it flies through.
+## a fighter that flies at 180% on a stall-speed floor, a course that lags the
+## nose into a skid, a constant wind that moves it, a gun welded to the airframe,
+## and a burner that shreds what it flies through.
 func _test_transformation() -> void:
 	_release_all_input()
 	_player.velocity = Vector3.ZERO
@@ -237,16 +238,18 @@ func _test_transformation() -> void:
 		await get_tree().physics_frame
 	_check(_player.is_fighter(), "the ship reaches FIGHTER after 0.28 s")
 
-	# S3: 180% of the hover cruise, reachable in about a tenth of a second.
+	# S3: 180% of the hover cruise, measured in airspeed. The ship is flying
+	# downwind here, so the ground speed is the airspeed plus the wind and is not
+	# the spec number.
 	_player.set("_heading", Vector3.RIGHT)
 	_player.velocity = Vector3.RIGHT * 20.0
 	Input.action_press(&"move_right")
 	for _i in 20:
 		await get_tree().physics_frame
-	var fighter_speed: float = _flat_speed()
+	var fighter_speed: float = (_player.velocity - Player.WIND).length()
 	_check(
 		absf(fighter_speed / Player.MAX_SPEED - 1.8) < 0.05,
-		"fighter cruise is %.0f%% of the hover's (%.1f u/s)"
+		"fighter cruise is %.0f%% of the hover's (%.1f u/s airspeed)"
 		% [100.0 * fighter_speed / Player.MAX_SPEED, fighter_speed]
 	)
 
@@ -372,19 +375,72 @@ func _test_transformation() -> void:
 	_clear_projectiles()
 	await get_tree().physics_frame
 
-	# S3: air drag, not the hover brake.
-	_player.velocity = Vector3.RIGHT * Player.FIGHTER_SPEED
-	Input.action_press(&"move_right")
-	for _i in 20:
+	# S3: the fighter bleeds from cruise down to its stall speed in the old 0.35 s
+	# and then keeps flying: drag, not a brake. The airspeed is set to cruise, so
+	# the ground velocity is that plus the wind.
+	_player.set("_heading", Vector3.RIGHT)
+	_player.velocity = Vector3.RIGHT * Player.FIGHTER_SPEED + Player.WIND
+	var glide_speed: float = Player.FIGHTER_STALL_SPEED + Player.WIND.length()
+	var stall_frames: int = 0
+	while stall_frames < 40 and _flat_speed() > glide_speed + 0.6:
 		await get_tree().physics_frame
-	Input.action_release(&"move_right")
-	var stop_frames: int = 0
-	while stop_frames < 40 and _flat_speed() > 0.5:
-		await get_tree().physics_frame
-		stop_frames += 1
+		stall_frames += 1
 	_check(
-		absf(stop_frames / 60.0 - Player.FIGHTER_STOP_TIME) < 0.04,
-		"fighter coasts to a stop in %.2f s" % (stop_frames / 60.0)
+		absf(stall_frames / 60.0 - Player.FIGHTER_STOP_TIME) < 0.05,
+		"fighter bleeds to stall speed in %.2f s" % (stall_frames / 60.0)
+	)
+	for _i in 6:
+		await get_tree().physics_frame
+	_check(
+		absf(_flat_speed() - glide_speed) < 1.0,
+		"the fighter glides at the stall floor (%.1f u/s)" % _flat_speed()
+	)
+
+	# S3: a coast still covers ground. If the floor regresses to zero, the ship
+	# parks on the planet and the planet stops rolling.
+	var glide_from: Vector3 = _player.global_position
+	for _i in 30:
+		await get_tree().physics_frame
+	var glided: float = _flat_distance(_player.global_position, glide_from)
+	_check(glided > 8.0, "coasting still covers ground (%.1f units in 0.5 s)" % glided)
+
+	# S3: the nose turns faster than the air does. Asking for a reversal, the ship
+	# keeps travelling the old way while the nose already points the new one.
+	_player.set("_heading", Vector3.RIGHT)
+	_player.velocity = Vector3.RIGHT * Player.FIGHTER_SPEED + Player.WIND
+	Input.action_press(&"move_left")
+	for _i in 12:
+		await get_tree().physics_frame
+	var skid: float = _sideways_airspeed()
+	_check(absf(skid) > 20.0, "a reversal skids across the nose (%.1f u/s)" % skid)
+	Input.action_release(&"move_left")
+	for _i in 60:
+		await get_tree().physics_frame
+	skid = _sideways_airspeed()
+	_check(
+		absf(skid) < 3.0,
+		"the skid bleeds out once the nose settles (%.1f u/s)" % skid
+	)
+
+	# S3: wind is a world vector. The same coast rides it downwind and fights it
+	# upwind, so ground speed is not airspeed.
+	_player.set("_heading", Vector3.RIGHT)
+	_player.velocity = Vector3.ZERO
+	for _i in 90:
+		await get_tree().physics_frame
+	var downwind: float = _player.velocity.x
+	_check(
+		absf(downwind - (Player.FIGHTER_STALL_SPEED + Player.WIND.x)) < 1.0,
+		"downwind the glide rides the wind (%.1f u/s over ground)" % downwind
+	)
+	_player.set("_heading", Vector3.LEFT)
+	_player.velocity = Vector3.ZERO
+	for _i in 90:
+		await get_tree().physics_frame
+	var upwind: float = _player.velocity.x
+	_check(
+		absf(upwind + (Player.FIGHTER_STALL_SPEED - Player.WIND.x)) < 1.0,
+		"upwind the same glide is slower over ground (%.1f u/s)" % upwind
 	)
 
 	# S1: back to the hover, and the gun is free the moment it lands.
@@ -392,6 +448,17 @@ func _test_transformation() -> void:
 	for _i in 20:
 		await get_tree().physics_frame
 	_check(not _player.is_fighter(), "the ship returns to GERWALK")
+
+	# S3: the hover does not answer to the wind. Holding station is its whole
+	# reason to exist next to the fighter.
+	_player.velocity = Player.WIND * 3.0
+	for _i in 20:
+		await get_tree().physics_frame
+	_check(
+		_flat_speed() < 0.2,
+		"the wind does not carry the hover (%.2f u/s)" % _flat_speed()
+	)
+
 	Input.action_press(&"aim_up")
 	for _i in 3:
 		await get_tree().physics_frame
@@ -995,6 +1062,13 @@ func _flat_distance(a: Vector3, b: Vector3) -> float:
 
 func _flat_speed() -> float:
 	return Vector2(_player.velocity.x, _player.velocity.z).length()
+
+
+## Airspeed across the nose: positive to the right of where the ship points.
+func _sideways_airspeed() -> float:
+	var heading: Vector3 = _player.get("_heading")
+	var right: Vector3 = Vector3(-heading.z, 0.0, heading.x)
+	return (_player.velocity - Player.WIND).dot(right)
 
 
 func _test_damage_and_iframes() -> void:
