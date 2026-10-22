@@ -20,6 +20,9 @@ translation: the hull turns toward the requested heading at a capped 400 deg/s
 the 26.8 GERWALK cruise, inside the requested 160-180% band); the ship always
 carries a 40% minimum throttle while the stick is held, and full deflection gives
 full speed. Releasing the stick decelerates by drag to a full stop in 0.35 s.
+(Superseded by the flight model in `odd/tasks/fighter-flight-model.md`: the
+speed now settles at a stall floor and the course lags the nose, so releasing
+the stick is a glide, not a stop.)
 No lateral translation: the ship cannot strafe across its nose and cannot turn on
 its own axis instantly.
 

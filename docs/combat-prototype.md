@@ -257,10 +257,11 @@ games rather than two gears of the same one.
 
 | | GERWALK | FIGHTER |
 |---|---|---|
-| Translation | 360°, instant, independent of the nose | none: the ship only travels along its nose |
-| Top speed | 26.8 | 48.2, the 180% of the hover the spec asks for |
+| Translation | 360°, instant, independent of the nose | the nose leads and the course follows, lagging into a skid |
+| Top speed | 26.8 | 48.2 airspeed, the 180% of the hover the spec asks for |
 | Acceleration | 0.067 s to cruise | 0.054 s to cruise |
-| Stop | 0.050 s on the brake | 0.35 s of air drag |
+| Stop | 0.050 s on the brake | never: drag falls to a 19.3 u/s glide in 0.35 s |
+| Wind | none: the hover holds station | a constant 7 u/s world vector |
 | Aim | mouse or right stick, instantly | the nose, and only the nose |
 | Hull turn | 1800 °/s, presentation only | 400 °/s, and it is the turn rate the game reads |
 | Dash | 3.17x burst, 0.12 s, i-frames | barrel roll, 55 u/s sideways over 0.20 s, heading kept |
@@ -271,9 +272,9 @@ games rather than two gears of the same one.
 in one sentence. The stick angle names the bearing the ship should be flying,
 the hull takes the short arc to it at a capped rate, and thrust follows the nose.
 The alternative reading — the stick commands a yaw rate — cannot explain the
-spec's own braking rule: with the stick held, a rate model keeps the ship flying.
-Only a heading request makes "release the stick and the ship stops in 0.35 s"
-true, because the stick is what asks for thrust.
+spec's braking rule: in a rate model, releasing the stick would leave nothing to
+decelerate against. Only a heading request makes the stick the throttle: hold it
+and the ship flies, release it and it falls to its glide.
 
 **The turn cap is the mode, not a limiter on it.** 400 °/s sits in the requested
 360–450 band and turns a 180 into 0.45 s, so a reversal is a decision you make
@@ -281,9 +282,36 @@ before you need it. Pushing the stick the other way does not flip the nose: the
 ship banks through the arc and arrives pointing backwards. Anyone who wants to
 snap around on the spot has the hover, one button away.
 
-**Stopping is drag, not a brake.** `FIGHTER_DRAG` is derived from the spec's
-number rather than tuned beside it: `FIGHTER_SPEED / 0.35`. From the burner the
-same drag takes 0.44 s, which is the honest price of the extra speed.
+**Three forces, one model: the air, not the ground.** Everything in the table
+above is *airspeed*, which is the ground velocity minus `WIND`. Airspeed is
+tracked as a course plus a magnitude, and that split is the whole model.
+
+- **Stall speed.** Releasing the stick does not stop the ship. The coasting target
+  and the throttle's own floor are the same number,
+  `FIGHTER_STALL_SPEED = 0.4 * FIGHTER_SPEED` (19.3 u/s), so no input and the
+  lightest touch of the stick give the same speed and there is no seam between
+  them. `FIGHTER_DRAG` is derived rather than tuned beside the spec number: the
+  airspeed falls from cruise to that floor in the same 0.35 s the old full stop
+  took, so the fade feels identical and only its destination moved. From the
+  burner the same drag takes 0.44 s.
+- **Grip, or the skid.** The nose turns at 400 °/s, but the course only follows at
+  `FIGHTER_GRIP / airspeed` — about 226 °/s at cruise, and faster than the nose at
+  stall speed. The lag between the two is the skid: a full reversal opens about
+  78° of drift and takes a couple of tenths to settle, and the drift shrinks as
+  the ship slows, which is what a wing does. It is deliberately *not* two
+  independent axes with their own targets: that model manufactures airspeed out
+  of a turn, and a twelve-frame test of it reached 390 u/s sideways.
+- **Wind.** `WIND = (7, 0, 0)` u/s: 15% of cruise and well below stall. It enters
+  as the frame the airspeed is measured in, not as a nudge added to the position,
+  so it is not a free constant push. Downwind the same glide covers 26.3 u/s over
+  ground and upwind 12.3, which is what "frontal resistance" means in practice.
+  GERWALK ignores it: the hover holds station, and that is its reason to exist
+  next to the fighter.
+
+**The barrel roll is outside the model.** `_roll_velocity` is subtracted before the
+air is read, so the jink is a scripted 55 u/s step and never airspeed. Without
+that subtraction the roll is additive: a measured 393 u/s sideways against an
+intended 55, and the step grows from 7 units to 46 until the grip can shed it.
 
 **The switch costs 0.28 s and buys nothing.** Weapons are locked, the ship takes
 no thrust, and it grants no invulnerability. A free dodge on the same button that
@@ -369,7 +397,8 @@ All values are named constants at the top of each script.
 | Fine control | `entities/player/player.gd` | `MOVE_DEADZONE` |
 | Hull turn and bank | `entities/player/player.gd` | `VISUAL_TURN_RATE`, `MAX_BANK`, `YAW_BANK`, `BANK_RATE` |
 | Camera spring and lead cap | `entities/player/player_camera.gd` | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX`, `MAX_OFFSET`, `DECAY_PER_SECOND` |
-| Mode split | `entities/player/player.gd` | `FIGHTER_SPEED`, `FIGHTER_BOOST_SPEED`, `FIGHTER_ACCELERATION`, `FIGHTER_TURN_RATE`, `FIGHTER_STOP_TIME`, `FIGHTER_MIN_THROTTLE` |
+| Mode split | `entities/player/player.gd` | `FIGHTER_SPEED`, `FIGHTER_BOOST_SPEED`, `FIGHTER_ACCELERATION`, `FIGHTER_TURN_RATE` |
+| Fighter flight model | `entities/player/player.gd` | `FIGHTER_STALL_SPEED` (glide floor), `FIGHTER_DRAG` (cruise to stall), `FIGHTER_GRIP` (course lag), `WIND` |
 | Transformation | `entities/player/player.gd` | `TRANSFORM_TIME`, `FIGHTER_NOSE_PITCH` |
 | Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED` |
 | Supersonic burst | `entities/player/player.gd` | `SHOCKWAVE_LENGTH`, `SHOCKWAVE_HALF_ANGLE` |
@@ -547,5 +576,12 @@ actions, so it exercises the same path a player does.
   with two degenerate poles, which the roll crosses constantly.
 - **Cities have no suburbs.** A district is a hard-edged square of asphalt that
   stops at the coastline, and nothing else on the surface is built up.
+- **The wind has no readout.** Nothing on the HUD says which way it blows or how
+  hard; the player reads it from the terrain sliding under the ship, and the
+  enemies ignore it. A one-arrow indicator is the obvious next step.
+- **The skid has no airspeed cue.** During a hard turn the nose and the ground
+  track diverge, and the divergence is only visible as the terrain drifting
+  sideways. Nothing draws the velocity vector, so the drift is felt before it is
+  understood.
 - **i-frames and dash are prototypes of FR-09 and FR-11**, which remain
   unconfirmed product requirements — try them and decide, do not assume.
