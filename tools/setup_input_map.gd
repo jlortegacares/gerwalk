@@ -21,6 +21,14 @@ func _init() -> void:
 	_add("aim_down", [_axis(JOY_AXIS_RIGHT_Y, 1.0)])
 
 	_add("fire", [_mouse(MOUSE_BUTTON_LEFT), _button(JOY_BUTTON_RIGHT_SHOULDER)])
+	# Weapon selection is direct on the keyboard and a cycle on the D-pad: the
+	# three archetypes are a player choice, not a pickup economy.
+	_add("weapon_1", [_key(KEY_1)])
+	_add("weapon_2", [_key(KEY_2)])
+	_add("weapon_3", [_key(KEY_3)])
+	_add("weapon_next", [_button(JOY_BUTTON_DPAD_RIGHT)])
+	_add("weapon_prev", [_button(JOY_BUTTON_DPAD_LEFT)])
+	_add("bomb", [_key(KEY_E), _button(JOY_BUTTON_Y)])
 	# Dash is a short invulnerable burst; boost is the sustained afterburner.
 	_add("dash", [_key(KEY_SPACE), _button(JOY_BUTTON_LEFT_SHOULDER)])
 	_add("boost", [_key(KEY_SHIFT), _axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)])

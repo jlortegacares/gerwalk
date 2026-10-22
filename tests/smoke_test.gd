@@ -30,6 +30,7 @@ func _ready() -> void:
 	await _test_enemy_patterns()
 	await _test_enemies_roam_the_planet()
 	await _test_afterburner()
+	await _test_arsenal()
 
 	_clear_enemies()
 	_clear_projectiles()
@@ -228,6 +229,195 @@ func _test_afterburner() -> void:
 	GlobalEventBus.player_turbo_changed.disconnect(handler)
 	for _i in 40:
 		await get_tree().physics_frame
+
+
+## The arsenal is three archetypes with different shapes of damage, so each one is
+## asserted by its signature behaviour instead of by its numbers: tuning a weapon
+## must not rewrite the test.
+func _test_arsenal() -> void:
+	var weapons: WeaponSystem = _player.get_node("Weapons") as WeaponSystem
+	_check(weapons != null, "the player carries a weapon system")
+	if weapons == null:
+		return
+
+	await _test_weapon_switch(weapons)
+	await _test_vulcan(weapons)
+	await _test_laser(weapons)
+	await _test_plasma(weapons)
+	await _test_firing_costs_no_speed(weapons)
+
+	Input.action_release(&"aim_left")
+	Input.action_release(&"fire")
+	_clear_projectiles()
+	_clear_enemies()
+	await get_tree().physics_frame
+
+
+func _test_weapon_switch(weapons: WeaponSystem) -> void:
+	var announced: Array[String] = []
+	var handler: Callable = func(name: String) -> void: announced.append(name)
+	GlobalEventBus.player_weapon_changed.connect(handler)
+
+	Input.action_press(&"weapon_3")
+	await get_tree().physics_frame
+	Input.action_release(&"weapon_3")
+	await get_tree().physics_frame
+
+	_check(weapons.kind() == Arsenal.Kind.PLASMA, "key 3 selects the plasma")
+	_check(announced.has("PLASMA"), "weapon changes reach the event bus")
+
+	Input.action_press(&"weapon_next")
+	await get_tree().physics_frame
+	Input.action_release(&"weapon_next")
+	await get_tree().physics_frame
+
+	_check(
+		weapons.kind() == Arsenal.Kind.VULCAN,
+		"the D-pad cycles past the last weapon back to the first"
+	)
+	GlobalEventBus.player_weapon_changed.disconnect(handler)
+
+
+func _test_vulcan(weapons: WeaponSystem) -> void:
+	weapons.select(Arsenal.Kind.VULCAN)
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	Input.action_press(&"aim_left")
+	await get_tree().physics_frame
+	Input.action_press(&"fire")
+	await get_tree().physics_frame
+	Input.action_release(&"fire")
+	await get_tree().physics_frame
+
+	var shots: Array[Projectile] = _player_projectiles()
+	_check(
+		shots.size() >= Arsenal.VULCAN_PELLETS,
+		"vulcan opens with a %d-pellet fan (fired %d)" % [Arsenal.VULCAN_PELLETS, shots.size()]
+	)
+
+	var widest: float = 0.0
+	for i in shots.size():
+		for j in range(i + 1, shots.size()):
+			var first: Vector3 = shots[i].get("_velocity")
+			var second: Vector3 = shots[j].get("_velocity")
+			widest = maxf(widest, rad_to_deg(first.normalized().angle_to(second.normalized())))
+	_check(widest > 20.0, "the fan spreads across the aim (%.0f degrees)" % widest)
+	_clear_projectiles()
+
+
+## The beam is the only weapon with no travel time, so the test asks for the two
+## things that only a hit-scan can do: damage without a projectile, and damage that
+## lands while the target is still far away.
+func _test_laser(weapons: WeaponSystem) -> void:
+	var enemy: Enemy = _spawn_enemy(_player.global_position + _aim() * 12.0)
+	_check(enemy != null, "spawned a target for the laser")
+	if enemy == null:
+		return
+
+	weapons.select(Arsenal.Kind.LASER)
+	_clear_projectiles()
+	var before: int = enemy.current_hp()
+
+	Input.action_press(&"fire")
+	for _i in 12:
+		await get_tree().physics_frame
+	Input.action_release(&"fire")
+	await get_tree().physics_frame
+
+	_check(
+		enemy.current_hp() < before,
+		"the laser burns the target it points at (%d -> %d hp)" % [before, enemy.current_hp()]
+	)
+	_check(_player_projectiles().is_empty(), "the laser emits no projectile (hit-scan)")
+
+	_clear_enemies()
+	await get_tree().physics_frame
+
+
+## Plasma is the only weapon that ignores where the nose is pointing after the
+## shot leaves, so the assertion is that the bolt acquired the off-axis turret and
+## turned away from the aim to reach it.
+func _test_plasma(weapons: WeaponSystem) -> void:
+	var off_axis: Vector3 = _aim().rotated(Vector3.UP, deg_to_rad(24.0))
+	var enemy: Enemy = _spawn_enemy(_player.global_position + off_axis * 18.0)
+	_check(enemy != null, "spawned an off-axis target for the plasma")
+	if enemy == null:
+		return
+
+	weapons.select(Arsenal.Kind.PLASMA)
+	_clear_projectiles()
+	var aim: Vector3 = _aim()
+
+	Input.action_press(&"fire")
+	await get_tree().physics_frame
+	Input.action_release(&"fire")
+
+	var bolts: Array[Projectile] = _player_projectiles()
+	_check(bolts.size() >= 1, "plasma fires a bolt (fired %d)" % bolts.size())
+	if bolts.is_empty():
+		_clear_enemies()
+		return
+
+	var bolt: Projectile = bolts[0]
+	_check(bolt.get("_target") == enemy, "the bolt locks the turret inside the cone")
+
+	var curved: bool = false
+	for _i in 6:
+		await get_tree().physics_frame
+	if not is_instance_valid(bolt):
+		# It arrived: a bolt that covers 18 units in six frames had to turn.
+		curved = true
+	else:
+		var heading: Vector3 = bolt.get("_velocity")
+		curved = rad_to_deg(heading.normalized().angle_to(aim)) > 2.0
+	_check(curved, "the bolt curves off the aim towards the lock")
+
+	_clear_projectiles()
+	_clear_enemies()
+	await get_tree().physics_frame
+
+
+func _test_firing_costs_no_speed(weapons: WeaponSystem) -> void:
+	weapons.select(Arsenal.Kind.VULCAN)
+	Input.action_press(&"move_right")
+	Input.action_press(&"fire")
+	for _i in 60:
+		await get_tree().physics_frame
+	var speed: float = _flat_speed()
+	Input.action_release(&"fire")
+	Input.action_release(&"move_right")
+
+	_check(
+		absf(speed - Player.MAX_SPEED) < 2.0,
+		"firing costs no translation speed (%.1f u/s)" % speed
+	)
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+
+func _spawn_enemy(position: Vector3) -> Enemy:
+	var scene: PackedScene = load("res://entities/enemy/turret.tscn")
+	if scene == null:
+		return null
+	var enemy: Enemy = scene.instantiate() as Enemy
+	_arena.add_child(enemy)
+	enemy.global_position = position
+	return enemy
+
+
+func _player_projectiles() -> Array[Projectile]:
+	var found: Array[Projectile] = []
+	for child in get_children():
+		var bullet: Projectile = child as Projectile
+		if bullet != null and int(bullet.get("_team")) == Projectile.Team.PLAYER:
+			found.append(bullet)
+	return found
+
+
+func _aim() -> Vector3:
+	var aim: Vector3 = _player.get("_aim_direction")
+	return aim
 
 
 ## The planet has no boundary any more: the surface under the ship is replaced as

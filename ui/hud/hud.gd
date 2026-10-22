@@ -3,6 +3,7 @@ extends CanvasLayer
 
 @onready var _health_bar: Control = %HealthBar
 @onready var _turbo_bar: Control = %TurboBar
+@onready var _weapon_label: Label = %WeaponLabel
 @onready var _game_over: Control = %GameOver
 
 var _game_over_visible: bool = false
@@ -12,6 +13,7 @@ func _ready() -> void:
 	_game_over.visible = false
 	GlobalEventBus.player_health_changed.connect(_on_player_health_changed)
 	GlobalEventBus.player_turbo_changed.connect(_on_player_turbo_changed)
+	GlobalEventBus.player_weapon_changed.connect(_on_player_weapon_changed)
 	GlobalEventBus.player_died.connect(_on_player_died)
 
 
@@ -27,6 +29,10 @@ func _on_player_health_changed(current: int, maximum: int) -> void:
 
 func _on_player_turbo_changed(current: float, maximum: float) -> void:
 	_turbo_bar.set_turbo(current, maximum)
+
+
+func _on_player_weapon_changed(weapon_name: String) -> void:
+	_weapon_label.text = weapon_name
 
 
 func _on_player_died() -> void:

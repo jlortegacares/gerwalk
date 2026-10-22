@@ -42,6 +42,21 @@ grow_vertical = 0
 mouse_filter = 2
 script = ExtResource("3_turbo")
 
+[node name="WeaponLabel" type="Label" parent="HudRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 36.0
+offset_top = -106.0
+offset_right = 360.0
+offset_bottom = -84.0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 16
+text = "VULCAN"
+
 [node name="HintLabel" type="Label" parent="HudRoot"]
 layout_mode = 1
 offset_left = 36.0
@@ -50,7 +65,7 @@ offset_right = 900.0
 offset_bottom = 48.0
 theme_override_colors/font_color = Color(1, 1, 1, 0.45)
 theme_override_font_sizes/font_size = 13
-text = "WASD / left stick: move     mouse or right stick: aim and fire     Shift / RT: afterburner     Space / LB: dash     R: restart"
+text = "WASD / left stick: move     mouse or right stick: aim and fire     1-3 or D-pad: weapon     E / Y: bomb     Shift / RT: afterburner     Space / LB: dash     R: restart"
 
 [node name="GameOver" type="Control" parent="HudRoot"]
 unique_name_in_owner = true

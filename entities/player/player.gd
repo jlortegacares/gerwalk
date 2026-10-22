@@ -19,9 +19,6 @@ const AIM_DEADZONE: float = 0.30
 const MAX_HP: int = 6
 const IFRAME_DURATION: float = 0.85
 
-const FIRE_INTERVAL: float = 0.08
-const BULLET_SPEED: float = 78.0
-
 const DASH_SPEED: float = 64.0
 const DASH_DURATION: float = 0.16
 const DASH_COOLDOWN: float = 0.85
@@ -64,9 +61,10 @@ const BEAM_COLOR: Color = Color(0.24, 0.9, 0.8, 1.0)
 
 var camera: Camera3D
 
+var _weapons: WeaponSystem
+
 var _hp: int = MAX_HP
 var _aim_direction: Vector3 = Vector3.RIGHT
-var _fire_cooldown: float = 0.0
 var _invulnerable: float = 0.0
 var _dash_time: float = 0.0
 var _dash_cooldown: float = 0.0
@@ -100,8 +98,15 @@ func _ready() -> void:
 	_build_visual()
 	_build_thrusters()
 	_build_aim_beam()
+
+	_weapons = WeaponSystem.new()
+	_weapons.name = "Weapons"
+	_weapons.setup(bullet_scene)
+	add_child(_weapons)
+
 	GlobalEventBus.player_health_changed.emit.call_deferred(_hp, MAX_HP)
 	GlobalEventBus.player_turbo_changed.emit.call_deferred(_turbo, TURBO_MAX)
+	GlobalEventBus.player_weapon_changed.emit.call_deferred(Arsenal.NAMES[Arsenal.Kind.VULCAN])
 
 
 func _physics_process(delta: float) -> void:
@@ -120,7 +125,7 @@ func _physics_process(delta: float) -> void:
 		_move(delta)
 
 	_update_aim()
-	_update_firing()
+	_update_weapons(delta)
 	_update_afterburner_visual(delta)
 
 
@@ -270,32 +275,35 @@ func _mouse_direction_on_plane() -> Vector3:
 	return flat.normalized()
 
 
-func _update_firing() -> void:
-	if _fire_cooldown > 0.0:
-		return
+## Weapon selection lives here because the player owns its input; the numbers and
+## the firing live in WeaponSystem. Selecting never interrupts fire: the next tick
+## fires the new weapon immediately.
+func _update_weapons(delta: float) -> void:
+	if Input.is_action_just_pressed(&"weapon_1"):
+		_weapons.select(Arsenal.Kind.VULCAN)
+	elif Input.is_action_just_pressed(&"weapon_2"):
+		_weapons.select(Arsenal.Kind.LASER)
+	elif Input.is_action_just_pressed(&"weapon_3"):
+		_weapons.select(Arsenal.Kind.PLASMA)
+	elif Input.is_action_just_pressed(&"weapon_next"):
+		_weapons.cycle(1)
+	elif Input.is_action_just_pressed(&"weapon_prev"):
+		_weapons.cycle(-1)
 
 	var stick_aim: Vector2 = Input.get_vector(
 		&"aim_left", &"aim_right", &"aim_up", &"aim_down"
 	)
 	var wants_fire: bool = Input.is_action_pressed(&"fire") or stick_aim.length() > AIM_DEADZONE
 
-	if wants_fire:
-		_fire()
-		_fire_cooldown = FIRE_INTERVAL
-
-
-func _fire() -> void:
-	if bullet_scene == null:
-		return
-
-	var bullet: Projectile = bullet_scene.instantiate()
-	get_tree().current_scene.add_child(bullet)
-	bullet.global_position = global_position + _aim_direction * MUZZLE_DISTANCE
-	bullet.setup(_aim_direction, BULLET_SPEED, Projectile.Team.PLAYER, 1)
+	_weapons.tick(
+		delta,
+		global_position + _aim_direction * MUZZLE_DISTANCE,
+		_aim_direction,
+		wants_fire
+	)
 
 
 func _tick_timers(delta: float) -> void:
-	_fire_cooldown = maxf(_fire_cooldown - delta, 0.0)
 	_dash_cooldown = maxf(_dash_cooldown - delta, 0.0)
 	_dash_time = maxf(_dash_time - delta, 0.0)
 

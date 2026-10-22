@@ -246,6 +246,12 @@ func _spawn_bullet(direction: Vector3, speed: float) -> void:
 	bullet.setup(direction, speed, Projectile.Team.ENEMY, 1)
 
 
+## Read-only view of the pool. The player still owns damage; this exists so the
+## smoke test can assert what a weapon actually did to a target.
+func current_hp() -> int:
+	return _hp
+
+
 func take_damage(amount: int) -> void:
 	if _state == State.DEAD:
 		return

@@ -31,31 +31,54 @@ const ORB_RADIUS: float = 0.55
 @export var impact_scene: PackedScene
 
 var _velocity: Vector3 = Vector3.ZERO
+var _speed: float = 0.0
 var _damage: int = 1
 var _team: Team = Team.PLAYER
 var _life: float = LIFETIME
+var _target: Node3D = null
+var _turn_rate: float = 0.0
 
 
 func _ready() -> void:
 	body_entered.connect(_on_body_entered)
 
 
-func setup(direction: Vector3, speed: float, team: Team, damage: int = 1) -> void:
+## `tint` lets a player weapon keep its own colour (a warm missile, a plasma
+## bolt) while the team still owns the shape and the collision layers. A
+## transparent tint means "use the team colour".
+func setup(
+	direction: Vector3,
+	speed: float,
+	team: Team,
+	damage: int = 1,
+	size: Vector3 = DART_SIZE,
+	target: Node3D = null,
+	turn_rate: float = 0.0,
+	tint: Color = Color(0.0, 0.0, 0.0, 0.0)
+) -> void:
 	_team = team
 	_damage = damage
+	_speed = speed
+	_target = target
+	_turn_rate = turn_rate
 	_velocity = Vector3(direction.x, 0.0, direction.z).normalized() * speed
 	rotation.y = atan2(_velocity.x, _velocity.z)
 
+	var color: Color = tint
+	if color.a <= 0.0:
+		color = PLAYER_COLOR if _team == Team.PLAYER else ENEMY_COLOR
+
 	# Shape and tint both encode the team: colour alone fails NFR-08 under
-	# bullet density, and shape survives a colour-blind pass.
+	# bullet density, and shape survives a colour-blind pass. Guidance does not
+	# change the shape, so a homing shot stays readable as a friendly dart.
 	if _team == Team.PLAYER:
 		collision_layer = 1 << LAYER_PLAYER_BULLET
 		collision_mask = (1 << LAYER_WORLD) | (1 << LAYER_ENEMY)
-		_build_visual(DART_SIZE, PLAYER_COLOR, false)
+		_build_visual(size, color, false)
 	else:
 		collision_layer = 1 << LAYER_ENEMY_BULLET
 		collision_mask = (1 << LAYER_WORLD) | (1 << LAYER_PLAYER)
-		_build_visual(Vector3.ONE * ORB_RADIUS, ENEMY_COLOR, true)
+		_build_visual(Vector3.ONE * ORB_RADIUS, color, true)
 
 
 func _build_visual(size: Vector3, color: Color, is_orb: bool) -> void:
@@ -85,12 +108,33 @@ func _build_visual(size: Vector3, color: Color, is_orb: bool) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_steer(delta)
 	global_position += _velocity * delta
 	_life -= delta
 
 	# The planet has no edge, so lifetime is the only bound on a missed shot.
 	if _life <= 0.0:
 		queue_free()
+
+
+## Homing shots keep their speed and turn towards the target at a fixed rate, so
+## the curve is legible: snapping instantly would look like a second aim, and an
+## unbounded turn would orbit the target instead of arriving. A freed target (it
+## died mid-flight) simply leaves the shot flying straight.
+func _steer(delta: float) -> void:
+	if _turn_rate <= 0.0 or not is_instance_valid(_target):
+		return
+
+	var to_target: Vector3 = _target.global_position - global_position
+	to_target.y = 0.0
+	if to_target.length_squared() < 0.01:
+		return
+
+	var heading: Vector3 = _velocity.normalized()
+	var angle: float = heading.signed_angle_to(to_target.normalized(), Vector3.UP)
+	var step: float = clampf(angle, -_turn_rate * delta, _turn_rate * delta)
+	_velocity = heading.rotated(Vector3.UP, step) * _speed
+	rotation.y = atan2(_velocity.x, _velocity.z)
 
 
 func _on_body_entered(body: Node3D) -> void:
