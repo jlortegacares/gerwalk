@@ -15,3 +15,6 @@ mono_crash.*.json
 .DS_Store
 Thumbs.db
 *.translation
+
+# The VF-1S textures are embedded in the GLB; this is the unpacked source.
+models/vf-1s/textures/

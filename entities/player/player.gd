@@ -108,9 +108,6 @@ const TRANSFORM_TIME: float = 0.28
 const SHOCKWAVE_LENGTH: float = 7.0
 const SHOCKWAVE_HALF_ANGLE: float = 30.0
 
-const THRUSTER_X: float = -1.92
-const THRUSTER_Z: float = 0.23
-
 ## The nose is long, so the muzzle and the aim beam start past its tip.
 const MUZZLE_DISTANCE: float = 3.05
 const BEAM_START: float = 2.60
@@ -122,42 +119,19 @@ const BEAM_LENGTH: float = 2.0
 const WING_SWEEP_FORWARD: float = 0.0
 const WING_SWEEP_BACK: float = 32.0
 
-## Desert airframe from the reference sheet: tan skin, maroon intakes and shrouds,
-## a white nose cone and an olive canopy. Flat colours only, no textures.
-const BODY_COLOR: Color = Color(0.78, 0.68, 0.47, 1.0)
+## Desert airframe from the reference sheet: the gunpod is the only piece still
+## built by hand, so only its two materials survive.
 const ACCENT_COLOR: Color = Color(0.34, 0.22, 0.17, 1.0)
-const NOSE_COLOR: Color = Color(0.93, 0.94, 0.89, 1.0)
-const CANOPY_COLOR: Color = Color(0.20, 0.27, 0.23, 1.0)
 const BEAM_COLOR: Color = Color(0.24, 0.9, 0.8, 1.0)
 ## The GU-11 gunpod is the one near-black piece on the airframe. It is not pure
 ## black: at this scale the faces have to separate or the rifle reads as a smudge.
 const GUNMETAL_COLOR: Color = Color(0.27, 0.28, 0.32, 1.0)
 
-## GERWALK is the VF-1's bird-legged stance, and the legs are the airframe's
-## nacelles: they are never hidden. FIGHTER folds them straight back along the
-## fuselage with the feet under the tail; GERWALK swings them down and out, knees
-## forward, feet under the nose.
-##
-## The legs are longer than the hover height can hide, so GERWALK lifts the whole
-## airframe by `GERWALK_LIFT` and the feet keep the same clearance: the ship stands
-## up out of the fighter instead of dragging its feet through the planet.
-const GERWALK_LIFT: float = 0.35
-const LEG_HIP: Vector3 = Vector3(0.10, -0.02, 0.40)
-const LEG_THIGH: float = 0.95
-const LEG_SHIN: float = 0.75
-const LEG_THIGH_ANGLE: float = 46.0      # down and forward from the hip
-const LEG_KNEE_ANGLE: float = 24.0       # the shin folds back under the thigh
-const LEG_SPLAY: float = 28.0            # degrees outboard, per side
-const LEG_FOOT_LENGTH: float = 0.58
-
-## The arm is short and the shoulder sits at the wing root, so the hand ends up
-## beside the nose where the gunpod belongs in the reference photos.
-const ARM_SHOULDER: Vector3 = Vector3(0.45, 0.0, 0.44)
-const ARM_UPPER: float = 0.30
-const ARM_FOREARM: float = 0.28
-const ARM_UPPER_ANGLE: float = 50.0      # down and forward
-const ARM_ELBOW_ANGLE: float = 30.0
-const ARM_SPLAY: float = 34.0
+## GERWALK is the VF-1's bird-legged stance: the model's legs are the nacelles and
+## the skeleton swings them down and out. They reach further below the hull than
+## the placeholder's did, so the whole airframe rides higher in the stance to keep
+## the feet off the planet.
+const GERWALK_LIFT: float = 0.55
 
 ## Where the gunpod rides when there is no hand to hold it: centreline, under the
 ## belly, which is where a VF-1 carries it in FIGHTER.
@@ -206,16 +180,13 @@ var _base_fov: float = 58.0
 
 var _visual: Node3D
 var _aim_beam: MeshInstance3D
-var _body_material: StandardMaterial3D
+var _model: PlayerModel
 var _accent_material: StandardMaterial3D
-var _nose_material: StandardMaterial3D
-var _canopy_material: StandardMaterial3D
-var _wing_right: Node3D
-var _wing_left: Node3D
-var _leg_joints: Array[Dictionary] = []
-var _arm_joints: Array[Dictionary] = []
 var _gunpod: Node3D
 var _gunmetal_material: StandardMaterial3D
+## Nozzle positions for the frame, in `_visual` space. They move with the legs,
+## so the flames are rebuilt from them every frame instead of a fixed offset.
+var _nozzle_anchors: Array[Vector3] = []
 var _thruster_plumes_material: StandardMaterial3D
 var _thruster_cores_material: StandardMaterial3D
 var _thruster_plumes: Array[MeshInstance3D] = []
@@ -457,9 +428,6 @@ func _update_afterburner_visual(delta: float) -> void:
 	_thrust_kick = move_toward(_thrust_kick, 0.0, THRUST_KICK_DECAY * delta)
 	var kick: float = _thrust_kick
 
-	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65 + kick * 1.10)
-	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00 + kick * 0.70)
-
 	# The silhouette is the mode read from above: FIGHTER locks the wings fully aft
 	# and dips the nose, GERWALK holds them forward and level like a hovering
 	# airframe. The blend follows the mode the switch is committing *to*, not the
@@ -473,10 +441,14 @@ func _update_afterburner_visual(delta: float) -> void:
 	# In between modes the wings still answer the throttle, which keeps the sweep
 	# continuous instead of snapping at the end of the transformation.
 	var sweep_t: float = lerpf(thrust, 1.0, _mode_blend)
-	var sweep: float = deg_to_rad(lerpf(WING_SWEEP_FORWARD, WING_SWEEP_BACK, sweep_t))
-	_wing_right.rotation.y = -sweep
-	_wing_left.rotation.y = sweep
-	_update_mode_pose()
+	var sweep: float = lerpf(WING_SWEEP_FORWARD, WING_SWEEP_BACK, sweep_t)
+	_update_mode_pose(sweep)
+
+	# The flames hang off the nozzles, and the nozzles are the feet: the stance
+	# swings them forward, so the anchors are read back after the pose.
+	_nozzle_anchors = _model.nozzle_anchors() if _model != null else []
+	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65 + kick * 1.10)
+	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00 + kick * 0.70)
 
 	_thruster_plumes_material.albedo_color = Color(
 		lerpf(0.22, 0.5, heat),
@@ -553,8 +525,12 @@ func _update_shockwave() -> void:
 ## same amount or the base would detach from the hull.
 func _layout_flames(flames: Array[MeshInstance3D], length: float) -> void:
 	for flame in flames:
+		var nozzle: int = int(flame.get_meta("nozzle", 0))
+		var anchor: Vector3 = Vector3.ZERO
+		if nozzle < _nozzle_anchors.size():
+			anchor = _nozzle_anchors[nozzle]
 		flame.scale = Vector3(1.0, length, 1.0)
-		flame.position.x = THRUSTER_X - length * 0.5
+		flame.position = Vector3(anchor.x - length * 0.5, anchor.y, anchor.z)
 
 
 func _start_dash() -> void:
@@ -780,25 +756,22 @@ func _spawn_impact() -> void:
 	impact.global_position = global_position
 
 
-## A low-poly fighter in flat colours, matching the reference sheet: long pointed
-## nose, cockpit, shoulder-mounted swing wings, twin canted tails and two engine
-## nozzles. Hand-built like every other placeholder, so the pre-rendered asset
-## pipeline (D-02) can still replace it later.
+## The airframe is the imported VF-1S, posed by its own skeleton. Everything that
+## used to be hand-built here (hull, wings, tails, canopy, limbs) ships inside the
+## model; only the gunpod stays procedural, because the model carries none.
 func _build_visual() -> void:
 	_visual = Node3D.new()
 	add_child(_visual)
 
-	_body_material = _ship_material(BODY_COLOR, 0.12)
 	_accent_material = _ship_material(ACCENT_COLOR, 0.05)
-	_nose_material = _ship_material(NOSE_COLOR, 0.20)
-	_canopy_material = _ship_material(CANOPY_COLOR, 0.25)
 	_gunmetal_material = _ship_material(GUNMETAL_COLOR, 0.0)
 
-	_build_fuselage()
-	_build_wings()
-	_build_empennage()
-	_build_canopy()
-	_build_limbs()
+	_model = PlayerModel.new()
+	_model.name = "Model"
+	_visual.add_child(_model)
+	_model.build()
+
+	_gunpod = _build_gunpod()
 
 
 func _ship_material(color: Color, glow: float) -> StandardMaterial3D:
@@ -812,187 +785,6 @@ func _ship_material(color: Color, glow: float) -> StandardMaterial3D:
 	material.emission = color
 	material.emission_energy_multiplier = glow
 	return material
-
-
-## Stations run along +X and carry a half-width (Z) and a half-height (Y). Broad
-## shoulders at the intakes and a narrow tail between the nozzles: that planform
-## is what the player reads from a near-overhead camera.
-func _build_fuselage() -> void:
-	var nose: Array[Vector3] = [
-		Vector3(2.25, 0.02, 0.02),
-		Vector3(1.95, 0.10, 0.06),
-		Vector3(1.55, 0.20, 0.11),
-		Vector3(1.15, 0.30, 0.15),
-	]
-	var body: Array[Vector3] = [
-		Vector3(1.15, 0.30, 0.15),
-		Vector3(0.75, 0.40, 0.20),
-		Vector3(0.10, 0.50, 0.25),
-		Vector3(-0.60, 0.52, 0.26),
-		Vector3(-1.25, 0.46, 0.24),
-		Vector3(-1.85, 0.38, 0.21),
-	]
-	_visual.add_child(_loft(nose, _nose_material))
-	_visual.add_child(_loft(body, _body_material))
-
-	var intake: Array[Vector2] = [
-		Vector2(0.80, 0.32), Vector2(-0.35, 0.32), Vector2(-0.48, 0.56), Vector2(0.60, 0.56),
-	]
-	for side in [-1.0, 1.0]:
-		var duct: MeshInstance3D = _slab(intake, 0.20, _accent_material, float(side))
-		duct.position.y = -0.02
-		_visual.add_child(duct)
-
-
-## The pivot sits at the wing root, so sweeping rotates the wing around the joint
-## instead of sliding it through the fuselage.
-func _build_wings() -> void:
-	_wing_right = _build_wing(1.0)
-	_wing_left = _build_wing(-1.0)
-
-
-func _build_wing(side: float) -> Node3D:
-	var pivot: Node3D = Node3D.new()
-	pivot.position = Vector3(0.0, 0.05, 0.44 * side)
-	_visual.add_child(pivot)
-
-	var outline: Array[Vector2] = [
-		Vector2(0.55, 0.02), Vector2(-0.35, 1.50), Vector2(-0.80, 1.50), Vector2(-0.90, 0.02),
-	]
-	pivot.add_child(_slab(outline, 0.07, _body_material, side))
-	return pivot
-
-
-## Twin tails and the tailplane. From a near-overhead camera the fins are almost
-## edge-on, so they stay thin slivers; the tailplane carries the rear read.
-func _build_empennage() -> void:
-	var tailplane: Array[Vector2] = [
-		Vector2(-1.15, 0.12), Vector2(-1.55, 0.86), Vector2(-1.78, 0.86), Vector2(-1.72, 0.12),
-	]
-	var fin: Array[Vector2] = [
-		Vector2(0.36, 0.0), Vector2(-0.36, 0.0), Vector2(-0.54, 0.52), Vector2(-0.06, 0.52),
-	]
-	var nozzle_mesh: CylinderMesh = CylinderMesh.new()
-	nozzle_mesh.top_radius = 0.15
-	nozzle_mesh.bottom_radius = 0.19
-	nozzle_mesh.height = 0.36
-	nozzle_mesh.radial_segments = 10
-
-	for side in [-1.0, 1.0]:
-		var direction: float = float(side)
-
-		var plane: MeshInstance3D = _slab(tailplane, 0.08, _body_material, direction)
-		plane.position.y = 0.06
-		_visual.add_child(plane)
-
-		var tail: MeshInstance3D = _slab(fin, 0.07, _accent_material, direction)
-		tail.rotation.x = -PI * 0.5
-		tail.position = Vector3(-1.05, 0.16, 0.31 * direction)
-		_visual.add_child(tail)
-
-		var nozzle: MeshInstance3D = _mesh_node(nozzle_mesh, _accent_material)
-		nozzle.rotation.z = PI * 0.5
-		nozzle.position = Vector3(-1.72, 0.0, THRUSTER_Z * direction)
-		_visual.add_child(nozzle)
-
-
-func _build_canopy() -> void:
-	var mesh: SphereMesh = SphereMesh.new()
-	mesh.radius = 0.5
-	mesh.height = 1.0
-	mesh.radial_segments = 10
-	mesh.rings = 6
-
-	var canopy: MeshInstance3D = _mesh_node(mesh, _canopy_material)
-	canopy.position = Vector3(0.62, 0.24, 0.0)
-	canopy.scale = Vector3(0.95, 0.44, 0.40)
-	_visual.add_child(canopy)
-
-
-## The legs, the arms and the gunpod. Each one hangs off a joint chain so the mode
-## switch can pose it: the hull is rigid, but the limbs are what make GERWALK read
-## as a mech instead of a jet with its wings forward.
-func _build_limbs() -> void:
-	for side in [-1.0, 1.0]:
-		_leg_joints.append(_build_leg(float(side)))
-		_arm_joints.append(_build_arm(float(side)))
-	_gunpod = _build_gunpod()
-
-
-## Hip, knee and ankle. The meshes are boxes on purpose: an engine nacelle is a
-## machined block and reads better with hard edges than with another loft.
-func _build_leg(side: float) -> Dictionary:
-	var hip: Node3D = Node3D.new()
-	hip.position = Vector3(LEG_HIP.x, LEG_HIP.y, LEG_HIP.z * side)
-	_visual.add_child(hip)
-
-	var thigh: MeshInstance3D = _block(Vector3(LEG_THIGH, 0.34, 0.42), _body_material)
-	thigh.position = Vector3(LEG_THIGH * 0.5, 0.0, 0.0)
-	hip.add_child(thigh)
-
-	var knee: Node3D = Node3D.new()
-	knee.position = Vector3(LEG_THIGH, 0.0, 0.0)
-	hip.add_child(knee)
-
-	var shin: MeshInstance3D = _block(Vector3(LEG_SHIN, 0.22, 0.26), _body_material)
-	shin.position = Vector3(LEG_SHIN * 0.5, 0.0, 0.0)
-	knee.add_child(shin)
-
-	# A white collar wraps the joint and is fatter than both the thigh and the
-	# shin, so the knee breaks the leg into two clear segments from any angle.
-	var cap: MeshInstance3D = _block(Vector3(0.20, 0.40, 0.48), _nose_material)
-	knee.add_child(cap)
-
-	var ankle: Node3D = Node3D.new()
-	ankle.position = Vector3(LEG_SHIN, 0.0, 0.0)
-	knee.add_child(ankle)
-
-	# The splay rolls the whole leg outboard, which would tilt the soles like a
-	# bird's talon. This pivot cancels that roll, so the white plates stay parallel
-	# to the ground while the leg above them still reaches outboard.
-	var sole: Node3D = Node3D.new()
-	ankle.add_child(sole)
-
-	var foot: MeshInstance3D = _block(Vector3(LEG_FOOT_LENGTH, 0.13, 0.42), _nose_material)
-	foot.position = Vector3(0.22, -0.08, 0.0)
-	sole.add_child(foot)
-
-	var heel: MeshInstance3D = _block(Vector3(0.20, 0.12, 0.34), _accent_material)
-	heel.position = Vector3(-0.12, -0.06, 0.0)
-	sole.add_child(heel)
-
-	return {"side": side, "hip": hip, "knee": knee, "ankle": ankle, "sole": sole}
-
-
-## Shoulder, elbow and hand. The hand is an empty pivot: the gunpod is not parented
-## to it, because the pod has to stow on the belly in FIGHTER while the arm folds
-## away from it.
-func _build_arm(side: float) -> Dictionary:
-	var shoulder: Node3D = Node3D.new()
-	shoulder.position = Vector3(ARM_SHOULDER.x, ARM_SHOULDER.y, ARM_SHOULDER.z * side)
-	_visual.add_child(shoulder)
-
-	var upper: MeshInstance3D = _block(Vector3(ARM_UPPER, 0.20, 0.22), _accent_material)
-	upper.position = Vector3(ARM_UPPER * 0.5, 0.0, 0.0)
-	shoulder.add_child(upper)
-
-	var elbow: Node3D = Node3D.new()
-	elbow.position = Vector3(ARM_UPPER, 0.0, 0.0)
-	shoulder.add_child(elbow)
-
-	var forearm: MeshInstance3D = _block(Vector3(ARM_FOREARM, 0.18, 0.18), _body_material)
-	forearm.position = Vector3(ARM_FOREARM * 0.5, 0.0, 0.0)
-	elbow.add_child(forearm)
-
-	var hand: Node3D = Node3D.new()
-	hand.position = Vector3(ARM_FOREARM, 0.0, 0.0)
-	elbow.add_child(hand)
-
-	var fist: MeshInstance3D = _block(Vector3(0.14, 0.16, 0.16), _nose_material)
-	fist.position = Vector3(0.05, 0.0, 0.0)
-	hand.add_child(fist)
-
-	return {"side": side, "shoulder": shoulder, "elbow": elbow, "hand": hand}
 
 
 ## The GU-11. The origin is the grip, so placing the pod at the hand puts the
@@ -1028,61 +820,24 @@ func _build_gunpod() -> Node3D:
 	return pod
 
 
-## The mode switch is a pose, not a swap: every joint has a FIGHTER keyframe and a
-## GERWALK keyframe and `_mode_blend` carries the limbs between them over the same
-## 0.28 s the flight rules take. Nothing pops in or out, and FIGHTER keeps the legs
-## as the nacelles the fighter silhouette already had.
-func _update_mode_pose() -> void:
-	if _leg_joints.is_empty():
-		return
-	var fighter: float = _mode_blend
-	var gerwalk: float = 1.0 - fighter
+## The mode switch is a pose, not a swap: the skeleton carries a FIGHTER keyframe
+## (its own rest pose) and a GERWALK keyframe, and `_mode_blend` walks between them
+## over the same 0.28 s the flight rules take. Nothing pops in or out, and the
+## model's folded legs stay the nacelles the fighter silhouette already had.
+func _update_mode_pose(sweep: float) -> void:
+	var gerwalk: float = 1.0 - _mode_blend
 	_visual.position.y = GERWALK_LIFT * gerwalk
-
-	for joint in _leg_joints:
-		var side: float = float(joint["side"])
-		var hip: Node3D = joint["hip"] as Node3D
-		var knee: Node3D = joint["knee"] as Node3D
-		var ankle: Node3D = joint["ankle"] as Node3D
-		var sole: Node3D = joint["sole"] as Node3D
-
-		# Down is a roll around the leg's Z axis; outboard is a pitch around its X.
-		# Godot's Euler order is YXZ, so the yaw that folds the leg aft is applied
-		# before the drop, and the leg swings out of the fuselage instead of through
-		# it.
-		hip.rotation = Vector3(
-			deg_to_rad(-LEG_SPLAY * side * gerwalk),
-			PI * fighter,
-			deg_to_rad(-LEG_THIGH_ANGLE * gerwalk)
-		)
-		knee.rotation.z = deg_to_rad(-LEG_KNEE_ANGLE * gerwalk)
-		# The foot comes back to level twice over: the ankle undoes the knee's pitch
-		# and the sole undoes the hip's roll. Big flat white plates facing the
-		# camera are most of what makes the stance read in GERWALK.
-		ankle.rotation.z = deg_to_rad((LEG_THIGH_ANGLE + LEG_KNEE_ANGLE) * gerwalk)
-		sole.rotation.x = deg_to_rad(LEG_SPLAY * side * gerwalk)
-
-	for joint in _arm_joints:
-		var side: float = float(joint["side"])
-		var shoulder: Node3D = joint["shoulder"] as Node3D
-		var elbow: Node3D = joint["elbow"] as Node3D
-		shoulder.rotation = Vector3(
-			deg_to_rad(-ARM_SPLAY * side * gerwalk),
-			PI * fighter,
-			deg_to_rad(-ARM_UPPER_ANGLE * gerwalk)
-		)
-		elbow.rotation.z = deg_to_rad(ARM_ELBOW_ANGLE * gerwalk)
+	if _model != null:
+		_model.pose_mode(gerwalk, sweep)
 
 	# The pod follows the right hand in GERWALK and stows on the centreline in
 	# FIGHTER. Reading the hand instead of re-deriving its position keeps the pod
 	# glued to the grip while the arm is still moving through the switch.
-	var hand: Node3D = null
-	for joint in _arm_joints:
-		if float(joint["side"]) > 0.0:
-			hand = joint["hand"] as Node3D
-	if _gunpod == null or hand == null:
+	if _gunpod == null:
 		return
-	var held: Vector3 = _visual.to_local(hand.global_position)
+	var held: Vector3 = GUNPOD_STOWED
+	if _model != null:
+		held = _model.hand_anchor()
 	_gunpod.position = GUNPOD_STOWED.lerp(held, gerwalk)
 
 
@@ -1102,115 +857,6 @@ func _mesh_node(mesh: Mesh, material: StandardMaterial3D) -> MeshInstance3D:
 	return node
 
 
-## Lofts a closed fuselage from ring stations. The section is an octagon: a flat
-## deck and chamfered sides read cleanly from above and cost a fraction of a
-## smooth hull.
-func _loft(stations: Array[Vector3], material: StandardMaterial3D) -> MeshInstance3D:
-	var shape: Array[Vector2] = [
-		Vector2(1.0, 0.0), Vector2(0.62, 0.78), Vector2(0.0, 1.0), Vector2(-0.62, 0.78),
-		Vector2(-1.0, 0.0), Vector2(-0.62, -0.78), Vector2(0.0, -1.0), Vector2(0.62, -0.78),
-	]
-
-	var st: SurfaceTool = SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-
-	for index in stations.size() - 1:
-		var near: Vector3 = stations[index]
-		var far: Vector3 = stations[index + 1]
-		for corner in shape.size():
-			var next: int = (corner + 1) % shape.size()
-			var middle: Vector2 = (shape[corner] + shape[next]) * 0.5
-			_quad(st,
-				_station_point(near, shape[corner]),
-				_station_point(near, shape[next]),
-				_station_point(far, shape[next]),
-				_station_point(far, shape[corner]),
-				Vector3(0.0, middle.y, middle.x))
-
-	_cap(st, stations[0], Vector3.RIGHT, shape)
-	_cap(st, stations[stations.size() - 1], Vector3.LEFT, shape)
-	st.generate_normals()
-	return _mesh_node(st.commit(), material)
-
-
-## A station is (x, half-width along Z, half-height along Y); a corner is a
-## normalised (z, y) pair on the octagon.
-func _station_point(station: Vector3, corner: Vector2) -> Vector3:
-	return Vector3(station.x, corner.y * station.z, corner.x * station.y)
-
-
-func _cap(st: SurfaceTool, station: Vector3, direction: Vector3, shape: Array[Vector2]) -> void:
-	var centre: Vector3 = Vector3(station.x, 0.0, 0.0)
-	for corner in shape.size():
-		var next: int = (corner + 1) % shape.size()
-		_face(st, centre,
-			_station_point(station, shape[corner]),
-			_station_point(station, shape[next]),
-			direction)
-
-
-## Extrudes a flat polygon that lives in the XZ plane into a slab: wings, tail
-## surfaces and fins all come from here. `mirror` flips the polygon across the
-## centreline, so one outline serves both sides.
-func _slab(
-	outline: Array[Vector2],
-	thickness: float,
-	material: StandardMaterial3D,
-	mirror: float
-) -> MeshInstance3D:
-	var points: Array[Vector3] = []
-	for point in outline:
-		points.append(Vector3(point.x, 0.0, point.y * mirror))
-
-	var centre: Vector3 = Vector3.ZERO
-	for point in points:
-		centre += point
-	centre /= float(points.size())
-
-	var up: Vector3 = Vector3.UP * thickness * 0.5
-	var down: Vector3 = Vector3.DOWN * thickness * 0.5
-
-	var st: SurfaceTool = SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-
-	var triangles: PackedInt32Array = Geometry2D.triangulate_polygon(PackedVector2Array(outline))
-	for index in range(0, triangles.size(), 3):
-		var a: Vector3 = points[triangles[index]]
-		var b: Vector3 = points[triangles[index + 1]]
-		var c: Vector3 = points[triangles[index + 2]]
-		_face(st, a + up, b + up, c + up, Vector3.UP)
-		_face(st, a + down, b + down, c + down, Vector3.DOWN)
-
-	for corner in points.size():
-		var next: int = (corner + 1) % points.size()
-		var outward: Vector3 = (points[corner] + points[next]) * 0.5 - centre
-		outward.y = 0.0
-		_face(st, points[corner] + up, points[next] + up, points[next] + down, outward)
-		_face(st, points[corner] + up, points[next] + down, points[corner] + down, outward)
-
-	st.generate_normals()
-	return _mesh_node(st.commit(), material)
-
-
-func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, outward: Vector3) -> void:
-	_face(st, a, b, c, outward)
-	_face(st, a, c, d, outward)
-
-
-## Winding is decided per triangle by checking the face normal against the side it
-## is supposed to face. It costs a dot product and removes the usual failure mode
-## of a hand-built mesh: a face that comes out inside-out and lights like a hole.
-func _face(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, outward: Vector3) -> void:
-	if (b - a).cross(c - a).dot(outward) < 0.0:
-		st.add_vertex(a)
-		st.add_vertex(c)
-		st.add_vertex(b)
-		return
-	st.add_vertex(a)
-	st.add_vertex(b)
-	st.add_vertex(c)
-
-
 ## Two additive, unshaded cones per nozzle: a wide plume and a thin core. The
 ## materials are shared by both nozzles, so one colour update per frame is enough
 ## and the two sides can never drift apart.
@@ -1218,10 +864,10 @@ func _build_thrusters() -> void:
 	_thruster_plumes_material = _make_thruster_material(Color(0.22, 0.6, 1.0, 0.12))
 	_thruster_cores_material = _make_thruster_material(Color(0.88, 0.98, 1.0, 0.25))
 
-	_add_thruster(-THRUSTER_Z, 0.19, _thruster_plumes_material, _thruster_plumes)
-	_add_thruster(THRUSTER_Z, 0.19, _thruster_plumes_material, _thruster_plumes)
-	_add_thruster(-THRUSTER_Z, 0.09, _thruster_cores_material, _thruster_cores)
-	_add_thruster(THRUSTER_Z, 0.09, _thruster_cores_material, _thruster_cores)
+	_nozzle_anchors = _model.nozzle_anchors() if _model != null else []
+	for nozzle in _nozzle_anchors.size():
+		_add_thruster(nozzle, 0.19, _thruster_plumes_material, _thruster_plumes)
+		_add_thruster(nozzle, 0.09, _thruster_cores_material, _thruster_cores)
 
 	_update_afterburner_visual(0.0)
 
@@ -1237,9 +883,10 @@ func _make_thruster_material(tint: Color) -> StandardMaterial3D:
 
 
 ## Cone with its tip trailing behind: the mesh axis is local Y, so a quarter turn
-## about Z lays it along X, pointing away from the nose.
+## about Z lays it along X, pointing away from the nose. Each flame remembers which
+## nozzle it belongs to and is placed from that anchor every frame.
 func _add_thruster(
-	z_offset: float,
+	nozzle: int,
 	base_radius: float,
 	material: StandardMaterial3D,
 	into: Array[MeshInstance3D]
@@ -1255,7 +902,7 @@ func _add_thruster(
 	flame.material_override = material
 	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	flame.rotation.z = PI * 0.5
-	flame.position = Vector3(THRUSTER_X, 0.0, z_offset)
+	flame.set_meta("nozzle", nozzle)
 	_visual.add_child(flame)
 	into.append(flame)
 

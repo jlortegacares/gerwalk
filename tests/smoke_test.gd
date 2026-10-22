@@ -472,49 +472,42 @@ func _test_transformation() -> void:
 	await get_tree().physics_frame
 
 
-## The GERWALK silhouette is a pose, not a second mesh: the legs swing down and
-## outboard with the feet under the nose where the near-overhead camera can see
-## them, the gunpod rides in the right hand, and FIGHTER folds both back into the
-## airframe without dropping anything through the planet.
+## The GERWALK silhouette is a skeleton pose, not a second mesh: the nacelles swing
+## down and outboard with the nozzles ahead of the wing root, where the near-overhead
+## camera can see them, the gunpod rides in the right hand, and FIGHTER folds both
+## back into the airframe without dropping anything through the planet.
 func _test_gerwalk_silhouette() -> void:
-	var legs: Array = _player.get("_leg_joints")
-	var arms: Array = _player.get("_arm_joints")
+	var model: PlayerModel = _player.get("_model") as PlayerModel
 	var pod: Node3D = _player.get("_gunpod")
 	var hull: Node3D = _player.get("_visual")
-	_check(legs.size() == 2, "the airframe carries two legs")
-	_check(arms.size() == 2, "the airframe carries two arms")
-	if legs.size() < 2 or arms.size() < 2 or pod == null or hull == null:
+	_check(model != null, "the airframe is the imported model")
+	if model == null or pod == null or hull == null:
 		return
 
-	var ankles: Array[Vector3] = []
-	for joint in legs:
-		ankles.append(hull.to_local((joint["ankle"] as Node3D).global_position))
+	var feet: Array[Vector3] = model.nozzle_anchors()
+	_check(feet.size() == 2, "the airframe carries two legs")
+	if feet.size() < 2:
+		return
 	_check(
-		absf(ankles[0].z + ankles[1].z) < 0.05,
-		"the legs splay symmetrically (z %.2f / %.2f)" % [ankles[0].z, ankles[1].z]
+		absf(feet[0].z + feet[1].z) < 0.05,
+		"the legs splay symmetrically (z %.2f / %.2f)" % [feet[0].z, feet[1].z]
 	)
-	_check(absf(ankles[0].z) > 0.85, "the legs stand wide (z %.2f)" % absf(ankles[0].z))
-	_check(ankles[0].y < -0.9, "the legs hang below the hull (y %.2f)" % ankles[0].y)
-	_check(ankles[0].x > 0.8, "the feet land ahead of the wing root (x %.2f)" % ankles[0].x)
-	var sole: float = (legs[0]["ankle"] as Node3D).global_position.y - 0.15
+	_check(absf(feet[0].z) > 0.6, "the legs stand wide (z %.2f)" % absf(feet[0].z))
+	_check(feet[0].y < -0.2, "the legs hang below the hull (y %.2f)" % feet[0].y)
+	_check(feet[0].x > 0.8, "the feet land ahead of the wing root (x %.2f)" % feet[0].x)
+	var sole: float = hull.to_global(feet[0]).y - 0.15
 	_check(
 		sole > Arena.GROUND_Y + 0.2,
 		"the soles stay clear of the ground (%.2f vs %.2f)" % [sole, Arena.GROUND_Y]
 	)
 
-	var right_hand: Node3D = null
-	for joint in arms:
-		if float(joint["side"]) > 0.0:
-			right_hand = joint["hand"] as Node3D
-	_check(right_hand != null, "the right arm ends in a hand")
-	if right_hand != null:
-		_check(
-			pod.global_position.distance_to(right_hand.global_position) < 0.05,
-			"the gunpod is in the right hand in GERWALK"
-		)
+	var hand: Vector3 = model.to_global(model.hand_anchor())
+	_check(
+		pod.global_position.distance_to(hand) < 0.05,
+		"the gunpod is in the right hand in GERWALK"
+	)
 	var held: Vector3 = hull.to_local(pod.global_position)
-	_check(held.z > 0.5, "the gunpod is carried outboard (z %.2f)" % held.z)
-	_check(held.x > 0.7, "the gunpod reaches ahead of the shoulder (x %.2f)" % held.x)
+	_check(held.x > 0.4, "the gunpod reaches ahead of the shoulder (x %.2f)" % held.x)
 
 	_player.call("_start_transform")
 	for _i in 20:
@@ -524,7 +517,7 @@ func _test_gerwalk_silhouette() -> void:
 		float(_player.get("_mode_blend")) > 0.99,
 		"the pose arrives with the rules (blend %.2f)" % float(_player.get("_mode_blend"))
 	)
-	var tucked: Vector3 = hull.to_local((legs[0]["ankle"] as Node3D).global_position)
+	var tucked: Vector3 = model.nozzle_anchors()[0]
 	_check(tucked.x < -1.0, "FIGHTER folds the legs back along the fuselage (x %.2f)" % tucked.x)
 	_check(tucked.y > -0.4, "FIGHTER lifts the feet into the tail (y %.2f)" % tucked.y)
 	var stowed: Vector3 = hull.to_local(pod.global_position)
@@ -534,9 +527,9 @@ func _test_gerwalk_silhouette() -> void:
 	_player.call("_start_transform")
 	for _i in 20:
 		await get_tree().physics_frame
-	var dropped: Vector3 = hull.to_local((legs[0]["ankle"] as Node3D).global_position)
+	var dropped: Vector3 = model.nozzle_anchors()[0]
 	_check(
-		not _player.is_fighter() and dropped.y < -0.9,
+		not _player.is_fighter() and dropped.y < -0.2,
 		"the switch back drops the legs again (y %.2f)" % dropped.y
 	)
 

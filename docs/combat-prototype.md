@@ -309,31 +309,34 @@ games rather than two gears of the same one.
 
 ### The GERWALK airframe
 
-The rules above are the mode; the legs are how it reads. GERWALK is a VF-1's
-bird-legged stance, so the airframe grows a hip / knee / ankle chain on each side
-instead of a second mesh: a 0.34 x 0.42 thigh, a white collar at the knee, a
-0.22 x 0.26 shin and a 0.58 x 0.42 white foot with a dark heel. The legs are the
-engine nacelles and they are never hidden — FIGHTER folds them straight back along
-the fuselage with the feet under the tail.
+The rules above are the mode; the legs are how it reads. The airframe is the
+imported VF-1S (`models/vf-1s/source/Vf-01_BRoid_ULa.glb`) and the legs and arms
+are already on its skeleton, so `PlayerModel` poses the bone chain between the
+fighter's folded rest and the GERWALK stance instead of growing a second mesh.
 
-Four decisions keep the pose honest:
+Four decisions keep that pose honest:
 
-- **The hip sits forward of the wing root and the thigh reaches forward as it
-  drops.** With a 75° camera, anything inside the wing plate's footprint is
-  invisible, so the feet have to land ahead of its leading edge. Measured, the
-  ankles sit at `x 1.02, z ±1.05` on a 4.15-long hull: forward of the wing and
-  outboard of its 0.50 half-width.
-- **GERWALK lifts the whole airframe.** A 1.70-unit leg cannot hang from a ship
-  that hovers 1.5 above the ground, so `GERWALK_LIFT = 0.35` raises the hull while
-  the soles keep their clearance (`-1.05` against `GROUND_Y = -1.5`). The switch
-  reads as the ship standing up.
-- **The feet are levelled twice.** The ankle undoes the knee's pitch and a sole
-  pivot undoes the hip's roll, so the white plates stay parallel to the ground
-  while the legs still splay outboard. Those plates plus the knee collars are most
-  of the silhouette from above.
-- **The gunpod is held, not parented.** It is a child of the visual, lerped
-  between a stowed centreline position under the belly and the live right-hand
-  position, so FIGHTER still carries it and nothing pops or re-parents mid-switch.
+- **Bones are posed absolutely, on top of the rest.** A Godot bone pose is a local
+  transform, not an offset: writing an identity rotation collapses the skeleton.
+  Every angle is composed on the bone's own rest rotation, and each model axis is
+  converted into its parent frame once at build time.
+- **The splay is a yaw, not a roll.** The legs hang forward and down in the
+  stance, so rolling them about the fore-aft axis barely moves the feet (`±0.30`);
+  yawing them about the model's vertical opens them to `±0.95`, out from under the
+  hull and ahead of the wing leading edge where the 75° camera can see them
+  (`x 1.33`).
+- **GERWALK lifts the whole airframe.** The model's nacelles reach further below
+  the hull than the placeholder's legs did, so `GERWALK_LIFT = 0.55` raises it
+  while the nozzles keep their clearance above `GROUND_Y = -1.5`.
+- **The gunpod is held, not parented.** It is the one piece still built in code,
+  because the model carries a gun bone but no pod mesh. It is a child of the
+  visual, lerped between a stowed centreline position under the belly and the live
+  right-hand anchor (`Hand.R`), so FIGHTER still carries it and nothing pops or
+  re-parents mid-switch.
+
+The model ships with its landing gear deployed and an F-35 cockpit crew inside;
+both are hidden by node name at build time, because the airframe is only ever seen
+in flight.
 
 The pose is driven by `_mode_blend` and every joint has a FIGHTER keyframe and a
 GERWALK keyframe. The blend follows the mode the switch is *committing to*, so the
@@ -485,10 +488,10 @@ All values are named constants at the top of each script.
 | Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
-| Thruster plume and launch flash | `entities/player/player.gd` | `THRUSTER_X`, `THRUSTER_Z`, `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()` |
-| Ship silhouette | `entities/player/player.gd` | fuselage stations in `_build_fuselage()`, wing outlines in `_build_wing()`, tail surfaces in `_build_empennage()` |
-| Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK` (degrees on top of the wing's built-in leading-edge sweep) |
-| GERWALK limbs | `entities/player/player.gd` | `LEG_*` (hip, thigh, shin, angles, splay, foot), `ARM_*`, `GERWALK_LIFT`, `GUNPOD_*`, `GUNMETAL_COLOR`; posed in `_update_mode_pose()` |
+| Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
+| Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
+| Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
+| GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |
 | Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter`, `--fighter 1`, `--size`, `--out` (orthographic turntable for silhouette checks) |
 | Muzzle clears the nose | `entities/player/player.gd` | `MUZZLE_DISTANCE`, `BEAM_START` |
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
@@ -521,26 +524,24 @@ ui/hud/                         listens to the bus, never touches the player
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
 ```
 
-Visuals are built in code (`_build_visual()`) instead of being serialised into
-the `.tscn` files. Placeholder geometry is a swap target, not an asset: when the
-pre-rendered pipeline lands (D-02) each entity can drop in a mesh or a sprite
-without touching the scene graph or the collision shapes.
+Enemies, bullets and props are still built in code (`_build_visual()`) instead of
+being serialised into the `.tscn` files, and placeholder geometry remains a swap
+target: when the pre-rendered pipeline lands (D-02) each entity can drop in a mesh
+or a sprite without touching the scene graph or the collision shapes. The player
+is no longer a placeholder.
 
-The player airframe is lofted and extruded rather than assembled from engine
-primitives. `_loft()` sweeps octagonal stations along the fuselage, so the
-planform — pointed nose, intake shoulders, narrow tail — is data, not geometry
-code; `_slab()` extrudes a flat outline into a wing, tailplane or fin, and one
-outline serves both sides through a mirror flag. `_face()` winds every triangle
-against an outward hint, which removes the usual failure mode of a hand-built
-mesh (a face that comes out inside-out and lights like a hole); the materials also
-run with `CULL_DISABLED` as a second guard.
+The player airframe is model geometry now. `PlayerModel` instantiates the imported
+VF-1S, scales and yaws it into the capsule's slot, hides the deployed gear and the
+crew, and drives the skeleton every frame. Everything the placeholder used to
+build by hand — fuselage stations, wing outlines, tail surfaces, canopy, limbs —
+ships inside the model, and the loft and extrude helpers went with it.
 
-The swing wings hang off pivots at the wing root, so the sweep rotates around the
-joint instead of sliding the wing through the fuselage. Sweep follows the
-throttle, not the burner button: the tip swings aft as the ship gets faster, which
-is the reference aircraft's signature and a free speed cue beside the plume. The
-muzzle distance tracks the nose so bullets leave the airframe instead of spawning
-inside it.
+The swing wings are bones too: `Bone.Wing.L/R` rotate about the model's vertical
+axis, and the sweep follows the throttle, not the burner button, so the tip swings
+aft as the ship gets faster. The afterburner cones are anchored to the exhaust
+bones rather than to a fixed tail offset, so they stay on the engines when the
+stance swings the nacelles forward. The muzzle distance still clears the nose, so
+bullets leave the airframe instead of spawning inside it.
 
 Weapons follow the same ownership rule. `WeaponSystem` holds the selected weapon,
 the bomb rack and the missile radar, and exposes only `select()`, `cycle()`,
