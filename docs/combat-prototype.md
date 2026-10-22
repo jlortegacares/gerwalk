@@ -97,10 +97,16 @@ Three constraints shaped the camera and the geometry, and each is load-bearing:
 
 ### The planet rolls under the ship
 
-The ground is a sphere of `PLANET_RADIUS = 400` whose centre tracks the ship's
+The ground is a sphere of `PLANET_RADIUS = 1600` whose centre tracks the ship's
 planar position, so the ship is always at the sphere's pole. At this size the
 limb sits outside the frame: the surface fills the screen and reads as a
-continuous terrain rather than a globe. **The planet is the travel mechanism, not
+continuous terrain rather than a globe. Tessellation tracks the radius, because
+the facets are chords: the surface sits below the true sphere by roughly
+`(vertex spacing)^2 / (8 * radius)` at each triangle's centre, so the old 96
+segments that cost 0.21 units of sag at 400 would cost 0.86 at 1600 and the
+terrain would visibly rise and fall under the ship as facets rolled past.
+`PLANET_SEGMENTS` and `PLANET_RINGS` doubled to 192/96 to hold the sag at the old
+0.21 units. **The planet is the travel mechanism, not
 a backdrop**: every
 physics frame the arena turns it by exactly the arc length the ship covered,
 about the axis perpendicular to the movement:
@@ -114,9 +120,9 @@ Three consequences, and all three are deliberate:
 
 - **No boundary.** The surface under the ship is replaced as the planet turns, so
   a straight line never hits a wall. Travelling `2 * PI * PLANET_RADIUS`
-  (≈ 2513 units, about 94 s at top speed) brings the original terrain back under
-  the ship: the planet is finite and circumnavigable, and "cover the whole
-  planet" is a lap, not a wall.
+  (≈ 10053 units, about 6.3 minutes at GERWALK cruise and 3.5 at FIGHTER cruise)
+  brings the original terrain back under the ship: the planet is finite and
+  circumnavigable, and "cover the whole planet" is a lap, not a wall.
 - **The geometry never moves in world space.** A sphere is rotation-invariant, so
   rotating it changes no vertex, no normal and no silhouette — only the shader's
   object-space input. That is why the roll is cheap and why it cannot desync from
@@ -127,8 +133,9 @@ Three consequences, and all three are deliberate:
 
 `PLANET_RADIUS` is the one number that sets the scale of the fantasy. A larger
 radius means a longer lap and a flatter horizon; a smaller one means a curvier
-surface with the limb closer to the ship. At 400 a lap is ≈ 2513 units (≈ 94 s of
-flight), which is the "there is a lot of planet to cross" the design wants. The
+surface with the limb closer to the ship. At 1600 a lap is ≈ 10053 units, which
+is the "there is a lot of planet to cross" the design wants, and the curvature is
+flat enough that the local surface never betrays the sphere. The
 price is curvature: the camera looks 75° down from 51.5 units above the surface,
 so past a radius of about 100 the top of the screen meets the ground before the
 horizon and the limb leaves the frame. The planet then reads as a continuous
@@ -143,6 +150,45 @@ turns with it, and the ship sits at the pole of its own patch, where any spheric
 UV layout collapses. 3D noise has no poles and is uniform over the whole planet.
 The topographic isolines are the motion reference: on a uniform surface the player
 cannot tell they are moving.
+
+### Islands: a sea level, not a texture
+
+The land field is three octaves with three different jobs. A continental term at
+~1800 units decides where there is open ocean at all, an island term at ~48 units
+carves the landmasses the ship actually crosses, and a coast octave at ~12 units
+keeps the shoreline ragged instead of a smooth blob. Each octave is recentred and
+stretched before it is composed: value noise averages 0.5 and `fbm3` sums to a
+mean of 0.4375, so a field used raw sits on the sea level and every island becomes
+one soft smudge with no shoreline at all.
+
+Everything below `0.50` is water: deep, dark and glossy (`ROUGHNESS = 0.18`) so it
+picks up the sun, with a shallow shelf around every coast. Everything above rises
+through a narrow sand ring into vegetation and high ground, and a thin foam line
+marks the waterline — a beach is a couple of pixels wide from 50 units up, so the
+foam is what actually draws the coastline. Water is painted only: no collision, no
+nodes, the play plane is untouched.
+
+### Cities: districts painted into the surface
+
+The ship flies 1.5 units above the ground with a planar hitbox, so a real building
+tall enough to read as a building would have to cross the play plane and block
+bullets. Cities are therefore painted: an opaque asphalt square with a street
+grid and scattered amber-lit blocks, lit from `EMISSION` so they read from above.
+
+Two details make it work.
+
+- **Where a city goes is decided on a cube-sphere chart.** A per-point tangent
+  frame has two poles where it degenerates, and the rolling planet carries the
+  ship over them constantly. Six cube faces have no singularity: one candidate
+  district per 26-unit cell, chosen by hashing the cell.
+- **How a city is drawn uses a tangent plane per district.** The chart is not
+  conformal, so a grid drawn straight in it bends across a district. Each district
+  therefore recovers its own centre from its chart cell and builds a tangent frame
+  there, which keeps every street straight and every block square.
+
+The window scale is the other trap: windows 0.3 units wide are four pixels from
+this camera and alias into white noise the moment the surface tilts. A lit *roof*
+— a 1.05-unit block — is what reads as a city from 50 units up.
 
 ## Maneuverability: snappy, not floaty
 
@@ -343,6 +389,8 @@ All values are named constants at the top of each script.
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
 | Planet scale and lap length | `levels/arena/arena.gd` | `PLANET_RADIUS` (lap = `2 * PI * PLANET_RADIUS`), `PLANET_SEGMENTS`, `PLANET_RINGS` |
+| Islands and sea level | `levels/arena/planet_surface.gdshader` | `SEA_LEVEL`, `REGION_SCALE` (continents), `ISLAND_SCALE` (islands), `COAST_SCALE` (shoreline) |
+| City districts | `levels/arena/planet_surface.gdshader` | `CITY_CELL` (density), `CITY_HALF` (district size), `CITY_BLOCK`, `CITY_ROAD`, `CITY_ROOF` (street and roof scale), `CITY_LIT` (share of lit roofs) |
 | Ground height | `levels/arena/arena.gd` | `GROUND_Y` |
 | Surface look | `levels/arena/planet_surface.gdshader` | noise scales, palette stops, contour count and strength |
 | Camera framing | `entities/player/player.tscn` | `CameraRig` position, pitch, `Camera3D.fov` |
@@ -488,8 +536,16 @@ actions, so it exercises the same path a player does.
 - **No wave escalation.** A population of up to 3 turrets is streamed around the
   ship, so the planet stays inhabited and the difficulty stays flat (FR-10 is
   still a proposal, not implemented).
-- **The planet no longer shows a limb.** At `PLANET_RADIUS = 400` the surface
+- **The planet no longer shows a limb.** At `PLANET_RADIUS = 1600` the surface
   fills the frame, so the star field is effectively scenery and the "globe" read
-  comes from rolling terrain, not from a visible edge.
+  comes from rolling terrain, not from a visible edge. The star shell still sits
+  at 320-430 units, which at this radius is inside the planet's silhouette; it was
+  never visible anyway, but it is dead geometry.
+- **The city chart leaves six seams.** Districts are placed on a cube-sphere
+  chart, so along the six great circles where faces meet a district can change
+  orientation or be cut in half. Accepted: the alternative was a tangent frame
+  with two degenerate poles, which the roll crosses constantly.
+- **Cities have no suburbs.** A district is a hard-edged square of asphalt that
+  stops at the coastline, and nothing else on the surface is built up.
 - **i-frames and dash are prototypes of FR-09 and FR-11**, which remain
   unconfirmed product requirements — try them and decide, do not assume.
