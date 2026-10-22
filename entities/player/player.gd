@@ -703,13 +703,19 @@ func _update_weapons(delta: float) -> void:
 	if Input.is_action_just_pressed(&"bomb") and _transform_time <= 0.0:
 		_weapons.fire_bomb(global_position)
 
+	# The missile rack is a hold, not a press: the button marks while it is down and
+	# pays out when it comes up. Transform takes the rack offline with everything
+	# else the ship fires.
+	var wants_missile: bool = Input.is_action_pressed(&"missile") and _transform_time <= 0.0
+
 	_weapons.tick(
 		delta,
 		global_position,
 		global_position + _aim_direction * MUZZLE_DISTANCE,
 		_aim_direction,
 		wants_fire,
-		_mode == Mode.FIGHTER
+		_mode == Mode.FIGHTER,
+		wants_missile
 	)
 
 

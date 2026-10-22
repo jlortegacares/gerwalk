@@ -59,15 +59,25 @@ const FIGHTER_RANGE_MULTIPLIER: float = 1.4
 const FIGHTER_SPEED_MULTIPLIER: float = 1.35
 const FIGHTER_VULCAN_SPREAD_DEGREES: float = 4.0
 
-## Missiles: automatic, one launch per interval, alternating wings. The launch
-## angle matters as much as the turn rate: a missile that leaves straight ahead
-## has no visible curve, and the curve is what sells the guidance.
-const MISSILE_INTERVAL: float = 1.6
+## Missiles: a forward radar and a salvo, not a clock. Holding the missile button
+## marks one enemy at a time inside the radar cone; releasing pays out one missile
+## per mark. The launch angle matters as much as the turn rate: a missile that
+## leaves straight ahead has no visible curve, and the curve is what sells the
+## guidance.
 const MISSILE_SPEED: float = 34.0
 const MISSILE_DAMAGE: int = 4
 const MISSILE_SIZE: Vector3 = Vector3(0.46, 0.38, 1.9)
 const MISSILE_TURN_RATE: float = 2.8
 const MISSILE_RANGE: float = 48.0
+## Half-angle of the forward radar around the aim. Wide enough to sweep a turning
+## fight, narrow enough that the lock is still a forward decision.
+const MISSILE_RADAR_CONE_DEGREES: float = 55.0
+## Held time per mark: six marks take just under a second of commitment.
+const MISSILE_LOCK_INTERVAL: float = 0.16
+const MISSILE_MAX_LOCKS: int = 6
+## After a salvo the rack is empty for a moment. This is what keeps mashing the
+## button from beating the hold: six taps would otherwise outrun six marks.
+const MISSILE_SALVO_COOLDOWN: float = 0.45
 const MISSILE_LAUNCH_AHEAD: float = 0.3
 const MISSILE_LAUNCH_SIDE: float = 0.9
 const MISSILE_LAUNCH_ANGLE_DEGREES: float = 14.0

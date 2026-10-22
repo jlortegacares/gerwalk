@@ -14,7 +14,11 @@ var _laser_tick: float = 0.0
 var _beam: Node3D
 
 var _missile_cooldown: float = 0.0
+var _missile_lock_timer: float = 0.0
 var _missiles_fired: int = 0
+## Enemies the forward radar currently holds, in the order they were marked. One
+## missile leaves per entry when the button comes up.
+var _locks: Array[Enemy] = []
 
 ## Fighter mode is a profile, not a different arsenal: the same three archetypes
 ## keep their identity and only lose the freedom to point anywhere but forward.
@@ -69,17 +73,17 @@ func tick(
 	muzzle: Vector3,
 	direction: Vector3,
 	wants_fire: bool,
-	fighter: bool = false
+	fighter: bool = false,
+	wants_missile: bool = false
 ) -> void:
 	_fighter = fighter
 	_cooldown = maxf(_cooldown - delta, 0.0)
-	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
 	# The beam is a fire-time visual: every frame it is not being drawn stays off,
 	# which covers switching weapons mid-burst without a special case.
 	_beam.visible = false
 	if not wants_fire:
 		_laser_tick = 0.0
-		_tick_missiles(origin, direction)
+		_tick_missiles(delta, origin, direction, wants_missile)
 		return
 
 	match _kind:
@@ -90,7 +94,7 @@ func tick(
 		Arsenal.Kind.PLASMA:
 			_fire_plasma(muzzle, direction)
 
-	_tick_missiles(origin, direction)
+	_tick_missiles(delta, origin, direction, wants_missile)
 
 
 func _fire_vulcan(muzzle: Vector3, direction: Vector3) -> void:
@@ -183,13 +187,17 @@ func _speed_multiplier() -> float:
 ## Nearest turret inside the cone, or null. A lock that ignored the cone would be
 ## an aimbot: the player must at least point the ship at the fight.
 func _nearest_enemy(
-	origin: Vector3, direction: Vector3, max_range: float, cone_degrees: float
+	origin: Vector3,
+	direction: Vector3,
+	max_range: float,
+	cone_degrees: float,
+	exclude: Array = []
 ) -> Node3D:
 	var best: Node3D = null
 	var best_distance: float = max_range
 	for node in get_tree().get_nodes_in_group(&"enemy"):
 		var enemy: Node3D = node as Node3D
-		if enemy == null:
+		if enemy == null or exclude.has(enemy):
 			continue
 		var to_enemy: Vector3 = enemy.global_position - origin
 		to_enemy.y = 0.0
@@ -231,25 +239,144 @@ func _spawn(
 	)
 
 
-## Missiles are passive: they need no input, only a target in range. They launch
-## from alternating wings at an outward angle so the guidance curve is visible
-## from the first frame instead of looking like a straight shot.
-func _tick_missiles(origin: Vector3, direction: Vector3) -> void:
+## How many enemies the forward radar holds right now. The HUD reads it through
+## the bus and the smoke test asserts against it.
+func lock_count() -> int:
+	return _locks.size()
+
+
+func max_locks() -> int:
+	return Arsenal.MISSILE_MAX_LOCKS
+
+
+## The rack is a radar, not a clock. Holding the button marks one enemy per
+## MISSILE_LOCK_INTERVAL inside the forward cone; releasing pays out one missile
+## per mark. With the button up, nothing fires at all.
+##
+## The salvo cooldown is what makes the hold worth anything: without it, six taps
+## would arm and fire faster than six marks of held time.
+func _tick_missiles(
+	delta: float, origin: Vector3, direction: Vector3, wants_lock: bool
+) -> void:
+	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
+	# A mark is only worth what the radar can still see, so the cone is re-checked
+	# every frame instead of only when the mark is made.
+	_prune_locks(origin, direction)
+
 	if _missile_cooldown > 0.0:
 		return
 
-	var target: Node3D = _nearest_enemy(origin, direction, Arsenal.MISSILE_RANGE, 180.0)
-	if target == null:
+	if not wants_lock:
+		_missile_lock_timer = 0.0
+		if not _locks.is_empty():
+			_fire_salvo(origin, direction)
 		return
 
-	_missile_cooldown = Arsenal.MISSILE_INTERVAL
+	if _locks.size() >= Arsenal.MISSILE_MAX_LOCKS:
+		_missile_lock_timer = 0.0
+		return
+
+	_missile_lock_timer += delta
+	while (
+		_missile_lock_timer >= Arsenal.MISSILE_LOCK_INTERVAL
+		and _locks.size() < Arsenal.MISSILE_MAX_LOCKS
+	):
+		_missile_lock_timer -= Arsenal.MISSILE_LOCK_INTERVAL
+		if not _mark_next(origin, direction):
+			_missile_lock_timer = 0.0
+			break
+
+	if _locks.size() >= Arsenal.MISSILE_MAX_LOCKS:
+		_missile_lock_timer = 0.0
+
+
+## Marks the nearest enemy inside the radar that is not marked yet. Held time buys
+## one mark per enemy, never two marks on the same target.
+func _mark_next(origin: Vector3, direction: Vector3) -> bool:
+	var target: Enemy = _nearest_enemy(
+		origin, direction, Arsenal.MISSILE_RANGE, Arsenal.MISSILE_RADAR_CONE_DEGREES, _locks
+	) as Enemy
+	if target == null:
+		return false
+
+	var reticle: LockReticle = target.get_node_or_null(^"LockReticle") as LockReticle
+	if reticle == null:
+		reticle = LockReticle.new()
+		reticle.name = "LockReticle"
+		target.add_child(reticle)
+
+	_locks.append(target)
+	GlobalEventBus.player_missile_locks_changed.emit(_locks.size(), Arsenal.MISSILE_MAX_LOCKS)
+	return true
+
+
+func _prune_locks(origin: Vector3, direction: Vector3) -> void:
+	if _locks.is_empty():
+		return
+
+	var lost: bool = false
+	for enemy in _locks.duplicate():
+		if _in_radar(enemy, origin, direction):
+			continue
+		_locks.erase(enemy)
+		_drop_reticle(enemy)
+		lost = true
+
+	if lost:
+		GlobalEventBus.player_missile_locks_changed.emit(_locks.size(), Arsenal.MISSILE_MAX_LOCKS)
+
+
+func _in_radar(enemy: Enemy, origin: Vector3, direction: Vector3) -> bool:
+	if not is_instance_valid(enemy):
+		return false
+	var to_enemy: Vector3 = enemy.global_position - origin
+	to_enemy.y = 0.0
+	var distance: float = to_enemy.length()
+	if distance < 0.01 or distance > Arsenal.MISSILE_RANGE:
+		return false
+	return rad_to_deg(direction.angle_to(to_enemy.normalized())) <= (
+		Arsenal.MISSILE_RADAR_CONE_DEGREES
+	)
+
+
+func _drop_reticle(enemy: Enemy) -> void:
+	if not is_instance_valid(enemy):
+		return
+	var reticle: Node = enemy.get_node_or_null(^"LockReticle")
+	if reticle != null:
+		reticle.queue_free()
+
+
+## One missile per mark, in marking order, each still guided to its own target.
+## The rack empties first: a launch ends the lock, it is not a checkpoint partway
+## through it.
+func _fire_salvo(origin: Vector3, direction: Vector3) -> void:
+	var marks: Array[Enemy] = _locks.duplicate()
+	_clear_locks()
+	_missile_lock_timer = 0.0
+	if marks.is_empty():
+		return
+
+	_missile_cooldown = Arsenal.MISSILE_SALVO_COOLDOWN
+	for index in marks.size():
+		var target: Enemy = marks[index]
+		if is_instance_valid(target):
+			_launch_missile(target, origin, direction, index)
+
+
+## Alternating wings and an outward angle, so the guidance curve is visible from
+## the first frame instead of looking like a straight shot. Same salvo, different
+## line: the marks only decide who each missile is chasing.
+func _launch_missile(
+	target: Enemy, origin: Vector3, direction: Vector3, index: int
+) -> void:
 	var side: float = 1.0 if _missiles_fired % 2 == 0 else -1.0
 	_missiles_fired += 1
 
 	var right: Vector3 = Vector3(-direction.z, 0.0, direction.x)
 	var launch: Vector3 = (
 		origin
-		+ direction * Arsenal.MISSILE_LAUNCH_AHEAD
+		+ direction * (Arsenal.MISSILE_LAUNCH_AHEAD + 0.06 * float(index))
 		+ right * Arsenal.MISSILE_LAUNCH_SIDE * side
 	)
 	var heading: Vector3 = direction.rotated(
@@ -267,6 +394,15 @@ func _tick_missiles(origin: Vector3, direction: Vector3) -> void:
 		Projectile.LIFETIME,
 		Projectile.Style.MISSILE
 	)
+
+
+func _clear_locks() -> void:
+	for enemy in _locks:
+		_drop_reticle(enemy)
+	var had: bool = not _locks.is_empty()
+	_locks.clear()
+	if had:
+		GlobalEventBus.player_missile_locks_changed.emit(0, Arsenal.MISSILE_MAX_LOCKS)
 
 
 ## The bomb is the only weapon with a resource. It damages and cancels in the same
