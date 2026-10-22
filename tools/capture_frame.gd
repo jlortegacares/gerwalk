@@ -11,6 +11,8 @@ extends Node
 ## burning, which is how the thruster plume and the turbo bar are reviewed.
 ## `--weapon N` selects weapon 1 (vulcan), 2 (laser) or 3 (plasma) before the
 ## capture, which is how each archetype's fire is reviewed.
+## `--bomb 1` drops one bomb just before the capture, which is how the shockwave is
+## reviewed.
 ## `--out PATH` overrides the output file.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
@@ -22,6 +24,7 @@ func _ready() -> void:
 	var travel_frames: int = int(_argument("travel", "0"))
 	var boost_frames: int = int(_argument("boost", "0"))
 	var weapon: String = _argument("weapon", "1")
+	var drop_bomb: bool = _argument("bomb", "0") == "1"
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
 
 	var arena: Node = load(ARENA_SCENE).instantiate()
@@ -51,6 +54,15 @@ func _ready() -> void:
 			await get_tree().physics_frame
 		Input.action_release(&"move_right")
 		for _i in 4:
+			await get_tree().physics_frame
+
+	# The wave only lives for a fraction of a second, so it is dropped right before
+	# the capture instead of at the start of the warmup.
+	if drop_bomb:
+		Input.action_press(&"bomb")
+		await get_tree().physics_frame
+		Input.action_release(&"bomb")
+		for _i in 6:
 			await get_tree().physics_frame
 
 	await RenderingServer.frame_post_draw

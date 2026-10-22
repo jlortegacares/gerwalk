@@ -106,7 +106,6 @@ func _ready() -> void:
 
 	GlobalEventBus.player_health_changed.emit.call_deferred(_hp, MAX_HP)
 	GlobalEventBus.player_turbo_changed.emit.call_deferred(_turbo, TURBO_MAX)
-	GlobalEventBus.player_weapon_changed.emit.call_deferred(Arsenal.NAMES[Arsenal.Kind.VULCAN])
 
 
 func _physics_process(delta: float) -> void:
@@ -290,6 +289,9 @@ func _update_weapons(delta: float) -> void:
 	elif Input.is_action_just_pressed(&"weapon_prev"):
 		_weapons.cycle(-1)
 
+	if Input.is_action_just_pressed(&"bomb"):
+		_weapons.fire_bomb(global_position)
+
 	var stick_aim: Vector2 = Input.get_vector(
 		&"aim_left", &"aim_right", &"aim_up", &"aim_down"
 	)
@@ -297,6 +299,7 @@ func _update_weapons(delta: float) -> void:
 
 	_weapons.tick(
 		delta,
+		global_position,
 		global_position + _aim_direction * MUZZLE_DISTANCE,
 		_aim_direction,
 		wants_fire

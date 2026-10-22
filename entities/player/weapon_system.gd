@@ -13,6 +13,12 @@ var _cooldown: float = 0.0
 var _laser_tick: float = 0.0
 var _beam: Node3D
 
+var _missile_cooldown: float = 0.0
+var _missiles_fired: int = 0
+
+var _bombs: int = Arsenal.BOMB_START_CHARGES
+var _kills: int = 0
+
 
 func setup(bullet_scene: PackedScene) -> void:
 	_bullet_scene = bullet_scene
@@ -20,10 +26,19 @@ func setup(bullet_scene: PackedScene) -> void:
 
 func _ready() -> void:
 	_build_beam()
+	GlobalEventBus.enemy_killed.connect(_on_enemy_killed)
+	# Deferred so a HUD that connects in its own `_ready` still sees the start
+	# state: the player must never sit with an empty weapon label.
+	GlobalEventBus.player_weapon_changed.emit.call_deferred(Arsenal.NAMES[_kind])
+	GlobalEventBus.player_bombs_changed.emit.call_deferred(_bombs, Arsenal.BOMB_MAX_CHARGES)
 
 
 func kind() -> Arsenal.Kind:
 	return _kind
+
+
+func bomb_charges() -> int:
+	return _bombs
 
 
 ## Switching is instant and always legal: the weapons are a player choice, not a
@@ -44,13 +59,17 @@ func cycle(step: int) -> void:
 	select(kinds[index])
 
 
-func tick(delta: float, muzzle: Vector3, direction: Vector3, wants_fire: bool) -> void:
+func tick(
+	delta: float, origin: Vector3, muzzle: Vector3, direction: Vector3, wants_fire: bool
+) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
 	# The beam is a fire-time visual: every frame it is not being drawn stays off,
 	# which covers switching weapons mid-burst without a special case.
 	_beam.visible = false
 	if not wants_fire:
 		_laser_tick = 0.0
+		_tick_missiles(origin, direction)
 		return
 
 	match _kind:
@@ -60,6 +79,8 @@ func tick(delta: float, muzzle: Vector3, direction: Vector3, wants_fire: bool) -
 			_fire_laser(delta, muzzle, direction)
 		Arsenal.Kind.PLASMA:
 			_fire_plasma(muzzle, direction)
+
+	_tick_missiles(origin, direction)
 
 
 func _fire_vulcan(muzzle: Vector3, direction: Vector3) -> void:
@@ -172,6 +193,110 @@ func _spawn(
 	get_tree().current_scene.add_child(bullet)
 	bullet.global_position = position
 	bullet.setup(direction, speed, Projectile.Team.PLAYER, damage, size, target, turn_rate, color)
+
+
+## Missiles are passive: they need no input, only a target in range. They launch
+## from alternating wings at an outward angle so the guidance curve is visible
+## from the first frame instead of looking like a straight shot.
+func _tick_missiles(origin: Vector3, direction: Vector3) -> void:
+	if _missile_cooldown > 0.0:
+		return
+
+	var target: Node3D = _nearest_enemy(origin, direction, Arsenal.MISSILE_RANGE, 180.0)
+	if target == null:
+		return
+
+	_missile_cooldown = Arsenal.MISSILE_INTERVAL
+	var side: float = 1.0 if _missiles_fired % 2 == 0 else -1.0
+	_missiles_fired += 1
+
+	var right: Vector3 = Vector3(-direction.z, 0.0, direction.x)
+	var launch: Vector3 = (
+		origin
+		+ direction * Arsenal.MISSILE_LAUNCH_AHEAD
+		+ right * Arsenal.MISSILE_LAUNCH_SIDE * side
+	)
+	var heading: Vector3 = direction.rotated(
+		Vector3.UP, deg_to_rad(Arsenal.MISSILE_LAUNCH_ANGLE_DEGREES) * side
+	)
+	_spawn(
+		launch,
+		heading,
+		Arsenal.MISSILE_SPEED,
+		Arsenal.MISSILE_DAMAGE,
+		Arsenal.MISSILE_SIZE,
+		Arsenal.MISSILE_COLOR,
+		target,
+		Arsenal.MISSILE_TURN_RATE
+	)
+
+
+## The bomb is the only weapon with a resource. It damages and cancels in the same
+## frame, so what the player sees (the ring) and what happened (the clear) are one
+## event and the ring can be pure presentation.
+func fire_bomb(origin: Vector3) -> bool:
+	if _bombs <= 0:
+		return false
+
+	_bombs -= 1
+	GlobalEventBus.player_bombs_changed.emit(_bombs, Arsenal.BOMB_MAX_CHARGES)
+
+	_clear_enemy_fire(origin)
+	for node in get_tree().get_nodes_in_group(&"enemy"):
+		var enemy: Enemy = node as Enemy
+		if enemy == null:
+			continue
+		if _flat_distance(enemy.global_position, origin) <= Arsenal.BOMB_RADIUS:
+			enemy.take_damage(Arsenal.BOMB_DAMAGE)
+
+	_spawn_wave(origin)
+	GlobalEventBus.camera_shake_requested.emit(1.4)
+	return true
+
+
+## Radius-bound on purpose: "screen clear" is the intent, but a bullet far off the
+## camera is not a threat the player is asking to erase.
+func _clear_enemy_fire(origin: Vector3) -> void:
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return
+	for child in scene.get_children():
+		var bullet: Projectile = child as Projectile
+		if bullet == null:
+			continue
+		if int(bullet.get("_team")) != Projectile.Team.ENEMY:
+			continue
+		if _flat_distance(bullet.global_position, origin) <= Arsenal.BOMB_RADIUS:
+			bullet.queue_free()
+
+
+func _spawn_wave(origin: Vector3) -> void:
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return
+	var wave: BombWave = BombWave.new()
+	scene.add_child(wave)
+	wave.global_position = origin
+
+
+## Charges come back on kills rather than on a timer: the resource rewards staying
+## in the fight, and a full rack stops banking progress it cannot spend.
+func _on_enemy_killed() -> void:
+	if _bombs >= Arsenal.BOMB_MAX_CHARGES:
+		_kills = 0
+		return
+
+	_kills += 1
+	if _kills < Arsenal.BOMB_KILLS_PER_CHARGE:
+		return
+
+	_kills = 0
+	_bombs += 1
+	GlobalEventBus.player_bombs_changed.emit(_bombs, Arsenal.BOMB_MAX_CHARGES)
+
+
+func _flat_distance(first: Vector3, second: Vector3) -> float:
+	return Vector2(first.x - second.x, first.z - second.z).length()
 
 
 func _build_beam() -> void:

@@ -244,6 +244,9 @@ func _test_arsenal() -> void:
 	await _test_vulcan(weapons)
 	await _test_laser(weapons)
 	await _test_plasma(weapons)
+	await _test_missiles(weapons)
+	await _test_bomb(weapons)
+	await _test_bomb_refill(weapons)
 	await _test_firing_costs_no_speed(weapons)
 
 	Input.action_release(&"aim_left")
@@ -378,6 +381,103 @@ func _test_plasma(weapons: WeaponSystem) -> void:
 	await get_tree().physics_frame
 
 
+## Missiles are the only weapon the player never asks for, so the assertion is
+## that one leaves while the trigger is up, and that it leaves guided.
+func _test_missiles(weapons: WeaponSystem) -> void:
+	weapons.select(Arsenal.Kind.VULCAN)
+	var aim: Vector3 = _aim()
+	# The twin-stick fires on the aim stick, so holding it would hide a passive
+	# weapon behind a manual one. Centre it first: anything that leaves now has
+	# to be the missile's own clock.
+	Input.action_release(&"aim_left")
+	await get_tree().physics_frame
+
+	var enemy: Enemy = _spawn_enemy(_player.global_position + aim * 20.0)
+	_check(enemy != null, "spawned a target for the missiles")
+	if enemy == null:
+		return
+
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	var launched: Projectile = null
+	for _i in 120:
+		await get_tree().physics_frame
+		var flight: Array[Projectile] = _player_projectiles()
+		if not flight.is_empty():
+			launched = flight[0]
+			break
+
+	_check(launched != null, "a missile launches without any fire input")
+	if launched != null:
+		_check(launched.get("_target") == enemy, "the missile locks the turret in range")
+		_check(float(launched.get("_turn_rate")) > 0.0, "the missile is guided")
+
+	_clear_projectiles()
+	_clear_enemies()
+	await get_tree().physics_frame
+
+
+## The bomb is the emergency button, so it has to pay out in one frame: damage, the
+## cancel, and the charge spent. A bomb that only cancels is a dodge, not a bomb.
+func _test_bomb(weapons: WeaponSystem) -> void:
+	var start: int = weapons.bomb_charges()
+	_check(
+		start == Arsenal.BOMB_START_CHARGES,
+		"the bomb starts with %d charges (found %d)" % [Arsenal.BOMB_START_CHARGES, start]
+	)
+
+	var enemy: Enemy = _spawn_enemy(_player.global_position + _aim() * 10.0)
+	var before: int = enemy.current_hp() if enemy != null else 0
+
+	_clear_projectiles()
+	await get_tree().physics_frame
+	var first: Projectile = _spawn_enemy_bullet(_player.global_position + Vector3(2.0, 0.0, 2.0))
+	var second: Projectile = _spawn_enemy_bullet(_player.global_position - Vector3(2.0, 0.0, 3.0))
+	await get_tree().physics_frame
+
+	Input.action_press(&"bomb")
+	await get_tree().physics_frame
+	Input.action_release(&"bomb")
+	await get_tree().physics_frame
+
+	_check(weapons.bomb_charges() == start - 1, "the bomb spends one charge")
+	_check(
+		not is_instance_valid(first) and not is_instance_valid(second),
+		"the bomb cancels enemy fire around the ship"
+	)
+	_check(
+		not is_instance_valid(enemy) or enemy.current_hp() < before,
+		"the bomb damages enemies inside the blast"
+	)
+
+	_clear_enemies()
+	await get_tree().physics_frame
+
+
+## A resource that never comes back is a save-for-later item, not an emergency
+## button: kills have to pay for it, and the rack has to stop at its cap.
+func _test_bomb_refill(weapons: WeaponSystem) -> void:
+	var before: int = weapons.bomb_charges()
+	for _i in Arsenal.BOMB_KILLS_PER_CHARGE:
+		GlobalEventBus.enemy_killed.emit()
+	await get_tree().physics_frame
+	_check(
+		weapons.bomb_charges() == before + 1,
+		"%d kills refund one charge (%d -> %d)"
+		% [Arsenal.BOMB_KILLS_PER_CHARGE, before, weapons.bomb_charges()]
+	)
+
+	for _i in Arsenal.BOMB_KILLS_PER_CHARGE * Arsenal.BOMB_MAX_CHARGES:
+		GlobalEventBus.enemy_killed.emit()
+	await get_tree().physics_frame
+	_check(
+		weapons.bomb_charges() == Arsenal.BOMB_MAX_CHARGES,
+		"the rack caps at %d charges (found %d)"
+		% [Arsenal.BOMB_MAX_CHARGES, weapons.bomb_charges()]
+	)
+
+
 func _test_firing_costs_no_speed(weapons: WeaponSystem) -> void:
 	weapons.select(Arsenal.Kind.VULCAN)
 	Input.action_press(&"move_right")
@@ -404,6 +504,15 @@ func _spawn_enemy(position: Vector3) -> Enemy:
 	_arena.add_child(enemy)
 	enemy.global_position = position
 	return enemy
+
+
+func _spawn_enemy_bullet(position: Vector3) -> Projectile:
+	var scene: PackedScene = load("res://combat/projectile.tscn")
+	var bullet: Projectile = scene.instantiate() as Projectile
+	add_child(bullet)
+	bullet.global_position = position
+	bullet.setup(Vector3(1.0, 0.0, 0.0), 20.0, Projectile.Team.ENEMY, 1)
+	return bullet
 
 
 func _player_projectiles() -> Array[Projectile]:
@@ -440,9 +549,12 @@ func _test_travel_is_unbounded() -> void:
 		_player.global_position.x > 60.0,
 		"the player keeps travelling with no boundary (x %.1f)" % _player.global_position.x
 	)
+	# Lateral drift is not asserted here: turrets stream in along the heading, and
+	# sliding around one is correct physics, not a broken play plane. Height is the
+	# invariant — the ship never leaves y = 0 no matter what it meets.
 	_check(
-		absf(_player.global_position.z) < 0.1,
-		"travelling keeps the player on the play plane"
+		absf(_player.global_position.y) < 0.1,
+		"travelling keeps the player on the play plane (y %.3f)" % _player.global_position.y
 	)
 	# One frame of slack: the assertion may resume before this frame's physics
 	# step, so at full speed the planet can legitimately be one step behind.
