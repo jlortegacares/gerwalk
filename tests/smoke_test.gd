@@ -44,6 +44,7 @@ func _ready() -> void:
 	await get_tree().physics_frame
 
 	await _test_maneuverability()
+	await _test_transformation()
 
 	_clear_enemies()
 	_clear_projectiles()
@@ -215,6 +216,192 @@ func _test_maneuverability() -> void:
 		"the camera settles the ship back to centre at rest (%.2f px)"
 		% projected.distance_to(centre)
 	)
+
+
+## The transformation contract: two real modes, a switch that costs commitment,
+## a fighter that flies nose-first at 180% with a capped turn and air drag, a gun
+## welded to the airframe, and a burner that shreds what it flies through.
+func _test_transformation() -> void:
+	_release_all_input()
+	_player.velocity = Vector3.ZERO
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	_check(not _player.is_fighter(), "the ship starts in GERWALK")
+
+	# S1: the switch is a 0.28 s commitment, not an instant toggle.
+	_player.call("_start_transform")
+	await get_tree().physics_frame
+	_check(not _player.is_fighter(), "the switch does not land in one frame")
+	for _i in 20:
+		await get_tree().physics_frame
+	_check(_player.is_fighter(), "the ship reaches FIGHTER after 0.28 s")
+
+	# S3: 180% of the hover cruise, reachable in about a tenth of a second.
+	_player.set("_heading", Vector3.RIGHT)
+	_player.velocity = Vector3.RIGHT * 20.0
+	Input.action_press(&"move_right")
+	for _i in 20:
+		await get_tree().physics_frame
+	var fighter_speed: float = _flat_speed()
+	_check(
+		absf(fighter_speed / Player.MAX_SPEED - 1.8) < 0.05,
+		"fighter cruise is %.0f%% of the hover's (%.1f u/s)"
+		% [100.0 * fighter_speed / Player.MAX_SPEED, fighter_speed]
+	)
+
+	# FR-15 still holds at fighter speed: the camera lead saturates instead of
+	# scaling with 180% of the hover cruise.
+	var centre: Vector2 = get_viewport().get_visible_rect().size * 0.5
+	var projected: Vector2 = _player.camera.unproject_position(_player.global_position)
+	_check(
+		projected.distance_to(centre) < 16.0,
+		"the camera keeps the fighter framed at 1.8x (%.1f px)" % projected.distance_to(centre)
+	)
+
+	# S4: the gun is bolted to the airframe. The right stick, which would aim in
+	# GERWALK, must not move the shot off the nose.
+	Input.action_press(&"aim_up")
+	for _i in 2:
+		await get_tree().physics_frame
+	var nose: Vector3 = _player.get("_aim_direction")
+	_check(nose.x > 0.99, "the gun stays on the nose in FIGHTER (x %.2f)" % nose.x)
+	Input.action_release(&"aim_up")
+
+	# S3: a reversal is an arc. One frame cannot turn 180 degrees, and the full
+	# turn lands inside the 360-450 deg/s band.
+	var before_turn: Vector3 = _player.get("_heading")
+	Input.action_release(&"move_right")
+	Input.action_press(&"move_left")
+	await get_tree().physics_frame
+	var after_one: Vector3 = _player.get("_heading")
+	_check(
+		after_one.dot(before_turn) > 0.9,
+		"one frame cannot reverse the heading (%.0f deg)"
+		% rad_to_deg(after_one.angle_to(before_turn))
+	)
+	for _i in 30:
+		await get_tree().physics_frame
+	var reversed: Vector3 = _player.get("_heading")
+	_check(reversed.dot(before_turn) < -0.9, "the heading completes a 180 in about 0.45 s")
+	Input.action_release(&"move_left")
+
+	# S4: fighter rounds leave faster, live 40% longer and keep a tight fan.
+	var weapons: WeaponSystem = _player.get_node("Weapons")
+	weapons.select(Arsenal.Kind.VULCAN)
+	weapons.set("_cooldown", 0.0)
+	_clear_projectiles()
+	weapons.tick(0.016, _player.global_position, _player.global_position, reversed, true, true)
+	var shots: Array[Projectile] = _player_projectiles()
+	_check(shots.size() >= Arsenal.VULCAN_PELLETS, "the fighter vulcan still fans out")
+	if shots.size() >= 2:
+		var widest: float = 0.0
+		for i in shots.size():
+			for j in range(i + 1, shots.size()):
+				var first: Vector3 = shots[i].get("_velocity")
+				var second: Vector3 = shots[j].get("_velocity")
+				widest = maxf(widest, rad_to_deg(first.angle_to(second)))
+		var speed: float = shots[0].get("_velocity").length()
+		var life: float = shots[0].get("_life")
+		_check(
+			absf(speed - Arsenal.VULCAN_SPEED * Arsenal.FIGHTER_SPEED_MULTIPLIER) < 1.0,
+			"fighter rounds leave at %.0f u/s (1.35x)" % speed
+		)
+		_check(
+			life > Arsenal.FIGHTER_RANGE_MULTIPLIER * Projectile.LIFETIME - 0.1,
+			"fighter rounds carry 40%% more range (%.1f s of flight)" % life
+		)
+		_check(widest < 12.0, "the fighter fan closes to %.1f deg" % widest)
+
+	# S4: and plasma loses the lock that makes it plasma in the hover.
+	_clear_projectiles()
+	var target: Enemy = _spawn_enemy(_player.global_position + reversed * 10.0)
+	# The automatic battery would launch at that same target inside this tick and
+	# look like a second plasma bolt, so park it while the count is measured.
+	weapons.set("_missile_cooldown", 99.0)
+	weapons.select(Arsenal.Kind.PLASMA)
+	weapons.set("_cooldown", 0.0)
+	weapons.tick(0.016, _player.global_position, _player.global_position, reversed, true, true)
+	var bolts: Array[Projectile] = _player_projectiles()
+	_check(bolts.size() == 1, "the fighter plasma still fires")
+	if bolts.size() == 1:
+		_check(bolts[0].get("_target") == null, "fighter plasma has no lock-on")
+	weapons.set("_missile_cooldown", 0.0)
+	_clear_projectiles()
+	if target != null:
+		target.queue_free()
+	await get_tree().physics_frame
+
+	# S5: the dash becomes a jink: it steps sideways and keeps the nose.
+	_player.set("_heading", Vector3.RIGHT)
+	_player.velocity = Vector3.RIGHT * 30.0
+	Input.action_press(&"aim_left")
+	for _i in 2:
+		await get_tree().physics_frame
+	var heading_before: Vector3 = _player.get("_heading")
+	var position_before: Vector3 = _player.global_position
+	_player.call("_start_dash")
+	for _i in 12:
+		await get_tree().physics_frame
+	var travelled: Vector3 = _player.global_position - position_before
+	var lateral: float = travelled.dot(Vector3(-heading_before.z, 0.0, heading_before.x))
+	var heading_after: Vector3 = _player.get("_heading")
+	_check(
+		lateral < -2.0,
+		"the barrel roll steps left on command (%.1f units)" % lateral
+	)
+	_check(heading_after.dot(heading_before) > 0.99, "the roll leaves the nose where it was")
+	Input.action_release(&"aim_left")
+
+	# S6: the burner makes the nose a plow. Fire in the cone dies; fire behind
+	# the ship is untouched.
+	_player.set("_heading", Vector3.RIGHT)
+	var front: Projectile = _spawn_enemy_bullet(_player.global_position + Vector3.RIGHT * 4.0)
+	var behind: Projectile = _spawn_enemy_bullet(_player.global_position - Vector3.RIGHT * 4.0)
+	_player.set("_boosting", true)
+	_player.call("_update_shockwave")
+	_check(
+		front == null or front.is_queued_for_deletion(),
+		"the shockwave shreds enemy fire in front of the nose"
+	)
+	_check(
+		behind != null and not behind.is_queued_for_deletion(),
+		"enemy fire behind the ship survives the burst"
+	)
+	_player.set("_boosting", false)
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	# S3: air drag, not the hover brake.
+	_player.velocity = Vector3.RIGHT * Player.FIGHTER_SPEED
+	Input.action_press(&"move_right")
+	for _i in 20:
+		await get_tree().physics_frame
+	Input.action_release(&"move_right")
+	var stop_frames: int = 0
+	while stop_frames < 40 and _flat_speed() > 0.5:
+		await get_tree().physics_frame
+		stop_frames += 1
+	_check(
+		absf(stop_frames / 60.0 - Player.FIGHTER_STOP_TIME) < 0.04,
+		"fighter coasts to a stop in %.2f s" % (stop_frames / 60.0)
+	)
+
+	# S1: back to the hover, and the gun is free the moment it lands.
+	_player.call("_start_transform")
+	for _i in 20:
+		await get_tree().physics_frame
+	_check(not _player.is_fighter(), "the ship returns to GERWALK")
+	Input.action_press(&"aim_up")
+	for _i in 3:
+		await get_tree().physics_frame
+	_check(
+		_player.get("_aim_direction").z < -0.9,
+		"the gun aims freely again in GERWALK"
+	)
+	Input.action_release(&"aim_up")
+	_player.velocity = Vector3.ZERO
+	await get_tree().physics_frame
 
 
 func _release_all_input() -> void:
@@ -674,7 +861,11 @@ func _player_projectiles() -> Array[Projectile]:
 	var found: Array[Projectile] = []
 	for child in get_children():
 		var bullet: Projectile = child as Projectile
-		if bullet != null and int(bullet.get("_team")) == Projectile.Team.PLAYER:
+		# A queued node is gone at the end of the frame but still a child now; a
+		# count that included it would read a shot the test already cleared.
+		if bullet == null or bullet.is_queued_for_deletion():
+			continue
+		if int(bullet.get("_team")) == Projectile.Team.PLAYER:
 			found.append(bullet)
 	return found
 

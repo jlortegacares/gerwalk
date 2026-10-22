@@ -16,6 +16,10 @@ var _beam: Node3D
 var _missile_cooldown: float = 0.0
 var _missiles_fired: int = 0
 
+## Fighter mode is a profile, not a different arsenal: the same three archetypes
+## keep their identity and only lose the freedom to point anywhere but forward.
+var _fighter: bool = false
+
 var _bombs: int = Arsenal.BOMB_START_CHARGES
 var _kills: int = 0
 
@@ -60,8 +64,14 @@ func cycle(step: int) -> void:
 
 
 func tick(
-	delta: float, origin: Vector3, muzzle: Vector3, direction: Vector3, wants_fire: bool
+	delta: float,
+	origin: Vector3,
+	muzzle: Vector3,
+	direction: Vector3,
+	wants_fire: bool,
+	fighter: bool = false
 ) -> void:
+	_fighter = fighter
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
 	# The beam is a fire-time visual: every frame it is not being drawn stays off,
@@ -87,7 +97,9 @@ func _fire_vulcan(muzzle: Vector3, direction: Vector3) -> void:
 	if _cooldown > 0.0:
 		return
 
-	var spread: float = deg_to_rad(Arsenal.VULCAN_SPREAD_DEGREES)
+	var spread: float = deg_to_rad(
+		Arsenal.FIGHTER_VULCAN_SPREAD_DEGREES if _fighter else Arsenal.VULCAN_SPREAD_DEGREES
+	)
 	for pellet in Arsenal.VULCAN_PELLETS:
 		var offset: float = 0.0
 		if Arsenal.VULCAN_PELLETS > 1:
@@ -95,10 +107,13 @@ func _fire_vulcan(muzzle: Vector3, direction: Vector3) -> void:
 		_spawn(
 			muzzle,
 			direction.rotated(Vector3.UP, offset),
-			Arsenal.VULCAN_SPEED,
+			Arsenal.VULCAN_SPEED * _speed_multiplier(),
 			Arsenal.VULCAN_DAMAGE,
 			Arsenal.VULCAN_SIZE,
-			Arsenal.VULCAN_COLOR
+			Arsenal.VULCAN_COLOR,
+			null,
+			0.0,
+			Projectile.LIFETIME * _range_multiplier()
 		)
 	_cooldown = Arsenal.VULCAN_INTERVAL
 
@@ -109,7 +124,9 @@ func _fire_vulcan(muzzle: Vector3, direction: Vector3) -> void:
 func _fire_laser(delta: float, muzzle: Vector3, direction: Vector3) -> void:
 	_laser_tick = maxf(_laser_tick - delta, 0.0)
 
-	var reach: Vector3 = muzzle + direction * Arsenal.LASER_RANGE
+	var reach: Vector3 = muzzle + direction * (
+		Arsenal.LASER_RANGE * _range_multiplier()
+	)
 	var hit: Dictionary = _raycast(muzzle, reach)
 	var end: Vector3 = reach
 	if not hit.is_empty():
@@ -133,20 +150,34 @@ func _fire_plasma(muzzle: Vector3, direction: Vector3) -> void:
 	if _cooldown > 0.0:
 		return
 
-	var target: Node3D = _nearest_enemy(
-		muzzle, direction, Arsenal.PLASMA_LOCK_RANGE, Arsenal.PLASMA_LOCK_CONE_DEGREES
-	)
+	# No lock in Fighter: the bolt is one more thing bolted to the airframe.
+	var target: Node3D = null
+	if not _fighter:
+		target = _nearest_enemy(
+			muzzle, direction, Arsenal.PLASMA_LOCK_RANGE, Arsenal.PLASMA_LOCK_CONE_DEGREES
+		)
 	_spawn(
 		muzzle,
 		direction,
-		Arsenal.PLASMA_SPEED,
+		Arsenal.PLASMA_SPEED * _speed_multiplier(),
 		Arsenal.PLASMA_DAMAGE,
 		Arsenal.PLASMA_SIZE,
 		Arsenal.PLASMA_COLOR,
 		target,
-		Arsenal.PLASMA_TURN_RATE
+		Arsenal.PLASMA_TURN_RATE,
+		Projectile.LIFETIME * _range_multiplier()
 	)
 	_cooldown = Arsenal.PLASMA_INTERVAL
+
+
+## Fighter range is +40%; the same multiplier is expressed as projectile lifetime
+## for bullets and as beam length for the hit-scan laser.
+func _range_multiplier() -> float:
+	return Arsenal.FIGHTER_RANGE_MULTIPLIER if _fighter else 1.0
+
+
+func _speed_multiplier() -> float:
+	return Arsenal.FIGHTER_SPEED_MULTIPLIER if _fighter else 1.0
 
 
 ## Nearest turret inside the cone, or null. A lock that ignored the cone would be
@@ -184,7 +215,8 @@ func _spawn(
 	size: Vector3,
 	color: Color,
 	target: Node3D = null,
-	turn_rate: float = 0.0
+	turn_rate: float = 0.0,
+	lifetime: float = Projectile.LIFETIME
 ) -> void:
 	if _bullet_scene == null:
 		return
@@ -192,7 +224,10 @@ func _spawn(
 	var bullet: Projectile = _bullet_scene.instantiate()
 	get_tree().current_scene.add_child(bullet)
 	bullet.global_position = position
-	bullet.setup(direction, speed, Projectile.Team.PLAYER, damage, size, target, turn_rate, color)
+	bullet.setup(
+		direction, speed, Projectile.Team.PLAYER, damage, size, target, turn_rate, color,
+		lifetime
+	)
 
 
 ## Missiles are passive: they need no input, only a target in range. They launch

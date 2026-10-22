@@ -52,6 +52,13 @@ const PLASMA_LOCK_RANGE: float = 34.0
 const PLASMA_LOCK_CONE_DEGREES: float = 30.0
 const PLASMA_COLOR: Color = Color(0.72, 0.82, 1.0, 1.0)
 
+## Fighter mode: the gun is bolted to the airframe, so the same three archetypes
+## tighten into a nose-first battery. Range is the headline (+40%), speed keeps the
+## shots readable at 1.8x cruise, and the fan closes from 16 to 4 degrees.
+const FIGHTER_RANGE_MULTIPLIER: float = 1.4
+const FIGHTER_SPEED_MULTIPLIER: float = 1.35
+const FIGHTER_VULCAN_SPREAD_DEGREES: float = 4.0
+
 ## Missiles: automatic, one launch per interval, alternating wings. The launch
 ## angle matters as much as the turn rate: a missile that leaves straight ahead
 ## has no visible curve, and the curve is what sells the guidance.

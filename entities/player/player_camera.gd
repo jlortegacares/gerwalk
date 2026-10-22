@@ -11,6 +11,11 @@ const DECAY_PER_SECOND: float = 2.4
 ## frames instead of wallowing.
 const LAG_SECONDS: float = 0.02
 const LAG_RATE: float = 26.0
+## The lead saturates instead of scaling forever. FIGHTER cruise asks for 0.96
+## units and the burner for 1.2, which at this camera is over 20 px of drift and
+## reads as the ship leaving the frame; capping at 0.6 holds every mode under
+## FR-15's 16 px while the hover keeps its unsaturated 0.54.
+const LAG_MAX: float = 0.6
 
 var _shake: float = 0.0
 var _base: Vector3 = Vector3.ZERO
@@ -46,6 +51,8 @@ func _update_lag(delta: float) -> void:
 		return
 	var body: CharacterBody3D = rig.get_parent() as CharacterBody3D
 	var target: Vector3 = -body.velocity * LAG_SECONDS
+	if target.length() > LAG_MAX:
+		target = target.normalized() * LAG_MAX
 	_lag = _lag.lerp(target, 1.0 - exp(-LAG_RATE * delta))
 	rig.position = _base + _lag
 

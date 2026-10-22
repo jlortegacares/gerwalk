@@ -4,6 +4,7 @@ extends CanvasLayer
 @onready var _health_bar: Control = %HealthBar
 @onready var _turbo_bar: Control = %TurboBar
 @onready var _weapon_label: Label = %WeaponLabel
+@onready var _mode_label: Label = %ModeLabel
 @onready var _bomb_pips: Control = %BombPips
 @onready var _game_over: Control = %GameOver
 
@@ -15,6 +16,7 @@ func _ready() -> void:
 	GlobalEventBus.player_health_changed.connect(_on_player_health_changed)
 	GlobalEventBus.player_turbo_changed.connect(_on_player_turbo_changed)
 	GlobalEventBus.player_weapon_changed.connect(_on_player_weapon_changed)
+	GlobalEventBus.player_mode_changed.connect(_on_player_mode_changed)
 	GlobalEventBus.player_bombs_changed.connect(_on_player_bombs_changed)
 	GlobalEventBus.player_died.connect(_on_player_died)
 
@@ -35,6 +37,12 @@ func _on_player_turbo_changed(current: float, maximum: float) -> void:
 
 func _on_player_weapon_changed(weapon_name: String) -> void:
 	_weapon_label.text = weapon_name
+
+
+## The mode is the frame the rest of the HUD is read in, so it sits above the
+## weapon name instead of competing with it.
+func _on_player_mode_changed(mode_name: String) -> void:
+	_mode_label.text = mode_name
 
 
 func _on_player_bombs_changed(current: int, maximum: int) -> void:

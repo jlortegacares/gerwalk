@@ -41,6 +41,8 @@ var _turn_rate: float = 0.0
 
 func _ready() -> void:
 	body_entered.connect(_on_body_entered)
+	if _team == Team.ENEMY:
+		add_to_group(&"enemy_bullet")
 
 
 ## `tint` lets a player weapon keep its own colour (a warm missile, a plasma
@@ -54,13 +56,21 @@ func setup(
 	size: Vector3 = DART_SIZE,
 	target: Node3D = null,
 	turn_rate: float = 0.0,
-	tint: Color = Color(0.0, 0.0, 0.0, 0.0)
+	tint: Color = Color(0.0, 0.0, 0.0, 0.0),
+	lifetime: float = LIFETIME
 ) -> void:
 	_team = team
 	_damage = damage
 	_speed = speed
 	_target = target
 	_turn_rate = turn_rate
+	_life = lifetime
+	# Enemy fire is tagged here rather than in _ready because callers add the node
+	# to the tree before running setup, so the team is unknown at ready time.
+	if _team == Team.ENEMY:
+		add_to_group(&"enemy_bullet")
+	else:
+		remove_from_group(&"enemy_bullet")
 	_velocity = Vector3(direction.x, 0.0, direction.z).normalized() * speed
 	rotation.y = atan2(_velocity.x, _velocity.z)
 

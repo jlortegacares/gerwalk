@@ -7,6 +7,11 @@ extends CharacterBody3D
 ## is presentation only, so hitboxes stay planar and bullet patterns keep the
 ## readability the genre depends on.
 ##
+## The ship has two modes. GERWALK is the twin-stick hover: translate in any
+## direction, aim anywhere. FIGHTER is a nose-first interceptor: the stick asks
+## for a heading, the hull takes a capped arc to it, thrust follows the nose and
+## the gun is bolted to the airframe.
+##
 ## The Camera3D is a child of this node and the rig never rotates, so the player
 ## sits in the middle of the screen no matter where it is on the planet's surface.
 ## The rig trails the body by a few pixels under thrust (a spring lag in
@@ -59,6 +64,33 @@ const FOV_BOOST_KICK: float = 5.0
 const FOV_RATE: float = 18.0
 
 ## Thruster nozzles sit at the tail, one each side of the centreline.
+## Modes. GERWALK keeps every number above. FIGHTER is the interceptor the spec
+## calls "modo caza": 180% of the hover cruise, a capped turn and air drag instead
+## of the snappy stop, because a fighter that stops on a dime is a hover with a
+## different name.
+enum Mode { GERWALK, FIGHTER }
+
+const FIGHTER_SPEED: float = 48.2
+const FIGHTER_BOOST_SPEED: float = 60.0
+const FIGHTER_ACCELERATION: float = 900.0
+## Spec band is 360-450 deg/s; the middle of the band leaves room for a trim nudge
+## without ever exceeding the cap.
+const FIGHTER_TURN_RATE: float = 400.0
+const FIGHTER_STOP_TIME: float = 0.35
+const FIGHTER_MIN_THROTTLE: float = 0.4
+## Drag is derived, not tuned: the spec fixes the stop at 0.35 s from cruise, so
+## that is the number the constant answers to. From the burner it takes 0.44 s,
+## which is the honest price of the extra speed.
+const FIGHTER_DRAG: float = FIGHTER_SPEED / FIGHTER_STOP_TIME
+const FIGHTER_TRIM_DEGREES: float = 8.0
+const FIGHTER_YAW_TRIM: float = 60.0
+const FIGHTER_ROLL_TIME: float = 0.20
+const FIGHTER_ROLL_SPEED: float = 55.0
+const FIGHTER_NOSE_PITCH: float = -5.0
+const TRANSFORM_TIME: float = 0.28
+const SHOCKWAVE_LENGTH: float = 7.0
+const SHOCKWAVE_HALF_ANGLE: float = 30.0
+
 const THRUSTER_X: float = -1.92
 const THRUSTER_Z: float = 0.23
 
@@ -102,6 +134,14 @@ var _bank: float = 0.0
 var _forward_speed: float = 0.0
 var _thrust_kick: float = 0.0
 
+var _mode: Mode = Mode.GERWALK
+var _transform_time: float = 0.0
+var _transform_target: Mode = Mode.GERWALK
+var _mode_blend: float = 0.0
+var _heading: Vector3 = Vector3.RIGHT
+var _roll_side: float = 1.0
+var _shockwave: Node3D
+
 var _turbo: float = TURBO_MAX
 var _boosting: bool = false
 var _turbo_locked: bool = false
@@ -129,6 +169,7 @@ func _ready() -> void:
 	_build_visual()
 	_build_thrusters()
 	_build_aim_beam()
+	_build_shockwave()
 
 	_weapons = WeaponSystem.new()
 	_weapons.name = "Weapons"
@@ -137,6 +178,7 @@ func _ready() -> void:
 
 	GlobalEventBus.player_health_changed.emit.call_deferred(_hp, MAX_HP)
 	GlobalEventBus.player_turbo_changed.emit.call_deferred(_turbo, TURBO_MAX)
+	GlobalEventBus.player_mode_changed.emit.call_deferred(mode_name())
 
 
 func _physics_process(delta: float) -> void:
@@ -144,23 +186,35 @@ func _physics_process(delta: float) -> void:
 	if not _alive:
 		return
 
+	if Input.is_action_just_pressed(&"transform") and _transform_time <= 0.0:
+		_start_transform()
+
 	if Input.is_action_just_pressed(&"dash") and _dash_cooldown <= 0.0:
 		_start_dash()
 
-	if _dash_time > 0.0:
+	if _dash_time > 0.0 and _mode == Mode.GERWALK:
 		velocity = _dash_direction * DASH_SPEED
 		velocity.y = 0.0
 		move_and_slide()
+	elif _transform_time > 0.0:
+		# Mid-transformation the ship keeps its momentum but takes no thrust and
+		# fires nothing: the switch is a commitment, not a free dodge or a reset.
+		velocity = velocity.move_toward(Vector3.ZERO, FIGHTER_DRAG * 0.35 * delta)
+		velocity.y = 0.0
+		move_and_slide()
+	elif _mode == Mode.FIGHTER:
+		_move_fighter(delta)
 	else:
-		_move(delta)
+		_move_gerwalk(delta)
 
 	_update_aim(delta)
 	_update_bank(delta)
 	_update_weapons(delta)
 	_update_afterburner_visual(delta)
+	_update_shockwave()
 
 
-func _move(delta: float) -> void:
+func _move_gerwalk(delta: float) -> void:
 	var input_direction: Vector2 = Input.get_vector(
 		&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
 	)
@@ -179,6 +233,88 @@ func _move(delta: float) -> void:
 
 	velocity.y = 0.0
 	move_and_slide()
+
+
+## Fighter: the stick asks for a heading and the hull takes the short arc to it at
+## a capped rate, so a reversal is a 0.45 s bank instead of a snap turn. The ship
+## always travels along its nose, thrust follows the nose, and releasing the stick
+## coasts to a stop in 0.35 s. There is no lateral drift, because strafing across
+## the nose is exactly what GERWALK is for.
+func _move_fighter(delta: float) -> void:
+	var stick: Vector2 = Input.get_vector(
+		&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
+	)
+	var throttle: float = clampf(stick.length(), 0.0, 1.0)
+	var thrusting: bool = throttle > 0.0
+	_update_boost(delta, thrusting)
+
+	# The right stick is not an aiming device in this mode. It bends the requested
+	# course by a few degrees, which is enough to line up a pass without ever
+	# taking the gun off the nose.
+	# A roll is a commitment: the trim must not steer the nose while the ship is
+	# busy stepping sideways, or the jink bends the course it was dodging.
+	var trim: float = 0.0
+	if _dash_time <= 0.0:
+		trim = Input.get_axis(&"aim_left", &"aim_right")
+	var yaw: float = atan2(-_heading.z, _heading.x)
+
+	if thrusting:
+		var requested: Vector3 = Vector3(stick.x, 0.0, stick.y).normalized()
+		var target_yaw: float = (
+			atan2(-requested.z, requested.x) + deg_to_rad(FIGHTER_TRIM_DEGREES) * trim
+		)
+		var step: float = deg_to_rad(FIGHTER_TURN_RATE * throttle) * delta
+		yaw += clampf(angle_difference(yaw, target_yaw), -step, step)
+	elif not is_zero_approx(trim):
+		# Coasting: the trim is the only thing steering, and it turns slowly.
+		yaw += deg_to_rad(FIGHTER_YAW_TRIM) * trim * delta
+
+	_heading = Vector3(cos(yaw), 0.0, -sin(yaw))
+
+	var cruise: float = FIGHTER_BOOST_SPEED if _boosting else FIGHTER_SPEED
+	var wanted: float = cruise * (
+		FIGHTER_MIN_THROTTLE + (1.0 - FIGHTER_MIN_THROTTLE) * throttle
+	)
+	var rate: float = FIGHTER_ACCELERATION if thrusting else FIGHTER_DRAG
+	var forward: float = velocity.dot(_heading)
+	var next_speed: float = maxf(
+		move_toward(forward, wanted if thrusting else 0.0, rate * delta), 0.0
+	)
+
+	# The barrel roll is a lateral push that ramps in and out, so it never snaps
+	# the velocity sideways at either end of the jink.
+	var push: Vector3 = Vector3.ZERO
+	if _dash_time > 0.0:
+		var progress: float = 1.0 - _dash_time / FIGHTER_ROLL_TIME
+		var right: Vector3 = Vector3(-_heading.z, 0.0, _heading.x)
+		push = right * _roll_side * sin(progress * PI) * FIGHTER_ROLL_SPEED
+
+	velocity = _heading * next_speed + push
+	velocity.y = 0.0
+	move_and_slide()
+
+
+## A transformation is two things at once: the silhouette changes and the rules
+## change. Locking the gun and cutting thrust for 0.28 s is what stops a mode
+## switch from being a free dodge on the same button as an escape.
+func _start_transform() -> void:
+	_transform_target = Mode.GERWALK if _mode == Mode.FIGHTER else Mode.FIGHTER
+	_transform_time = TRANSFORM_TIME
+	_thrust_kick = 1.0
+	_spawn_impact()
+	GlobalEventBus.camera_shake_requested.emit(0.35)
+
+
+func mode() -> Mode:
+	return _mode
+
+
+func is_fighter() -> bool:
+	return _mode == Mode.FIGHTER
+
+
+func mode_name() -> String:
+	return "FIGHTER" if _mode == Mode.FIGHTER else "GERWALK"
 
 
 ## The burner is a tank, not a cooldown: it drains while it is being used and
@@ -238,9 +374,18 @@ func _update_afterburner_visual(delta: float) -> void:
 	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65 + kick * 1.10)
 	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00 + kick * 0.70)
 
-	# The wings follow the throttle: the tip swings aft as the ship gets faster,
-	# which is the swing-wing signature and a free speed cue beside the flames.
-	var sweep: float = deg_to_rad(lerpf(WING_SWEEP_FORWARD, WING_SWEEP_BACK, thrust))
+	# The silhouette is the mode read from above: FIGHTER locks the wings fully aft
+	# and dips the nose, GERWALK holds them forward and level like a hovering
+	# airframe. The blend rides the same 0.28 s as the switch, so the shape and the
+	# rules arrive together.
+	var target_blend: float = 1.0 if _mode == Mode.FIGHTER else 0.0
+	_mode_blend = move_toward(_mode_blend, target_blend, delta / TRANSFORM_TIME)
+	_visual.rotation.z = deg_to_rad(FIGHTER_NOSE_PITCH) * _mode_blend
+
+	# In between modes the wings still answer the throttle, which keeps the sweep
+	# continuous instead of snapping at the end of the transformation.
+	var sweep_t: float = lerpf(thrust, 1.0, _mode_blend)
+	var sweep: float = deg_to_rad(lerpf(WING_SWEEP_FORWARD, WING_SWEEP_BACK, sweep_t))
 	_wing_right.rotation.y = -sweep
 	_wing_left.rotation.y = sweep
 
@@ -260,6 +405,61 @@ func _update_afterburner_visual(delta: float) -> void:
 	camera.fov = move_toward(camera.fov, target_fov, FOV_RATE * delta)
 
 
+## The supersonic burst: a cone in front of the nose that shreds enemy fire while
+## the burner is lit. It is a rule, not an aura, so the cone the player sees is the
+## cone that eats the shots. Every current enemy shot is "weak": the filter is
+## geometry, not damage.
+func _build_shockwave() -> void:
+	_shockwave = Node3D.new()
+	_shockwave.visible = false
+	add_child(_shockwave)
+
+	var cone: CylinderMesh = CylinderMesh.new()
+	cone.top_radius = 0.35
+	cone.bottom_radius = tan(deg_to_rad(SHOCKWAVE_HALF_ANGLE)) * SHOCKWAVE_LENGTH
+	cone.height = SHOCKWAVE_LENGTH
+	cone.radial_segments = 16
+	cone.rings = 1
+
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.albedo_color = Color(0.62, 0.95, 1.0, 0.16)
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+	var mesh: MeshInstance3D = MeshInstance3D.new()
+	mesh.mesh = cone
+	mesh.material_override = material
+	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# CylinderMesh runs along Y; tip it onto +X and push it out so the small radius
+	# sits on the nose and the wide end is the far edge of the burst.
+	mesh.rotation.z = -PI * 0.5
+	mesh.position = Vector3(SHOCKWAVE_LENGTH * 0.5, 0.0, 0.0)
+	_shockwave.add_child(mesh)
+
+
+func _update_shockwave() -> void:
+	var active: bool = _alive and _mode == Mode.FIGHTER and _boosting
+	_shockwave.visible = active
+	if not active:
+		return
+
+	_shockwave.rotation.y = atan2(-_heading.z, _heading.x)
+	for node in get_tree().get_nodes_in_group(&"enemy_bullet"):
+		var bullet: Node3D = node as Node3D
+		if bullet == null or bullet.is_queued_for_deletion():
+			continue
+		var offset: Vector3 = bullet.global_position - global_position
+		offset.y = 0.0
+		var distance: float = offset.length()
+		if distance < 0.01 or distance > SHOCKWAVE_LENGTH:
+			continue
+		if rad_to_deg(offset.angle_to(_heading)) <= SHOCKWAVE_HALF_ANGLE:
+			bullet.queue_free()
+			GlobalEventBus.camera_shake_requested.emit(0.1)
+
+
 ## The cone's tip trails behind the nozzle, so growing it must move it back by the
 ## same amount or the base would detach from the hull.
 func _layout_flames(flames: Array[MeshInstance3D], length: float) -> void:
@@ -269,6 +469,10 @@ func _layout_flames(flames: Array[MeshInstance3D], length: float) -> void:
 
 
 func _start_dash() -> void:
+	if _mode == Mode.FIGHTER:
+		_start_barrel_roll()
+		return
+
 	var input_direction: Vector2 = Input.get_vector(
 		&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
 	)
@@ -277,6 +481,19 @@ func _start_dash() -> void:
 	_dash_time = DASH_DURATION
 	_dash_cooldown = DASH_COOLDOWN
 	# The nozzle flash outlives the 0.12 s burst, then decays on its own.
+	_thrust_kick = 1.0
+	_spawn_impact()
+
+
+## In Fighter the dash is the roll the spec puts on the right stick: the ship steps
+## sideways without changing where it points, and the airframe spins around its own
+## nose. The capsule never spins, so it is a jink with i-frames, not a free turn.
+func _start_barrel_roll() -> void:
+	_roll_side = signf(Input.get_axis(&"aim_left", &"aim_right"))
+	if is_zero_approx(_roll_side):
+		_roll_side = 1.0
+	_dash_time = FIGHTER_ROLL_TIME
+	_dash_cooldown = DASH_COOLDOWN
 	_thrust_kick = 1.0
 	_spawn_impact()
 
@@ -298,22 +515,36 @@ func _update_bank(delta: float) -> void:
 		)
 	_visual_yaw_prev = _visual_yaw
 
-	var target: float = deg_to_rad(MAX_BANK * lateral - YAW_BANK * yaw_rate)
+	# The barrel roll owns the roll axis for its 0.2 s; the bank would fight it.
+	if _mode == Mode.FIGHTER and _dash_time > 0.0:
+		_visual.rotation.x = (1.0 - _dash_time / FIGHTER_ROLL_TIME) * TAU
+		_bank = 0.0
+		return
+
+	# A fighter leans into the turn with the whole wing, because in this mode the
+	# entire bank comes from the turn: there is no lateral drift to read.
+	var yaw_bank: float = MAX_BANK * 0.8 if _mode == Mode.FIGHTER else YAW_BANK
+	var target: float = deg_to_rad(MAX_BANK * lateral - yaw_bank * yaw_rate)
 	_bank = lerpf(_bank, target, 1.0 - exp(-BANK_RATE * delta))
 	_visual.rotation.x = _bank
 
 
 func _update_aim(delta: float) -> void:
-	var stick_aim: Vector2 = Input.get_vector(
-		&"aim_left", &"aim_right", &"aim_up", &"aim_down"
-	)
-
-	if stick_aim.length() > AIM_DEADZONE:
-		_aim_direction = Vector3(stick_aim.x, 0.0, stick_aim.y).normalized()
+	if _mode == Mode.FIGHTER:
+		# The gun is bolted to the airframe: the stick angle, the mouse and the
+		# right stick all stop aiming the moment the wings sweep back.
+		_aim_direction = _heading
 	else:
-		var to_mouse: Vector3 = _mouse_direction_on_plane()
-		if to_mouse.length_squared() > 0.0001:
-			_aim_direction = to_mouse
+		var stick_aim: Vector2 = Input.get_vector(
+			&"aim_left", &"aim_right", &"aim_up", &"aim_down"
+		)
+
+		if stick_aim.length() > AIM_DEADZONE:
+			_aim_direction = Vector3(stick_aim.x, 0.0, stick_aim.y).normalized()
+		else:
+			var to_mouse: Vector3 = _mouse_direction_on_plane()
+			if to_mouse.length_squared() > 0.0001:
+				_aim_direction = to_mouse
 
 	# The shot follows _aim_direction this same frame; only the model eases in.
 	var target_yaw: float = atan2(-_aim_direction.z, _aim_direction.x)
@@ -369,26 +600,45 @@ func _update_weapons(delta: float) -> void:
 	elif Input.is_action_just_pressed(&"weapon_prev"):
 		_weapons.cycle(-1)
 
-	if Input.is_action_just_pressed(&"bomb"):
-		_weapons.fire_bomb(global_position)
+	var wants_fire: bool = Input.is_action_pressed(&"fire")
+	if _mode == Mode.GERWALK:
+		# The right stick doubles as fire in the hover, but in Fighter it is a
+		# course correction and must never pull the trigger.
+		var stick_aim: Vector2 = Input.get_vector(
+			&"aim_left", &"aim_right", &"aim_up", &"aim_down"
+		)
+		wants_fire = wants_fire or stick_aim.length() > AIM_DEADZONE
+	if _transform_time > 0.0:
+		wants_fire = false
 
-	var stick_aim: Vector2 = Input.get_vector(
-		&"aim_left", &"aim_right", &"aim_up", &"aim_down"
-	)
-	var wants_fire: bool = Input.is_action_pressed(&"fire") or stick_aim.length() > AIM_DEADZONE
+	if Input.is_action_just_pressed(&"bomb") and _transform_time <= 0.0:
+		_weapons.fire_bomb(global_position)
 
 	_weapons.tick(
 		delta,
 		global_position,
 		global_position + _aim_direction * MUZZLE_DISTANCE,
 		_aim_direction,
-		wants_fire
+		wants_fire,
+		_mode == Mode.FIGHTER
 	)
 
 
 func _tick_timers(delta: float) -> void:
 	_dash_cooldown = maxf(_dash_cooldown - delta, 0.0)
 	_dash_time = maxf(_dash_time - delta, 0.0)
+
+	if _transform_time > 0.0:
+		_transform_time = maxf(_transform_time - delta, 0.0)
+		if _transform_time <= 0.0:
+			_mode = _transform_target
+			if _mode == Mode.FIGHTER:
+				# Enter the mode pointing where the ship is already going, so the
+				# switch never teleports the velocity onto a new axis.
+				_heading = (
+					velocity.normalized() if velocity.length() > 1.0 else _aim_direction
+				)
+			GlobalEventBus.player_mode_changed.emit(mode_name())
 
 	if _invulnerable > 0.0 and _alive:
 		_invulnerable = maxf(_invulnerable - delta, 0.0)

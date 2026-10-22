@@ -13,8 +13,11 @@ extends Node
 ## burning, which is how the thruster plume and the turbo bar are reviewed.
 ## `--weapon N` selects weapon 1 (vulcan), 2 (laser) or 3 (plasma) before the
 ## capture, which is how each archetype's fire is reviewed.
-## `--bomb 1` drops one bomb just before the capture, which is how the shockwave is
+## `--bomb 1` drops one bomb just before the capture, which is how the bomb ring is
 ## reviewed.
+## `--fighter N` transforms into FIGHTER, waits for the switch, then holds
+## move_right for N frames: the swept silhouette and the nose-locked gun. Add
+## `--boost N` to capture the supersonic burst cone instead of a plain run.
 ## `--out PATH` overrides the output file.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
@@ -28,6 +31,7 @@ func _ready() -> void:
 	var boost_frames: int = int(_argument("boost", "0"))
 	var weapon: String = _argument("weapon", "1")
 	var drop_bomb: bool = _argument("bomb", "0") == "1"
+	var fighter_frames: int = int(_argument("fighter", "0"))
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
 
 	var arena: Node = load(ARENA_SCENE).instantiate()
@@ -43,7 +47,24 @@ func _ready() -> void:
 		Input.action_release("weapon_" + weapon)
 	Input.action_press(&"fire")
 
-	if strafe_frames > 0:
+	if fighter_frames > 0:
+		# The transform latch has to be driven from the handler: an action pressed
+		# from a coroutine lands after the physics step and never reads as just
+		# pressed, the same reason the smoke test calls the method directly.
+		var player: Player = arena.get_node("%Player") as Player
+		Input.action_release(&"aim_right")
+		player.call("_start_transform")
+		for _i in 18:
+			await get_tree().physics_frame
+		Input.action_press(&"move_right")
+		if boost_frames > 0:
+			Input.action_press(&"boost")
+			for _i in boost_frames:
+				await get_tree().physics_frame
+		else:
+			for _i in fighter_frames:
+				await get_tree().physics_frame
+	elif strafe_frames > 0:
 		Input.action_press(&"move_up")
 		for _i in strafe_frames:
 			await get_tree().physics_frame
