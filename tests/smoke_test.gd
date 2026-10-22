@@ -891,10 +891,75 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	if launched != null:
 		_check(launched.get("_target") == enemy, "the missile locks the turret in range")
 		_check(float(launched.get("_turn_rate")) > 0.0, "the missile is guided")
+		await _test_missile_style(launched)
+		await _test_missile_trail(launched)
 
 	_clear_projectiles()
 	_clear_enemies()
 	await get_tree().physics_frame
+
+
+## The shape is the weapon's identity on screen, so it is owned by the weapon style
+## and not inferred from guidance: guidance stays a property of the flight.
+func _test_missile_style(missile: Projectile) -> void:
+	_check(
+		int(missile.get("_style")) == Projectile.Style.MISSILE,
+		"the player missile asks for the missile model"
+	)
+	_check(
+		_mesh_parts(missile) >= 4,
+		"the missile model is more than a box: body, nose, fins and exhaust"
+	)
+
+
+## The trail is read in motion, so it is checked in motion: puffs have to appear
+## behind the shot, and they have to outlive it instead of vanishing with it.
+func _test_missile_trail(missile: Projectile) -> void:
+	for _i in 6:
+		await get_tree().physics_frame
+
+	var puffs: Array[Node] = get_tree().get_nodes_in_group(&"smoke_puff")
+	_check(not puffs.is_empty(), "a missile leaves a smoke trail behind it")
+	if puffs.is_empty():
+		return
+
+	var shot: Vector3 = missile.get("_velocity")
+	var heading: Vector3 = shot.normalized()
+	var sample: Node3D = null
+	var behind: bool = true
+	for node in puffs:
+		var puff: Node3D = node as Node3D
+		if puff == null:
+			continue
+		if (puff.global_position - missile.global_position).dot(heading) > 0.05:
+			behind = false
+		elif sample == null:
+			sample = puff
+	_check(behind, "every puff trails behind the missile, never ahead of it")
+
+	if sample == null:
+		return
+
+	missile.queue_free()
+	await get_tree().physics_frame
+	_check(
+		is_instance_valid(sample), "the smoke already in the air survives the missile"
+	)
+
+	for _i in 60:
+		await get_tree().physics_frame
+		if not is_instance_valid(sample):
+			break
+	_check(not is_instance_valid(sample), "the puffs fade out and free themselves")
+
+
+func _mesh_parts(node: Node) -> int:
+	var total: int = 0
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			total += 1
+		total += _mesh_parts(child)
+	return total
 
 
 ## The bomb is the emergency button, so it has to pay out in one frame: damage, the

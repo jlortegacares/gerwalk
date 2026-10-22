@@ -216,7 +216,8 @@ func _spawn(
 	color: Color,
 	target: Node3D = null,
 	turn_rate: float = 0.0,
-	lifetime: float = Projectile.LIFETIME
+	lifetime: float = Projectile.LIFETIME,
+	style: Projectile.Style = Projectile.Style.DART
 ) -> void:
 	if _bullet_scene == null:
 		return
@@ -226,7 +227,7 @@ func _spawn(
 	bullet.global_position = position
 	bullet.setup(
 		direction, speed, Projectile.Team.PLAYER, damage, size, target, turn_rate, color,
-		lifetime
+		lifetime, style
 	)
 
 
@@ -262,7 +263,9 @@ func _tick_missiles(origin: Vector3, direction: Vector3) -> void:
 		Arsenal.MISSILE_SIZE,
 		Arsenal.MISSILE_COLOR,
 		target,
-		Arsenal.MISSILE_TURN_RATE
+		Arsenal.MISSILE_TURN_RATE,
+		Projectile.LIFETIME,
+		Projectile.Style.MISSILE
 	)
 
 
