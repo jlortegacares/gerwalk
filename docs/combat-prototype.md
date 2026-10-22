@@ -76,12 +76,13 @@ presentation, not a second axis of evasion.
 
 Three constraints shaped the camera and the geometry, and each is load-bearing:
 
-1. **The player is pinned to the screen centre.** `CameraRig` is a `Node3D`
-   parented to the player, and the `Camera3D` is its child. The rig only ever
-   translates with the player, so the player projects to the exact centre of the
-   viewport (measured at 0.05 px in the smoke test, at the spawn and again after a
-   long run). Shake uses `h_offset` / `v_offset`, which move the image without
-   moving the camera target.
+1. **The player sits at the centre of the frame.** `CameraRig` is a `Node3D`
+   parented to the player, and the `Camera3D` is its child. The rig translates
+   with the player and trails it by `velocity * LAG_SECONDS` (see
+   [Maneuverability](#maneuverability-snappy-not-floaty)), so the ship leads the
+   frame by a handful of pixels under thrust and settles back to the exact centre
+   at rest (measured at 0.05 px in the smoke test). Shake uses `h_offset` /
+   `v_offset`, which move the image without moving the camera target.
 2. **The camera is world-aligned and never rotates.** It keeps straight bullets
    straight on screen. Rotating it with the ship's heading would make every
    bullet appear to curve and P1's readability would collapse.
@@ -140,6 +141,66 @@ UV layout collapses. 3D noise has no poles and is uniform over the whole planet.
 The topographic isolines are the motion reference: on a uniform surface the player
 cannot tell they are moving.
 
+## Maneuverability: snappy, not floaty
+
+A twin-stick ship has to answer like a bullet-hell character and read like a jet.
+Those pull in opposite directions: weight sells a fighter but steals the frames
+the player needs, and the genre forgives neither. The split this build uses is
+**arcade response, aviation presentation**.
+
+| Axis | Behaviour | Constant |
+|------|-----------|----------|
+| Thrust | rest to cruise in 0.067 s (four ticks) | `ACCELERATION = 420` |
+| Braking | cruise to stop in 0.050 s (three ticks) | `FRICTION = 540` |
+| Fine control | a 20% tilt settles at 3.0 u/s, about a ninth of cruise | `MOVE_DEADZONE = 0.10` |
+| Shot direction | instant: the stick angle of this frame | `_aim_direction` |
+| Hull direction | 1800 deg/s, so a 180 flip lands in six frames | `VISUAL_TURN_RATE = 1800` |
+| Bank | up to 32 deg, from lateral drift plus turn rate | `MAX_BANK`, `YAW_BANK`, `BANK_RATE` |
+| Dash | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one | `DASH_SPEED`, `DASH_DURATION` |
+| Camera lead | `velocity * 0.02`, about 8 px at cruise and 12 under the burner | `LAG_SECONDS`, `LAG_RATE` |
+
+**Acceleration is quantised, so it has to fit in whole frames.** At 60 physics
+ticks, 0.05 s is three ticks and 0.08 s is five. 420 u/s² reaches 26.8 u/s in
+3.8 ticks, which the player feels as "it moved when I moved". A tenth of a second
+of progressive acceleration is invisible in a racing game and fatal in danmaku,
+where the pattern is already on screen when you commit.
+
+**Braking is heavier than thrust.** 540 against 420 means the ship stops faster
+than it starts. Zero-g coasting is the classic mistake here: it looks cinematic
+and turns threading a narrow gap into a guess, because releasing the stick no
+longer means stopping.
+
+**The deadzone is low on purpose.** `Input.get_vector` applies a circular
+deadzone and rescales the remainder, so 0.10 is the smallest tilt that registers
+and a 20% tilt lands near 11% of cruise. That is the tap mode: enough to slide
+between two bullets that leave a gap, not enough to overshoot it.
+
+**Aim is instant, the hull is not.** The spec allowed a hard lock (A) or a
+smoothed turn of at least 1440–1800 deg/s (B). This build takes A for the shot
+and B for the model, which gets both halves: the bullet leaves along the stick on
+the same frame, so no trade is lost to input lag, while the airframe takes up to
+six frames on a 180 and reads as a snap roll instead of a teleport. Nothing
+gameplay-facing reads `_visual.rotation`.
+
+**Bank is presentation only.** Collision stays the flat capsule on `y = 0`; the
+32 deg roll lives on `_visual.rotation.x` and cannot change what the ship can
+graze. It is derived from the body rather than the input — lateral drift relative
+to the nose, plus a smaller lean into fast nose turns — so it also appears when a
+dash or a drift happens to move the ship sideways, and it settles back to level in
+about a fifth of a second.
+
+**The dash is an injection, not an acceleration.** The dash branch overwrites
+`velocity` with `_dash_direction * DASH_SPEED` for 0.12 s, so the old inertia is
+gone on the first frame and the speed profile is flat. The direction is the stick
+when it is deflected past the movement deadzone and the nose when it is not, which
+means "dash where I am going" and "dash where I am looking" never need a modifier.
+
+**Thrust cues fire on change, not on speed.** Plumes follow the forward component
+of velocity at a steady state. The burst is a separate term (`_thrust_kick`) set
+by acceleration and by the dash and decaying in about a third of a second, so a
+constant cruise gives a subtle trail and launching from rest or punching the dash
+gives a flash without touching handling.
+
 ## What this build is meant to answer
 
 1. **Does 360° aiming read clearly?** The aim line is there to check it, not to
@@ -152,14 +213,14 @@ cannot tell they are moving.
    and the two patterns are different on purpose:
    - **Ring** — 14 slow bullets. Dodge through the gaps. Tests reading space.
    - **Fan** — 5 fast aimed bullets. Dash or sidestep. Tests reaction.
-4. **Is the dash a decision or a reflex?** 0.16 s burst, 0.85 s cooldown, and it
-   grants invulnerability, so it doubles as an escape.
+4. **Is the dash a decision or a reflex?** 0.12 s burst at 3.17x cruise, 0.85 s
+   cooldown, and it grants invulnerability, so it doubles as an escape.
 5. **Can speed itself be a resource?** The afterburner is a tank, not a cooldown:
    holding it tops out at 42 instead of 26.8 and drains the reserve in about
    2.2 s, and the reserve only fills back while the burner is off (about 4.2 s
    from empty). Emptying it latches until the button is released, so holding the
    key at zero cannot stutter the ship between two speeds. The dash stays a
-   separate tool: a 0.16 s invulnerable burst does something the burner does not.
+   separate tool: a 0.12 s invulnerable burst does something the burner does not.
 6. **Does the arsenal change how the fight reads, or only how fast it ends?**
    The three primaries answer different aim problems — spread, tracking, one-shot
    alignment — so switching is a decision about the fight in front of you. The bomb
@@ -185,6 +246,9 @@ All values are named constants at the top of each script.
 | Feel | File | Constant |
 |------|------|----------|
 | Movement weight | `entities/player/player.gd` | `MAX_SPEED`, `ACCELERATION`, `FRICTION` |
+| Fine control | `entities/player/player.gd` | `MOVE_DEADZONE` |
+| Hull turn and bank | `entities/player/player.gd` | `VISUAL_TURN_RATE`, `MAX_BANK`, `YAW_BANK`, `BANK_RATE` |
+| Camera spring | `entities/player/player_camera.gd` | `LAG_SECONDS`, `LAG_RATE`, `MAX_OFFSET`, `DECAY_PER_SECOND` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (interval, damage, turn rate, range, launch angle) |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
@@ -193,7 +257,7 @@ All values are named constants at the top of each script.
 | Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
-| Thruster plume | `entities/player/player.gd` | `THRUSTER_X`, `THRUSTER_Z`, flame lengths and alphas in `_update_afterburner_visual()` |
+| Thruster plume and launch flash | `entities/player/player.gd` | `THRUSTER_X`, `THRUSTER_Z`, `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()` |
 | Ship silhouette | `entities/player/player.gd` | fuselage stations in `_build_fuselage()`, wing outlines in `_build_wing()`, tail surfaces in `_build_empennage()` |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK` (degrees on top of the wing's built-in leading-edge sweep) |
 | Muzzle clears the nose | `entities/player/player.gd` | `MUZZLE_DISTANCE`, `BEAM_START` |
@@ -269,6 +333,10 @@ wide, so a unit is under 2.5 px and the bus stays quiet.
 # Same, after travelling: the terrain must not match the resting frame
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --travel 180 --out /tmp/gerwalk_moved.png
+
+# Review the bank: strafe across the nose and the hull must lean
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --strafe 30 --out /tmp/gerwalk_bank.png
 
 # Review one weapon at a time (1 vulcan, 2 laser, 3 plasma) and the bomb ring
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
