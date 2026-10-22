@@ -860,8 +860,8 @@ func _test_plasma(weapons: WeaponSystem) -> void:
 	await get_tree().physics_frame
 
 
-## Missiles are the only weapon the player never asks for, so the assertion is
-## that one leaves while the trigger is up, and that it leaves guided.
+## The rack is a radar and a charge: no button, no shot; held time loads the salvo;
+## the radar decides how it is spread.
 func _test_missiles(weapons: WeaponSystem) -> void:
 	weapons.select(Arsenal.Kind.VULCAN)
 	Input.action_release(&"aim_left")
@@ -875,8 +875,9 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	await _wait_frames(45)
 
 	await _test_missile_holds_fire(weapons)
-	await _test_missile_lock(weapons)
-	await _test_missile_multi_lock(weapons)
+	await _test_missile_load(weapons)
+	await _test_missile_growth(weapons)
+	await _test_missile_spread(weapons)
 	await _test_missile_radar_cone(weapons)
 	await _test_missile_cap(weapons)
 	await _test_missile_tap(weapons)
@@ -887,7 +888,7 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	await get_tree().physics_frame
 
 
-## The rack is a radar, not a clock: a turret in range buys nothing on its own.
+## A turret in range buys nothing on its own: the button is the whole permission.
 func _test_missile_holds_fire(weapons: WeaponSystem) -> void:
 	var enemy: Enemy = _spawn_enemy(_player.global_position + _aim() * 20.0)
 	_check(enemy != null, "spawned a target for the missiles")
@@ -896,11 +897,11 @@ func _test_missile_holds_fire(weapons: WeaponSystem) -> void:
 		_player_projectiles().is_empty(),
 		"a turret in range never launches a missile on its own"
 	)
-	_check(weapons.lock_count() == 0, "an idle rack holds no marks")
+	_check(weapons.salvo_count() == 0, "an idle rack holds no missiles")
 
 
-## Holding marks, releasing pays out: one mark, one missile.
-func _test_missile_lock(weapons: WeaponSystem) -> void:
+## Held time loads the salvo: one missile per interval, fired only on release.
+func _test_missile_load(weapons: WeaponSystem) -> void:
 	_clear_enemies()
 	await _wait_frames(2)
 	var enemy: Enemy = _spawn_enemy(_player.global_position + _aim() * 20.0)
@@ -910,68 +911,115 @@ func _test_missile_lock(weapons: WeaponSystem) -> void:
 	await _wait_frames(2)
 
 	Input.action_press(&"missile")
-	await _wait_frames(14)
+	await _wait_frames(20)
 	_check(
-		weapons.lock_count() == 1,
-		"holding the button marks the turret in the radar (marks %d)" % weapons.lock_count()
+		weapons.salvo_count() == 1,
+		"an interval of hold loads a missile (loaded %d)" % weapons.salvo_count()
 	)
 	_check(
-		not get_tree().get_nodes_in_group(&"lock_reticle").is_empty(),
-		"a marked turret carries a reticle"
+		get_tree().get_nodes_in_group(&"lock_reticle").size() == 1,
+		"the radar rings the contact the salvo will chase"
 	)
 
 	Input.action_release(&"missile")
 	await _wait_frames(2)
 
 	var flight: Array[Projectile] = _player_projectiles()
-	_check(
-		flight.size() == 1,
-		"releasing the button pays out one missile per mark (got %d)" % flight.size()
-	)
-	_check(weapons.lock_count() == 0, "a salvo empties the rack")
+	_check(flight.size() == 1, "releasing fires the whole load (got %d)" % flight.size())
+	_check(weapons.salvo_count() == 0, "a salvo empties the rack")
 	_check(
 		get_tree().get_nodes_in_group(&"lock_reticle").is_empty(),
-		"the reticle leaves with the salvo"
+		"the rings leave with the salvo"
 	)
 	if flight.is_empty():
 		return
 
 	var launched: Projectile = flight[0]
-	_check(launched.get("_target") == enemy, "the missile locks the turret in range")
+	_check(launched.get("_target") == enemy, "the missile chases the radar contact")
 	_check(float(launched.get("_turn_rate")) > 0.0, "the missile is guided")
 	await _test_missile_style(launched)
 	await _test_missile_trail(launched)
 	_clear_projectiles()
 
 
-## Held time buys one mark per enemy: the same target is never marked twice, so a
-## long hold spreads the salvo instead of stacking it.
-func _test_missile_multi_lock(weapons: WeaponSystem) -> void:
-	var aim: Vector3 = _aim()
-	var marks: Array[Enemy] = []
-	for index in 3:
-		marks.append(_spawn_enemy(_player.global_position + aim * float(16 + index * 6)))
-	_check(marks.size() == 3, "spawned three turrets inside the radar")
+## More hold, more missiles: one second loads three, and a lone contact takes the
+## whole salvo instead of the load waiting for company.
+func _test_missile_growth(weapons: WeaponSystem) -> void:
+	_clear_enemies()
+	await _wait_frames(30)
+	var enemy: Enemy = _spawn_enemy(_player.global_position + _aim() * 18.0)
+	_check(enemy != null, "spawned a lone turret for the load")
+	if enemy == null:
+		return
+	await _wait_frames(2)
 
 	Input.action_press(&"missile")
-	await _wait_frames(34)
-	_check(weapons.lock_count() == 3, "a hold marks one enemy at a time")
+	await _wait_frames(60)
+	_check(
+		weapons.salvo_count() == 3,
+		"a second of hold loads three missiles (loaded %d)" % weapons.salvo_count()
+	)
 
 	Input.action_release(&"missile")
 	await _wait_frames(2)
 
 	var flight: Array[Projectile] = _player_projectiles()
-	_check(flight.size() == 3, "one missile leaves per mark")
-
+	_check(flight.size() == 3, "the whole salvo leaves together (got %d)" % flight.size())
 	var targets: Array = []
 	for missile in flight:
 		targets.append(missile.get("_target"))
-	_check(_unique_count(targets) == targets.size(), "each missile chases its own mark")
+	_check(_unique_count(targets) == 1, "a lone contact takes every missile")
 	_clear_projectiles()
 
 
-## The radar looks forward. A turret behind the nose stays invisible to it no
-## matter how close it is, and releasing there fires nothing.
+## With more contacts than missiles spread evenly, the load is divided: three
+## missiles over two turrets is 2/1, never 3/0 on the nearest one.
+func _test_missile_spread(weapons: WeaponSystem) -> void:
+	_clear_enemies()
+	await _wait_frames(30)
+	var aim: Vector3 = _aim()
+	var near: Enemy = _spawn_enemy(_player.global_position + aim * 14.0)
+	var far: Enemy = _spawn_enemy(_player.global_position + aim * 30.0)
+	_check(near != null and far != null, "spawned two contacts inside the radar")
+	if near == null or far == null:
+		return
+	await _wait_frames(2)
+
+	Input.action_press(&"missile")
+	await _wait_frames(30)
+	_check(
+		get_tree().get_nodes_in_group(&"lock_reticle").size() == 2,
+		"the radar rings both contacts"
+	)
+	await _wait_frames(30)
+	_check(
+		weapons.salvo_count() == 3,
+		"the load ignores how many contacts it is spread over (loaded %d)"
+		% weapons.salvo_count()
+	)
+
+	Input.action_release(&"missile")
+	await _wait_frames(2)
+
+	var flight: Array[Projectile] = _player_projectiles()
+	_check(flight.size() == 3, "three loaded missiles leave (got %d)" % flight.size())
+	var counts: Array[int] = [0, 0]
+	for missile in flight:
+		var target: Enemy = missile.get("_target") as Enemy
+		if target == near:
+			counts[0] += 1
+		elif target == far:
+			counts[1] += 1
+	counts.sort()
+	_check(
+		counts[0] == 1 and counts[1] == 2,
+		"three missiles over two contacts split 2/1 (%s)" % str(counts)
+	)
+	_clear_projectiles()
+
+
+## The radar looks forward. A turret behind the nose is neither a contact nor a
+## target, no matter how close it is.
 func _test_missile_radar_cone(weapons: WeaponSystem) -> void:
 	_clear_projectiles()
 	_clear_enemies()
@@ -980,17 +1028,22 @@ func _test_missile_radar_cone(weapons: WeaponSystem) -> void:
 	var aim: Vector3 = _aim()
 	var behind: Enemy = _spawn_enemy(_player.global_position - aim * 18.0)
 	_check(behind != null, "spawned a turret behind the nose")
+	await _wait_frames(2)
 
 	Input.action_press(&"missile")
 	await _wait_frames(20)
-	_check(weapons.lock_count() == 0, "a turret behind the nose stays off the radar")
+	_check(weapons.salvo_count() == 0, "a turret behind the nose loads nothing")
+	_check(
+		get_tree().get_nodes_in_group(&"lock_reticle").is_empty(),
+		"an empty radar rings nothing"
+	)
 	Input.action_release(&"missile")
 	await _wait_frames(2)
 	_check(_player_projectiles().is_empty(), "an empty radar releases nothing")
 
 
-## Six is the size of the rack, and the seventh turret is past the radar range on
-## purpose: neither the count nor the reach can be bought with more targets.
+## Six is the size of the rack: more held time does not buy a seventh, and the
+## seventh turret sits past the radar range on purpose.
 func _test_missile_cap(weapons: WeaponSystem) -> void:
 	await _wait_frames(30)
 	var aim: Vector3 = _aim()
@@ -998,32 +1051,68 @@ func _test_missile_cap(weapons: WeaponSystem) -> void:
 	for index in 7:
 		targets.append(_spawn_enemy(_player.global_position + aim * float(14 + index * 6)))
 	_check(targets.size() == 7, "spawned seven turrets around the radar edge")
+	await _wait_frames(2)
 
 	Input.action_press(&"missile")
-	await _wait_frames(75)
-	_check(weapons.lock_count() == 6, "the rack holds at six marks")
+	await _wait_frames(120)
+	_check(
+		weapons.salvo_count() == 6,
+		"the rack caps at six (loaded %d)" % weapons.salvo_count()
+	)
 
 	Input.action_release(&"missile")
 	await _wait_frames(2)
-	_check(_player_projectiles().size() == 6, "six marks leave six missiles")
+	_check(
+		_player_projectiles().size() == 6,
+		"six loaded missiles leave (got %d)" % _player_projectiles().size()
+	)
+
+	# The cooldown right after a salvo: holding restarts nothing.
+	Input.action_press(&"missile")
+	await _wait_frames(20)
+	_check(
+		weapons.salvo_count() == 0,
+		"the salvo cooldown blocks the next charge (loaded %d)" % weapons.salvo_count()
+	)
+	Input.action_release(&"missile")
+	await _wait_frames(2)
+	_check(
+		_player_projectiles().size() == 6,
+		"nothing leaves while the rack cools (got %d)" % _player_projectiles().size()
+	)
 	_clear_projectiles()
 
 
-## The cooldown is what makes the hold worth anything: a tap right after a salvo
-## has to lose to held time, or the whole mechanic is a worse way to fire.
+## A tap shorter than the load interval fires nothing at all: the hold is the
+## weapon, not the press.
 func _test_missile_tap(weapons: WeaponSystem) -> void:
-	Input.action_press(&"missile")
-	await _wait_frames(1)
-	Input.action_release(&"missile")
-	await _wait_frames(2)
-	_check(_player_projectiles().is_empty(), "a tap cannot skip the salvo cooldown")
-
+	_clear_enemies()
 	await _wait_frames(30)
+
+	var enemy: Enemy = _spawn_enemy(_player.global_position + _aim() * 18.0)
+	_check(enemy != null, "spawned a turret for the tap")
+	await _wait_frames(2)
+
 	Input.action_press(&"missile")
-	await _wait_frames(12)
+	await _wait_frames(4)
 	Input.action_release(&"missile")
 	await _wait_frames(2)
-	_check(_player_projectiles().size() == 1, "a quick tap pays out a single missile")
+	_check(
+		weapons.salvo_count() == 0,
+		"a tap loads no missiles (loaded %d)" % weapons.salvo_count()
+	)
+	_check(_player_projectiles().is_empty(), "a tap fires nothing at all")
+
+	# The same press, held past one interval, does load.
+	Input.action_press(&"missile")
+	await _wait_frames(20)
+	_check(
+		weapons.salvo_count() == 1,
+		"holding past the interval loads one (loaded %d)" % weapons.salvo_count()
+	)
+	Input.action_release(&"missile")
+	await _wait_frames(2)
+	_check(_player_projectiles().size() == 1, "one loaded missile leaves")
 	_clear_projectiles()
 
 

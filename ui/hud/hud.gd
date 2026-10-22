@@ -6,7 +6,7 @@ extends CanvasLayer
 @onready var _weapon_label: Label = %WeaponLabel
 @onready var _mode_label: Label = %ModeLabel
 @onready var _bomb_pips: Control = %BombPips
-@onready var _lock_label: Label = %LockLabel
+@onready var _salvo_label: Label = %SalvoLabel
 @onready var _game_over: Control = %GameOver
 
 var _game_over_visible: bool = false
@@ -19,7 +19,7 @@ func _ready() -> void:
 	GlobalEventBus.player_weapon_changed.connect(_on_player_weapon_changed)
 	GlobalEventBus.player_mode_changed.connect(_on_player_mode_changed)
 	GlobalEventBus.player_bombs_changed.connect(_on_player_bombs_changed)
-	GlobalEventBus.player_missile_locks_changed.connect(_on_player_missile_locks_changed)
+	GlobalEventBus.player_missile_salvo_changed.connect(_on_player_missile_salvo_changed)
 	GlobalEventBus.player_died.connect(_on_player_died)
 
 
@@ -51,11 +51,11 @@ func _on_player_bombs_changed(current: int, maximum: int) -> void:
 	_bomb_pips.set_bombs(current, maximum)
 
 
-## A hold that decides how many missiles leave cannot be invisible, so the count
-## sits above the weapon name while the rack is loaded.
-func _on_player_missile_locks_changed(current: int, maximum: int) -> void:
-	_lock_label.visible = current > 0
-	_lock_label.text = "LOCK %d / %d" % [current, maximum]
+## The hold decides how many missiles leave, so the loaded count has to be visible
+## while the button is down.
+func _on_player_missile_salvo_changed(current: int, maximum: int) -> void:
+	_salvo_label.visible = current > 0
+	_salvo_label.text = "SALVO %d / %d" % [current, maximum]
 
 
 func _on_player_died() -> void:

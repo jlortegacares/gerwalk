@@ -59,11 +59,11 @@ const FIGHTER_RANGE_MULTIPLIER: float = 1.4
 const FIGHTER_SPEED_MULTIPLIER: float = 1.35
 const FIGHTER_VULCAN_SPREAD_DEGREES: float = 4.0
 
-## Missiles: a forward radar and a salvo, not a clock. Holding the missile button
-## marks one enemy at a time inside the radar cone; releasing pays out one missile
-## per mark. The launch angle matters as much as the turn rate: a missile that
-## leaves straight ahead has no visible curve, and the curve is what sells the
-## guidance.
+## Missiles: a forward radar and a charged salvo, not a clock. The radar holds the
+## enemies inside the forward cone; holding the missile button loads one missile every
+## MISSILE_SALVO_INTERVAL and releasing fires the whole load, spread over those
+## contacts. The launch angle matters as much as the turn rate: a missile that leaves
+## straight ahead has no visible curve, and the curve is what sells the guidance.
 const MISSILE_SPEED: float = 34.0
 const MISSILE_DAMAGE: int = 4
 const MISSILE_SIZE: Vector3 = Vector3(0.46, 0.38, 1.9)
@@ -72,11 +72,12 @@ const MISSILE_RANGE: float = 48.0
 ## Half-angle of the forward radar around the aim. Wide enough to sweep a turning
 ## fight, narrow enough that the lock is still a forward decision.
 const MISSILE_RADAR_CONE_DEGREES: float = 55.0
-## Held time per mark: six marks take just under a second of commitment.
-const MISSILE_LOCK_INTERVAL: float = 0.16
-const MISSILE_MAX_LOCKS: int = 6
-## After a salvo the rack is empty for a moment. This is what keeps mashing the
-## button from beating the hold: six taps would otherwise outrun six marks.
+## Held time per loaded missile. A full rack of six is 1.8 s of commitment, and a
+## tap shorter than one interval fires nothing at all: the hold is the weapon.
+const MISSILE_SALVO_INTERVAL: float = 0.3
+const MISSILE_MAX_SALVO: int = 6
+## After a salvo the rack is empty for a moment, so hold-release spam cannot chain
+## salvos faster than the hold that loads them.
 const MISSILE_SALVO_COOLDOWN: float = 0.45
 const MISSILE_LAUNCH_AHEAD: float = 0.3
 const MISSILE_LAUNCH_SIDE: float = 0.9

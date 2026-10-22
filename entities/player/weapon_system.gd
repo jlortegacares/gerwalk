@@ -14,11 +14,14 @@ var _laser_tick: float = 0.0
 var _beam: Node3D
 
 var _missile_cooldown: float = 0.0
-var _missile_lock_timer: float = 0.0
+var _salvo_timer: float = 0.0
 var _missiles_fired: int = 0
-## Enemies the forward radar currently holds, in the order they were marked. One
-## missile leaves per entry when the button comes up.
-var _locks: Array[Enemy] = []
+## Missiles loaded by the current hold. The radar only decides who they are spread
+## over; the load itself is pure held time.
+var _salvo: int = 0
+## Enemies carrying a reticle right now, always a subset of the radar pool, so a
+## mark can follow the radar without leaving a stale ring behind.
+var _marked: Array[Enemy] = []
 
 ## Fighter mode is a profile, not a different arsenal: the same three archetypes
 ## keep their identity and only lose the freedom to point anywhere but forward.
@@ -187,30 +190,42 @@ func _speed_multiplier() -> float:
 ## Nearest turret inside the cone, or null. A lock that ignored the cone would be
 ## an aimbot: the player must at least point the ship at the fight.
 func _nearest_enemy(
-	origin: Vector3,
-	direction: Vector3,
-	max_range: float,
-	cone_degrees: float,
-	exclude: Array = []
+	origin: Vector3, direction: Vector3, max_range: float, cone_degrees: float
 ) -> Node3D:
-	var best: Node3D = null
-	var best_distance: float = max_range
+	var found: Array[Enemy] = _enemies_in_cone(origin, direction, max_range, cone_degrees)
+	return found[0] if not found.is_empty() else null
+
+
+## Every enemy inside the cone, nearest first. The plasma lock wants the head of
+## the list; the missile radar wants the whole list, because a salvo is spread over
+## it.
+func _enemies_in_cone(
+	origin: Vector3, direction: Vector3, max_range: float, cone_degrees: float
+) -> Array[Enemy]:
+	var found: Array[Enemy] = []
 	for node in get_tree().get_nodes_in_group(&"enemy"):
-		var enemy: Node3D = node as Node3D
-		if enemy == null or exclude.has(enemy):
+		var enemy: Enemy = node as Enemy
+		if enemy == null:
 			continue
 		var to_enemy: Vector3 = enemy.global_position - origin
 		to_enemy.y = 0.0
 		var distance: float = to_enemy.length()
-		if distance < 0.01 or distance > best_distance:
+		if distance < 0.01 or distance > max_range:
 			continue
 		if cone_degrees < 180.0:
 			var angle: float = rad_to_deg(direction.angle_to(to_enemy.normalized()))
 			if angle > cone_degrees:
 				continue
-		best = enemy
-		best_distance = distance
-	return best
+		found.append(enemy)
+
+	found.sort_custom(
+		func(a: Enemy, b: Enemy) -> bool:
+			return (
+				a.global_position.distance_squared_to(origin)
+				< b.global_position.distance_squared_to(origin)
+			)
+	)
+	return found
 
 
 ## One spawn path for every player shot, so the muzzle, the scene and the team can
@@ -239,104 +254,89 @@ func _spawn(
 	)
 
 
-## How many enemies the forward radar holds right now. The HUD reads it through
-## the bus and the smoke test asserts against it.
-func lock_count() -> int:
-	return _locks.size()
+## How many missiles the hold has loaded. The HUD reads it through the bus and the
+## smoke test asserts against it.
+func salvo_count() -> int:
+	return _salvo
 
 
-func max_locks() -> int:
-	return Arsenal.MISSILE_MAX_LOCKS
+func max_salvo() -> int:
+	return Arsenal.MISSILE_MAX_SALVO
 
 
-## The rack is a radar, not a clock. Holding the button marks one enemy per
-## MISSILE_LOCK_INTERVAL inside the forward cone; releasing pays out one missile
-## per mark. With the button up, nothing fires at all.
+## The rack is a radar and a charge, not a clock. The radar holds every contact
+## inside the forward cone; while the button is down one missile loads every
+## MISSILE_SALVO_INTERVAL, and letting go fires the whole load, spread over those
+## contacts from the nearest outwards. Nothing fires with the button up, and a tap
+## shorter than one interval loads nothing at all.
 ##
-## The salvo cooldown is what makes the hold worth anything: without it, six taps
-## would arm and fire faster than six marks of held time.
+## The load needs contacts to grow: with an empty radar the rack stays empty, so a
+## salvo can never be pre-charged in empty sky and dumped the moment a turret
+## appears.
 func _tick_missiles(
 	delta: float, origin: Vector3, direction: Vector3, wants_lock: bool
 ) -> void:
 	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
-	# A mark is only worth what the radar can still see, so the cone is re-checked
-	# every frame instead of only when the mark is made.
-	_prune_locks(origin, direction)
+	var pool: Array[Enemy] = _radar_pool(origin, direction)
 
+	# The cooldown is the gap after a salvo, not a pause: the rack is empty and
+	# unmarked for its whole length.
 	if _missile_cooldown > 0.0:
+		_discharge()
 		return
 
 	if not wants_lock:
-		_missile_lock_timer = 0.0
-		if not _locks.is_empty():
-			_fire_salvo(origin, direction)
+		if _salvo > 0 and not pool.is_empty():
+			_fire_salvo(pool, origin, direction)
+		_discharge()
 		return
 
-	if _locks.size() >= Arsenal.MISSILE_MAX_LOCKS:
-		_missile_lock_timer = 0.0
+	_sync_marks(pool)
+	if pool.is_empty() or _salvo >= Arsenal.MISSILE_MAX_SALVO:
 		return
 
-	_missile_lock_timer += delta
+	_salvo_timer += delta
 	while (
-		_missile_lock_timer >= Arsenal.MISSILE_LOCK_INTERVAL
-		and _locks.size() < Arsenal.MISSILE_MAX_LOCKS
+		_salvo_timer >= Arsenal.MISSILE_SALVO_INTERVAL
+		and _salvo < Arsenal.MISSILE_MAX_SALVO
 	):
-		_missile_lock_timer -= Arsenal.MISSILE_LOCK_INTERVAL
-		if not _mark_next(origin, direction):
-			_missile_lock_timer = 0.0
-			break
+		_salvo_timer -= Arsenal.MISSILE_SALVO_INTERVAL
+		_salvo += 1
+		GlobalEventBus.player_missile_salvo_changed.emit(_salvo, Arsenal.MISSILE_MAX_SALVO)
 
-	if _locks.size() >= Arsenal.MISSILE_MAX_LOCKS:
-		_missile_lock_timer = 0.0
-
-
-## Marks the nearest enemy inside the radar that is not marked yet. Held time buys
-## one mark per enemy, never two marks on the same target.
-func _mark_next(origin: Vector3, direction: Vector3) -> bool:
-	var target: Enemy = _nearest_enemy(
-		origin, direction, Arsenal.MISSILE_RANGE, Arsenal.MISSILE_RADAR_CONE_DEGREES, _locks
-	) as Enemy
-	if target == null:
-		return false
-
-	var reticle: LockReticle = target.get_node_or_null(^"LockReticle") as LockReticle
-	if reticle == null:
-		reticle = LockReticle.new()
-		reticle.name = "LockReticle"
-		target.add_child(reticle)
-
-	_locks.append(target)
-	GlobalEventBus.player_missile_locks_changed.emit(_locks.size(), Arsenal.MISSILE_MAX_LOCKS)
-	return true
+	if _salvo >= Arsenal.MISSILE_MAX_SALVO:
+		_salvo_timer = 0.0
 
 
-func _prune_locks(origin: Vector3, direction: Vector3) -> void:
-	if _locks.is_empty():
-		return
-
-	var lost: bool = false
-	for enemy in _locks.duplicate():
-		if _in_radar(enemy, origin, direction):
-			continue
-		_locks.erase(enemy)
-		_drop_reticle(enemy)
-		lost = true
-
-	if lost:
-		GlobalEventBus.player_missile_locks_changed.emit(_locks.size(), Arsenal.MISSILE_MAX_LOCKS)
-
-
-func _in_radar(enemy: Enemy, origin: Vector3, direction: Vector3) -> bool:
-	if not is_instance_valid(enemy):
-		return false
-	var to_enemy: Vector3 = enemy.global_position - origin
-	to_enemy.y = 0.0
-	var distance: float = to_enemy.length()
-	if distance < 0.01 or distance > Arsenal.MISSILE_RANGE:
-		return false
-	return rad_to_deg(direction.angle_to(to_enemy.normalized())) <= (
-		Arsenal.MISSILE_RADAR_CONE_DEGREES
+## The contacts the radar holds, nearest first and capped at the rack size: the same
+## list is what the hold loads against and what a salvo is spread over.
+func _radar_pool(origin: Vector3, direction: Vector3) -> Array[Enemy]:
+	var pool: Array[Enemy] = _enemies_in_cone(
+		origin, direction, Arsenal.MISSILE_RANGE, Arsenal.MISSILE_RADAR_CONE_DEGREES
 	)
+	if pool.size() > Arsenal.MISSILE_MAX_SALVO:
+		pool.resize(Arsenal.MISSILE_MAX_SALVO)
+	return pool
+
+
+## Rings every contact the radar holds while the button is down. The salvo is
+## spread over them, so the player has to see the spread, not only a count.
+func _sync_marks(pool: Array[Enemy]) -> void:
+	for index in range(_marked.size() - 1, -1, -1):
+		var marked: Enemy = _marked[index]
+		if is_instance_valid(marked) and pool.has(marked):
+			continue
+		_drop_reticle(marked)
+		_marked.remove_at(index)
+
+	for enemy in pool:
+		if _marked.has(enemy):
+			continue
+		if enemy.get_node_or_null(^"LockReticle") == null:
+			var reticle: LockReticle = LockReticle.new()
+			reticle.name = "LockReticle"
+			enemy.add_child(reticle)
+		_marked.append(enemy)
 
 
 func _drop_reticle(enemy: Enemy) -> void:
@@ -347,26 +347,25 @@ func _drop_reticle(enemy: Enemy) -> void:
 		reticle.queue_free()
 
 
-## One missile per mark, in marking order, each still guided to its own target.
-## The rack empties first: a launch ends the lock, it is not a checkpoint partway
-## through it.
-func _fire_salvo(origin: Vector3, direction: Vector3) -> void:
-	var marks: Array[Enemy] = _locks.duplicate()
-	_clear_locks()
-	_missile_lock_timer = 0.0
-	if marks.is_empty():
+## The whole load leaves at once, one missile per slot, spread round-robin from the
+## nearest contact outwards: with more targets than missiles the closest ones take
+## the hits, and each missile still chases its own target.
+func _fire_salvo(pool: Array[Enemy], origin: Vector3, direction: Vector3) -> void:
+	var count: int = _salvo
+	_discharge()
+	if count == 0 or pool.is_empty():
 		return
 
 	_missile_cooldown = Arsenal.MISSILE_SALVO_COOLDOWN
-	for index in marks.size():
-		var target: Enemy = marks[index]
+	for index in count:
+		var target: Enemy = pool[index % pool.size()]
 		if is_instance_valid(target):
 			_launch_missile(target, origin, direction, index)
 
 
 ## Alternating wings and an outward angle, so the guidance curve is visible from
 ## the first frame instead of looking like a straight shot. Same salvo, different
-## line: the marks only decide who each missile is chasing.
+## line: the load decides how many, the radar decides who.
 func _launch_missile(
 	target: Enemy, origin: Vector3, direction: Vector3, index: int
 ) -> void:
@@ -396,13 +395,17 @@ func _launch_missile(
 	)
 
 
-func _clear_locks() -> void:
-	for enemy in _locks:
+## Empties the rack and its marks. Called on release, on cooldown and on an empty
+## radar, so there is never a loaded salvo waiting for a second press.
+func _discharge() -> void:
+	for enemy in _marked:
 		_drop_reticle(enemy)
-	var had: bool = not _locks.is_empty()
-	_locks.clear()
-	if had:
-		GlobalEventBus.player_missile_locks_changed.emit(0, Arsenal.MISSILE_MAX_LOCKS)
+	_marked.clear()
+	_salvo_timer = 0.0
+	if _salvo == 0:
+		return
+	_salvo = 0
+	GlobalEventBus.player_missile_salvo_changed.emit(0, Arsenal.MISSILE_MAX_SALVO)
 
 
 ## The bomb is the only weapon with a resource. It damages and cancels in the same
