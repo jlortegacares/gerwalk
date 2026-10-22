@@ -324,7 +324,13 @@ func _radar_pool(origin: Vector3, direction: Vector3) -> Array[Enemy]:
 func _sync_marks(pool: Array[Enemy]) -> void:
 	for index in range(_marked.size() - 1, -1, -1):
 		var marked: Enemy = _marked[index]
-		if is_instance_valid(marked) and pool.has(marked):
+		# A turret can die under its own ring. A freed mark is dropped from the
+		# list without a call: it took its reticle with it, and handing the freed
+		# reference to _drop_reticle fails the parameter type check.
+		if not is_instance_valid(marked):
+			_marked.remove_at(index)
+			continue
+		if pool.has(marked):
 			continue
 		_drop_reticle(marked)
 		_marked.remove_at(index)
@@ -397,10 +403,15 @@ func _launch_missile(
 
 ## Empties the rack and its marks. Called on release, on cooldown and on an empty
 ## radar, so there is never a loaded salvo waiting for a second press.
+##
+## This runs every frame of a cooldown, so it cannot assume its marks are alive: a
+## turret killed under its ring is dropped without a call and the rack still empties.
 func _discharge() -> void:
-	for enemy in _marked:
-		_drop_reticle(enemy)
-	_marked.clear()
+	for index in range(_marked.size() - 1, -1, -1):
+		var enemy: Enemy = _marked[index]
+		if is_instance_valid(enemy):
+			_drop_reticle(enemy)
+		_marked.remove_at(index)
 	_salvo_timer = 0.0
 	if _salvo == 0:
 		return

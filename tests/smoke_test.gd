@@ -878,6 +878,7 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	await _test_missile_load(weapons)
 	await _test_missile_growth(weapons)
 	await _test_missile_spread(weapons)
+	await _test_missile_dead_contact(weapons)
 	await _test_missile_radar_cone(weapons)
 	await _test_missile_cap(weapons)
 	await _test_missile_tap(weapons)
@@ -1015,6 +1016,49 @@ func _test_missile_spread(weapons: WeaponSystem) -> void:
 		counts[0] == 1 and counts[1] == 2,
 		"three missiles over two contacts split 2/1 (%s)" % str(counts)
 	)
+	_clear_projectiles()
+
+
+## A contact can die while it is ringed. Its mark has to leave with it without
+## taking the rack with it: the salvo still fires at whatever is left.
+func _test_missile_dead_contact(weapons: WeaponSystem) -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	await _wait_frames(30)
+
+	var aim: Vector3 = _aim()
+	var doomed: Enemy = _spawn_enemy(_player.global_position + aim * 14.0)
+	var survivor: Enemy = _spawn_enemy(_player.global_position + aim * 26.0)
+	_check(survivor != null, "spawned two contacts, one of them doomed")
+	if doomed == null or survivor == null:
+		return
+	await _wait_frames(2)
+
+	Input.action_press(&"missile")
+	await _wait_frames(20)
+	_check(weapons.salvo_count() == 1, "the first missile loads against two contacts")
+
+	doomed.take_damage(99)
+	await _wait_frames(3)
+	_check(
+		get_tree().get_nodes_in_group(&"lock_reticle").size() == 1,
+		"a dead contact takes its ring with it"
+	)
+	await _wait_frames(20)
+	_check(
+		weapons.salvo_count() == 2,
+		"the load keeps growing after a contact dies (loaded %d)" % weapons.salvo_count()
+	)
+
+	Input.action_release(&"missile")
+	await _wait_frames(2)
+
+	var flight: Array[Projectile] = _player_projectiles()
+	_check(
+		flight.size() == 2,
+		"the salvo still fires after a contact dies (got %d)" % flight.size()
+	)
+	_check(weapons.salvo_count() == 0, "the rack empties when a mark died mid-hold")
 	_clear_projectiles()
 
 

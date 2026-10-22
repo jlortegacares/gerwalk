@@ -107,3 +107,12 @@ every missile, a 2/1 split over two contacts, forward-cone exclusion, the six ca
 the cooldown right after a salvo, and a tap firing nothing. Three consecutive green
 runs. Visual check: three contacts ringed, `SALVO 3 / 6`, and the salvo leaving with
 its trails.
+
+L11: Reported from play: `Invalid type in function '_drop_reticle' ... (previously
+freed)`. A turret killed while ringed leaves a freed reference in `_marked`, and
+passing it to a parameter typed `Enemy` fails the type check before the function body
+runs, so `_sync_marks` and `_discharge` aborted mid-cleanup: the rack never emptied
+and the error repeated every frame. Reproduced first with a new sub-test (kill a
+ringed contact mid-hold, keep holding, release), which failed "the rack empties" and
+printed the error every frame. Fix: both loops walk the list backwards, drop a freed
+mark without calling into it, and only call `_drop_reticle` on a live enemy.
