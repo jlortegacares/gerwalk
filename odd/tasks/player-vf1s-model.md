@@ -22,8 +22,11 @@ S3. The FIGHTER <-> GERWALK switch (0.28 s) poses the skeleton's leg and arm bon
     hull. The existing angles (`LEG_THIGH_ANGLE`, `LEG_KNEE_ANGLE`, `LEG_SPLAY`,
     `ARM_*`) stay the tuning surface; only their axis mapping changes.
 
-S4. Wing sweep follows the throttle exactly as today: `WING_SWEEP_FORWARD` at rest
-    to `WING_SWEEP_BACK` at full burner, blended with the mode.
+S4. Wing sweep follows speed, not the mode: the wings sit at `WING_SWEEP_FORWARD`
+    (extended) at cruise and reach `WING_SWEEP_BACK` only above it, in both modes.
+    The thresholds are `FIGHTER_SPEED`/`FIGHTER_BOOST_SPEED` in FIGHTER and
+    `MAX_SPEED`/`BOOST_SPEED` in GERWALK, chosen by the mode being committed to.
+    User, verbatim: "cuando el figther va a velocidad crusero que expanda las alas".
 
 S5. The afterburner cones stay where the engines are: they are placed from the
     model's exhaust nozzles, not from `THRUSTER_X`/`THRUSTER_Z`, and still stretch
@@ -112,3 +115,12 @@ fix is to remove the `.import` and `.godot/imported/Vf-01_BRoid_ULa.glb-*`, let
 Godot re-import, and commit the 12 regenerated textures with their `.import`
 files. `build()` also guards its bone arrays now, so a failed load costs the model
 and not the whole player.
+
+L7: User, verbatim: "cuando el figther va a velocidad crusero que expanda las alas".
+The old rule locked FIGHTER fully aft regardless of speed (`sweep_t` was forced to
+1.0 by `_mode_blend`), so the wings only ever answered the throttle in GERWALK.
+They now answer speed in both modes: 0 degrees at cruise, full sweep past it. The
+thresholds are picked from the mode the switch is committing to instead of being
+blended, because a blended cruise would swing the wings back and forth while the
+ship decelerates through the transformation. `PlayerModel.sweep_degrees` exposes
+the value so the suite pins it: 0.0 at cruise, 26.6 at 58 u/s.

@@ -537,8 +537,10 @@ build by hand — fuselage stations, wing outlines, tail surfaces, canopy, limbs
 ships inside the model, and the loft and extrude helpers went with it.
 
 The swing wings are bones too: `Bone.Wing.L/R` rotate about the model's vertical
-axis, and the sweep follows the throttle, not the burner button, so the tip swings
-aft as the ship gets faster. The afterburner cones are anchored to the exhaust
+axis, and the sweep follows speed rather than the mode — the wings fly extended at
+cruise and only sweep past `FIGHTER_SPEED` (`MAX_SPEED` in GERWALK), which is where
+the burner lives. The thresholds come from the mode the switch is committing to,
+so a transformation never makes them flap on the way. The afterburner cones are anchored to the exhaust
 bones rather than to a fixed tail offset, so they stay on the engines when the
 stance swings the nacelles forward. The muzzle distance still clears the nose, so
 bullets leave the airframe instead of spawning inside it.

@@ -524,6 +524,24 @@ func _test_gerwalk_silhouette() -> void:
 	_check(absf(stowed.z) < 0.15, "FIGHTER stows the gunpod on the centreline (z %.2f)" % stowed.z)
 	_check(stowed.y < -0.2, "the stowed gunpod rides under the belly (y %.2f)" % stowed.y)
 
+	# The wings answer speed, not the mode: extended at cruise, swept only once the
+	# ship is pushed past it. Driving the visual directly keeps the check out of the
+	# flight model's hands.
+	var aim: Vector3 = _player.get("_aim_direction")
+	_player.velocity = aim * (Player.FIGHTER_SPEED - 1.0)
+	_player.call("_update_afterburner_visual", 0.0)
+	_check(
+		model.sweep_degrees < 2.0,
+		"the wings stay extended at cruise (%.1f deg)" % model.sweep_degrees
+	)
+	_player.velocity = aim * (Player.FIGHTER_BOOST_SPEED - 2.0)
+	_player.call("_update_afterburner_visual", 0.0)
+	_check(
+		model.sweep_degrees > 25.0,
+		"the wings sweep past cruise (%.1f deg)" % model.sweep_degrees
+	)
+	_player.velocity = Vector3.ZERO
+
 	_player.call("_start_transform")
 	for _i in 20:
 		await get_tree().physics_frame

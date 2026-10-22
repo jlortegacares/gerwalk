@@ -66,6 +66,9 @@ var _elbow: Array[int] = []
 var _wing: Array[int] = []
 var _hand: int = -1
 var _nozzles: Array[int] = []
+## Wing sweep the last pose was built with, in degrees. Exposed so the wing rules
+## can be checked without reading bones back.
+var sweep_degrees: float = 0.0
 
 
 ## Builds the airframe and returns false when the model is missing, so the caller
@@ -174,8 +177,9 @@ func _rotate(bone: int, axis: Vector3, degrees: float) -> void:
 	_skeleton.set_bone_pose_rotation(bone, q)
 
 
-func pose_mode(gerwalk: float, sweep_degrees: float) -> void:
-	_pose(clampf(gerwalk, 0.0, 1.0), sweep_degrees)
+func pose_mode(gerwalk: float, sweep: float) -> void:
+	sweep_degrees = sweep
+	_pose(clampf(gerwalk, 0.0, 1.0), sweep)
 
 
 ## Anchors are reported in this node's space, which is the player visual's space.

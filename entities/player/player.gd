@@ -428,19 +428,23 @@ func _update_afterburner_visual(delta: float) -> void:
 	_thrust_kick = move_toward(_thrust_kick, 0.0, THRUST_KICK_DECAY * delta)
 	var kick: float = _thrust_kick
 
-	# The silhouette is the mode read from above: FIGHTER locks the wings fully aft
-	# and dips the nose, GERWALK holds them forward and level like a hovering
-	# airframe. The blend follows the mode the switch is committing *to*, not the
-	# mode the rules still use, so the shape finishes changing exactly when the
-	# rules flip instead of one whole switch later.
+	# The silhouette is the mode read from above: FIGHTER dips the nose, GERWALK
+	# holds it level like a hovering airframe. The blend follows the mode the switch
+	# is committing *to*, not the mode the rules still use, so the shape finishes
+	# changing exactly when the rules flip instead of one whole switch later.
 	var visual_mode: Mode = _transform_target if _transform_time > 0.0 else _mode
 	var target_blend: float = 1.0 if visual_mode == Mode.FIGHTER else 0.0
 	_mode_blend = move_toward(_mode_blend, target_blend, delta / TRANSFORM_TIME)
 	_visual.rotation.z = deg_to_rad(FIGHTER_NOSE_PITCH) * _mode_blend
 
-	# In between modes the wings still answer the throttle, which keeps the sweep
-	# continuous instead of snapping at the end of the transformation.
-	var sweep_t: float = lerpf(thrust, 1.0, _mode_blend)
+	# The wings answer speed, not the mode: they fly extended at cruise and only
+	# sweep once the ship is pushed past it, which is where the burner lives. The
+	# thresholds come from the mode being committed to, not from the blend, so a
+	# transformation never makes the wings flap back and forth on the way.
+	var fighter: bool = visual_mode == Mode.FIGHTER
+	var cruise: float = FIGHTER_SPEED if fighter else MAX_SPEED
+	var ceiling: float = FIGHTER_BOOST_SPEED if fighter else BOOST_SPEED
+	var sweep_t: float = clampf((forward_speed - cruise) / maxf(ceiling - cruise, 0.001), 0.0, 1.0)
 	var sweep: float = lerpf(WING_SWEEP_FORWARD, WING_SWEEP_BACK, sweep_t)
 	_update_mode_pose(sweep)
 
