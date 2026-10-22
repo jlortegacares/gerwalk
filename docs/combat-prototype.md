@@ -51,8 +51,9 @@ Three constraints shaped the camera and the geometry, and each is load-bearing:
    bullet appear to curve and P1's readability would collapse.
 3. **The camera pitch is a compromise between depth and framing.** The rig sits
    at `(0, 50, 13.4)` with a `-75°` pitch and a `58°` field of view. That reads
-   as a top-down shooter while still giving the surface a horizon and letting the
-   ship throw a shadow, which is what sells altitude.
+   as a top-down shooter while still giving the surface a horizon and enough of a
+   side-on view that the ship shows its wings and tail instead of reading as a
+   flat silhouette.
 
 ### The planet rolls under the ship
 
@@ -149,6 +150,9 @@ All values are named constants at the top of each script.
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Thruster plume | `entities/player/player.gd` | `THRUSTER_X`, `THRUSTER_Z`, flame lengths and alphas in `_update_afterburner_visual()` |
+| Ship silhouette | `entities/player/player.gd` | fuselage stations in `_build_fuselage()`, wing outlines in `_build_wing()`, tail surfaces in `_build_empennage()` |
+| Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK` (degrees on top of the wing's built-in leading-edge sweep) |
+| Muzzle clears the nose | `entities/player/player.gd` | `MUZZLE_DISTANCE`, `BEAM_START` |
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
 | Planet scale and lap length | `levels/arena/arena.gd` | `PLANET_RADIUS` (lap = `2 * PI * PLANET_RADIUS`), `PLANET_SEGMENTS`, `PLANET_RINGS` |
@@ -176,6 +180,22 @@ Visuals are built in code (`_build_visual()`) instead of being serialised into
 the `.tscn` files. Placeholder geometry is a swap target, not an asset: when the
 pre-rendered pipeline lands (D-02) each entity can drop in a mesh or a sprite
 without touching the scene graph or the collision shapes.
+
+The player airframe is lofted and extruded rather than assembled from engine
+primitives. `_loft()` sweeps octagonal stations along the fuselage, so the
+planform — pointed nose, intake shoulders, narrow tail — is data, not geometry
+code; `_slab()` extrudes a flat outline into a wing, tailplane or fin, and one
+outline serves both sides through a mirror flag. `_face()` winds every triangle
+against an outward hint, which removes the usual failure mode of a hand-built
+mesh (a face that comes out inside-out and lights like a hole); the materials also
+run with `CULL_DISABLED` as a second guard.
+
+The swing wings hang off pivots at the wing root, so the sweep rotates around the
+joint instead of sliding the wing through the fuselage. Sweep follows the
+throttle, not the burner button: the tip swings aft as the ship gets faster, which
+is the reference aircraft's signature and a free speed cue beside the plume. The
+muzzle distance tracks the nose so bullets leave the airframe instead of spawning
+inside it.
 
 Ownership rule: the player owns its HP and its turbo reserve, and only exposes
 `take_damage()`. The HUD is a projection of `player_health_changed` and
@@ -223,7 +243,19 @@ actions, so it exercises the same path a player does.
   keyboard mapping is the one binding that changed when the burner landed.
 - **No art.** Every visual is a runtime placeholder mesh built in code; the
   pre-rendered asset pipeline (D-02) is untouched, and whether entities become
-  real-time meshes at all is OPEN-06.
+  real-time meshes at all is OPEN-06. The player jet is a flat-coloured airframe
+  built from lofted stations, not a real model: it reads at prototype zoom, but it
+  is not production geometry.
+- **The airframe is bigger than its hitbox on purpose.** The collision capsule is
+  a 1.0-radius circle on the play plane, while the jet is about 4.1 units long and
+  3.9 wide. The nose and wings are therefore grazeable — the hitbox is the cockpit,
+  which is the usual bullet-hell bargain. If grazing starts to feel like a lie,
+  shrink the airframe before growing the hitbox.
+- **The ship casts no shadow.** The directional light spans the whole planet, so a
+  4-unit object's shadow lands as a dotted smear instead of a silhouette; every
+  ship mesh sets `SHADOW_CASTING_SETTING_OFF`. A dedicated shadow would need its
+  own light or a blob quad, and altitude is currently read from the camera framing
+  and the plume instead.
 - **No wave escalation.** A population of up to 3 turrets is streamed around the
   ship, so the planet stays inhabited and the difficulty stays flat (FR-10 is
   still a proposal, not implemented).
