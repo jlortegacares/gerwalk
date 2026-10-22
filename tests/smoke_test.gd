@@ -43,6 +43,12 @@ func _ready() -> void:
 	_clear_projectiles()
 	await get_tree().physics_frame
 
+	await _test_maneuverability()
+
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
 	await _test_damage_and_iframes()
 	await _test_death()
 
@@ -74,6 +80,150 @@ func _test_movement() -> void:
 		absf(_player.global_position.z - start.z) < 0.1,
 		"movement keeps the player on its plane"
 	)
+
+
+## The maneuverability contract: cruise inside 0.08 s, a full stop inside 0.06 s,
+## tap mode on a light tilt, a 3x dash that drops the old inertia, a model that
+## banks and catches up without ever lagging the shot, and a camera that springs
+## the ship back to centre once it stops.
+func _test_maneuverability() -> void:
+	_release_all_input()
+	_player.velocity = Vector3.ZERO
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	var accel_frames: int = 0
+	Input.action_press(&"move_right")
+	while accel_frames < 15 and _flat_speed() < Player.MAX_SPEED * 0.98:
+		await get_tree().physics_frame
+		accel_frames += 1
+	_check(
+		accel_frames <= 4,
+		"cruise arrives in %d frames (%.3f s)" % [accel_frames, accel_frames / 60.0]
+	)
+
+	var stop_frames: int = 0
+	Input.action_release(&"move_right")
+	while stop_frames < 15 and _flat_speed() > 0.01:
+		await get_tree().physics_frame
+		stop_frames += 1
+	_check(
+		stop_frames <= 3,
+		"a full stop from cruise takes %d frames (%.3f s)"
+		% [stop_frames, stop_frames / 60.0]
+	)
+
+	# Tap mode: a 20 percent tilt has to move the ship without giving it real
+	# cruise speed, or threading a narrow gap becomes all or nothing.
+	Input.action_press(&"move_right", 0.2)
+	for _i in 20:
+		await get_tree().physics_frame
+	var tap_speed: float = _flat_speed()
+	Input.action_release(&"move_right")
+	_check(
+		tap_speed > 0.5 and tap_speed < Player.MAX_SPEED * 0.25,
+		"a light tilt moves the ship at tap speed (%.1f u/s)" % tap_speed
+	)
+	_player.velocity = Vector3.ZERO
+
+	# Dash: 3x cruise from the first frame, and it must wipe the inertia it had.
+	Input.action_press(&"move_left")
+	for _i in 20:
+		await get_tree().physics_frame
+	var before_dash: float = _player.velocity.x
+	Input.action_release(&"move_left")
+
+	Input.action_press(&"move_right")
+	# Input injected from a coroutine lands after the physics step, so the
+	# just_pressed latch never reaches _physics_process; call the handler the
+	# frame would.
+	_player.call("_start_dash")
+	await get_tree().physics_frame
+	var dash_speed: float = _flat_speed()
+	var dash_x: float = _player.velocity.x
+	_check(
+		dash_speed >= Player.MAX_SPEED * 3.0,
+		"the dash injects %.2fx cruise on frame one" % (dash_speed / Player.MAX_SPEED)
+	)
+	_check(
+		dash_x > 0.0 and before_dash < -Player.MAX_SPEED * 0.5,
+		"the dash cancels the inherited inertia (%.1f -> %.1f u/s)" % [before_dash, dash_x]
+	)
+	Input.action_release(&"move_right")
+
+	# A neutral stick dashes down the nose instead of guessing a direction.
+	Input.action_press(&"aim_up")
+	for _i in 60:
+		await get_tree().physics_frame
+	_player.velocity = Vector3.ZERO
+	_player.call("_start_dash")
+	await get_tree().physics_frame
+	var nose_speed: float = _flat_speed()
+	_check(
+		nose_speed >= Player.MAX_SPEED * 3.0 and _player.velocity.z < -Player.MAX_SPEED * 2.0,
+		"a neutral stick dashes down the nose (%.1f u/s)" % nose_speed
+	)
+	Input.action_release(&"aim_up")
+
+	# Aim is instant while the model eases in at 1800 deg/s: the shot never waits
+	# for the animation, and the animation still finishes a 180 in about 0.1 s.
+	Input.action_press(&"aim_left")
+	for _i in 30:
+		await get_tree().physics_frame
+	Input.action_release(&"aim_left")
+	Input.action_press(&"aim_right")
+	await get_tree().physics_frame
+	var shot_axis: float = _player.get("_aim_direction").x
+	var catching_up: float = absf(rad_to_deg(_player.get("_visual").rotation.y))
+	for _i in 8:
+		await get_tree().physics_frame
+	var settled_yaw: float = absf(rad_to_deg(_player.get("_visual").rotation.y))
+	_check(shot_axis > 0.99, "the shot direction flips on the first frame (x %.2f)" % shot_axis)
+	_check(
+		catching_up > 60.0,
+		"the model is still swinging one frame after the flick (%.0f deg to go)" % catching_up
+	)
+	_check(settled_yaw < 2.0, "the model completes the 180 in under 0.15 s (%.1f deg off)" % settled_yaw)
+	Input.action_release(&"aim_right")
+
+	# Banking: drift sideways across the nose and the hull leans; stop and it
+	# levels out again.
+	Input.action_press(&"aim_right")
+	for _i in 10:
+		await get_tree().physics_frame
+	Input.action_press(&"move_up")
+	for _i in 20:
+		await get_tree().physics_frame
+	var bank: float = rad_to_deg(_player.get("_visual").rotation.x)
+	Input.action_release(&"move_up")
+	Input.action_release(&"aim_right")
+	for _i in 40:
+		await get_tree().physics_frame
+	var level: float = absf(rad_to_deg(_player.get("_visual").rotation.x))
+	_check(absf(bank) >= 15.0 and absf(bank) <= 40.0, "strafing banks the hull (%.1f deg)" % bank)
+	_check(level < 3.0, "the hull levels out when the drift stops (%.1f deg)" % level)
+
+	# The camera spring settles the ship back to dead centre once it is still.
+	_release_all_input()
+	_player.velocity = Vector3.ZERO
+	for _i in 30:
+		await get_tree().physics_frame
+	var centre: Vector2 = get_viewport().get_visible_rect().size * 0.5
+	var projected: Vector2 = _player.camera.unproject_position(_player.global_position)
+	_check(
+		projected.distance_to(centre) < 1.0,
+		"the camera settles the ship back to centre at rest (%.2f px)"
+		% projected.distance_to(centre)
+	)
+
+
+func _release_all_input() -> void:
+	for action: StringName in [
+		&"move_left", &"move_right", &"move_up", &"move_down",
+		&"aim_left", &"aim_right", &"aim_up", &"aim_down",
+		&"fire", &"boost", &"dash",
+	]:
+		Input.action_release(action)
 
 
 func _test_firing() -> void:
@@ -319,6 +469,10 @@ func _test_laser(weapons: WeaponSystem) -> void:
 		return
 
 	weapons.select(Arsenal.Kind.LASER)
+	# The automatic missile battery fires on its own schedule and would look like
+	# a laser projectile, so park it for the measurement.
+	var parked_cooldown: float = weapons.get("_missile_cooldown")
+	weapons.set("_missile_cooldown", 99.0)
 	_clear_projectiles()
 	var before: int = enemy.current_hp()
 
@@ -333,6 +487,7 @@ func _test_laser(weapons: WeaponSystem) -> void:
 		"the laser burns the target it points at (%d -> %d hp)" % [before, enemy.current_hp()]
 	)
 	_check(_player_projectiles().is_empty(), "the laser emits no projectile (hit-scan)")
+	weapons.set("_missile_cooldown", parked_cooldown)
 
 	_clear_enemies()
 	await get_tree().physics_frame
@@ -577,7 +732,12 @@ func _test_travel_is_unbounded() -> void:
 		var centre: Vector2 = get_viewport().get_visible_rect().size * 0.5
 		var projected: Vector2 = camera.unproject_position(_player.global_position)
 		var offset: float = projected.distance_to(centre)
-		_check(offset < 1.0, "player stays centred while travelling (off by %.2f px)" % offset)
+		# The rig trails the body under thrust, so the ship leads the frame by a
+		# bounded handful of pixels instead of sitting dead centre like a HUD icon.
+		_check(
+			offset < 16.0,
+			"the camera leads the ship without losing it (off by %.2f px)" % offset
+		)
 
 
 ## Rolling without slipping: the planet must turn exactly distance / radius, about

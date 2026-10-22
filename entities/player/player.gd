@@ -8,20 +8,45 @@ extends CharacterBody3D
 ## readability the genre depends on.
 ##
 ## The Camera3D is a child of this node and the rig never rotates, so the player
-## is pinned to the exact centre of the screen no matter where it is on the
-## planet's surface.
+## sits in the middle of the screen no matter where it is on the planet's surface.
+## The rig trails the body by a few pixels under thrust (a spring lag in
+## player_camera.gd), which is the only time it leaves dead centre.
 
 const MAX_SPEED: float = 26.8
-const ACCELERATION: float = 260.0
-const FRICTION: float = 300.0
+## Snappy on purpose: cruise arrives in 26.8 / 420 = 0.064 s, inside the four
+## frames a dense pattern gives you to read it and move. Long progressive
+## acceleration is a flight sim luxury this genre cannot afford.
+const ACCELERATION: float = 420.0
+## Braking is heavier than thrust: 0.05 s from cruise to a full stop, three
+## physics ticks. A ship that coasted would read as zero-gravity drift and make
+## narrow gaps feel unfair.
+const FRICTION: float = 540.0
 const AIM_DEADZONE: float = 0.30
+## Analog deadzone, deliberately low. At 0.10 a 20 percent tilt lands on roughly a
+## tenth of cruise speed, which is the tap mode that threads a gap between bullets.
+const MOVE_DEADZONE: float = 0.10
 
 const MAX_HP: int = 6
 const IFRAME_DURATION: float = 0.85
 
-const DASH_SPEED: float = 64.0
-const DASH_DURATION: float = 0.16
+## Dash: 85 / 26.8 = 3.17x cruise, the middle of the 3.0-3.5 band. The duration
+## drops to 0.12 s so the burst covers the same 10 units the old 64 speed did,
+## only injected instantly instead of ramped.
+const DASH_SPEED: float = 85.0
+const DASH_DURATION: float = 0.12
 const DASH_COOLDOWN: float = 0.85
+
+## Angular game feel. Aim is instant, so the shot never lags the stick; the model
+## turns at this rate so a flick reads as a snap roll instead of a teleport. At
+## 1800 deg/s a 180 turn takes six frames.
+const VISUAL_TURN_RATE: float = 1800.0
+## Bank is presentation only: the capsule never rolls, so leaning 32 degrees
+## cannot change what the player can graze. It is what sells a jet on a plane
+## that has no banking at all.
+const MAX_BANK: float = 32.0
+const YAW_BANK: float = 10.0
+const BANK_RATE: float = 10.0
+const THRUST_KICK_DECAY: float = 3.0
 
 ## Afterburner. Normal thrust tops out at MAX_SPEED; the burner trades reserve for
 ## a higher top speed, and the reserve only fills back while the burner is off.
@@ -70,6 +95,12 @@ var _dash_time: float = 0.0
 var _dash_cooldown: float = 0.0
 var _dash_direction: Vector3 = Vector3.RIGHT
 var _alive: bool = true
+
+var _visual_yaw: float = 0.0
+var _visual_yaw_prev: float = 0.0
+var _bank: float = 0.0
+var _forward_speed: float = 0.0
+var _thrust_kick: float = 0.0
 
 var _turbo: float = TURBO_MAX
 var _boosting: bool = false
@@ -123,14 +154,15 @@ func _physics_process(delta: float) -> void:
 	else:
 		_move(delta)
 
-	_update_aim()
+	_update_aim(delta)
+	_update_bank(delta)
 	_update_weapons(delta)
 	_update_afterburner_visual(delta)
 
 
 func _move(delta: float) -> void:
 	var input_direction: Vector2 = Input.get_vector(
-		&"move_left", &"move_right", &"move_up", &"move_down"
+		&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
 	)
 	var thrusting: bool = input_direction.length_squared() > 0.0
 	_update_boost(delta, thrusting)
@@ -194,8 +226,17 @@ func _update_afterburner_visual(delta: float) -> void:
 		(forward_speed - MAX_SPEED) / (BOOST_SPEED - MAX_SPEED), 0.0, 1.0
 	)
 
-	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65)
-	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00)
+	# A kick is a flash, not a speed curve: opening the throttle past a walk, or
+	# punching the dash, spikes the plumes and then decays in about a third of a
+	# second. It is the only cue that the ship has weight at all.
+	var accel: float = (forward_speed - _forward_speed) / maxf(delta, 0.0001)
+	_forward_speed = forward_speed
+	_thrust_kick = maxf(_thrust_kick, clampf(accel / ACCELERATION, 0.0, 1.0))
+	_thrust_kick = move_toward(_thrust_kick, 0.0, THRUST_KICK_DECAY * delta)
+	var kick: float = _thrust_kick
+
+	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65 + kick * 1.10)
+	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00 + kick * 0.70)
 
 	# The wings follow the throttle: the tip swings aft as the ship gets faster,
 	# which is the swing-wing signature and a free speed cue beside the flames.
@@ -204,9 +245,14 @@ func _update_afterburner_visual(delta: float) -> void:
 	_wing_left.rotation.y = sweep
 
 	_thruster_plumes_material.albedo_color = Color(
-		lerpf(0.22, 0.5, heat), lerpf(0.6, 0.85, heat), 1.0, 0.08 + thrust * 0.24
+		lerpf(0.22, 0.5, heat),
+		lerpf(0.6, 0.85, heat),
+		1.0,
+		clampf(0.08 + thrust * 0.24 + kick * 0.30, 0.0, 0.8)
 	)
-	_thruster_cores_material.albedo_color = Color(0.88, 0.98, 1.0, 0.18 + thrust * 0.45)
+	_thruster_cores_material.albedo_color = Color(
+		0.88, 0.98, 1.0, clampf(0.18 + thrust * 0.45 + kick * 0.25, 0.0, 0.95)
+	)
 
 	if camera == null:
 		return
@@ -224,16 +270,40 @@ func _layout_flames(flames: Array[MeshInstance3D], length: float) -> void:
 
 func _start_dash() -> void:
 	var input_direction: Vector2 = Input.get_vector(
-		&"move_left", &"move_right", &"move_up", &"move_down"
+		&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
 	)
 	var flat: Vector3 = Vector3(input_direction.x, 0.0, input_direction.y)
 	_dash_direction = flat.normalized() if flat.length_squared() > 0.0 else _aim_direction
 	_dash_time = DASH_DURATION
 	_dash_cooldown = DASH_COOLDOWN
+	# The nozzle flash outlives the 0.12 s burst, then decays on its own.
+	_thrust_kick = 1.0
 	_spawn_impact()
 
 
-func _update_aim() -> void:
+## Banking is derived from the body, not from the input: lateral drift relative to
+## the nose rolls the hull into that drift, and a fast nose turn adds a smaller
+## lean into the turn. Both settle back to level once the movement stops.
+func _update_bank(delta: float) -> void:
+	var right: Vector3 = Vector3(-_aim_direction.z, 0.0, _aim_direction.x)
+	var lateral: float = clampf(velocity.dot(right) / MAX_SPEED, -1.0, 1.0)
+	var yaw_rate: float = 0.0
+	if delta > 0.0:
+		yaw_rate = clampf(
+			angle_difference(_visual_yaw_prev, _visual_yaw)
+			/ delta
+			/ deg_to_rad(VISUAL_TURN_RATE),
+			-1.0,
+			1.0
+		)
+	_visual_yaw_prev = _visual_yaw
+
+	var target: float = deg_to_rad(MAX_BANK * lateral - YAW_BANK * yaw_rate)
+	_bank = lerpf(_bank, target, 1.0 - exp(-BANK_RATE * delta))
+	_visual.rotation.x = _bank
+
+
+func _update_aim(delta: float) -> void:
 	var stick_aim: Vector2 = Input.get_vector(
 		&"aim_left", &"aim_right", &"aim_up", &"aim_down"
 	)
@@ -245,7 +315,17 @@ func _update_aim() -> void:
 		if to_mouse.length_squared() > 0.0001:
 			_aim_direction = to_mouse
 
-	_visual.rotation.y = atan2(-_aim_direction.z, _aim_direction.x)
+	# The shot follows _aim_direction this same frame; only the model eases in.
+	var target_yaw: float = atan2(-_aim_direction.z, _aim_direction.x)
+	if delta > 0.0:
+		# angle_difference keeps the turn on the short arc; a raw move_toward would
+		# spin the long way around whenever the aim crosses the -X seam.
+		var step: float = deg_to_rad(VISUAL_TURN_RATE) * delta
+		_visual_yaw += clampf(angle_difference(_visual_yaw, target_yaw), -step, step)
+		_visual_yaw = wrapf(_visual_yaw, -PI, PI)
+	else:
+		_visual_yaw = target_yaw
+	_visual.rotation.y = _visual_yaw
 	_aim_beam.position = _aim_direction * (BEAM_START + BEAM_LENGTH * 0.5)
 	_aim_beam.rotation.y = atan2(_aim_direction.x, _aim_direction.z)
 

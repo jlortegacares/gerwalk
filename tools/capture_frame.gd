@@ -7,6 +7,8 @@ extends Node
 ##
 ## `--travel N` holds move_right for N physics frames before the capture, which is
 ## how the rolling planet is checked: the terrain under the ship must change.
+## `--strafe N` holds move_up with the nose locked right for N frames, which is how
+## the bank angle and the level-out are reviewed.
 ## `--boost N` holds move_right and boost for N frames and captures while still
 ## burning, which is how the thruster plume and the turbo bar are reviewed.
 ## `--weapon N` selects weapon 1 (vulcan), 2 (laser) or 3 (plasma) before the
@@ -22,6 +24,7 @@ const WARMUP_FRAMES: int = 170
 
 func _ready() -> void:
 	var travel_frames: int = int(_argument("travel", "0"))
+	var strafe_frames: int = int(_argument("strafe", "0"))
 	var boost_frames: int = int(_argument("boost", "0"))
 	var weapon: String = _argument("weapon", "1")
 	var drop_bomb: bool = _argument("bomb", "0") == "1"
@@ -40,7 +43,11 @@ func _ready() -> void:
 		Input.action_release("weapon_" + weapon)
 	Input.action_press(&"fire")
 
-	if travel_frames <= 0 and boost_frames <= 0:
+	if strafe_frames > 0:
+		Input.action_press(&"move_up")
+		for _i in strafe_frames:
+			await get_tree().physics_frame
+	elif travel_frames <= 0 and boost_frames <= 0:
 		for _i in WARMUP_FRAMES:
 			await get_tree().physics_frame
 	elif boost_frames > 0:
