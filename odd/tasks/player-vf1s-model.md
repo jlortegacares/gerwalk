@@ -17,10 +17,11 @@ S2. Orientation and scale: the model faces -Z and the game reads +X as forward, 
     units of length, ~3.0 of wingspan) and offset so it sits on the capsule origin
     instead of the model's own pivot.
 
-S3. The FIGHTER <-> GERWALK switch (0.28 s) poses the skeleton's leg and arm bones
-    from `_mode_blend`, continuously, with no pop and no limb going through the
-    hull. The existing angles (`LEG_THIGH_ANGLE`, `LEG_KNEE_ANGLE`, `LEG_SPLAY`,
-    `ARM_*`) stay the tuning surface; only their axis mapping changes.
+S3. The FIGHTER <-> GERWALK switch (0.28 s) poses the skeleton from
+    `_mode_blend`, continuously, with no pop and no limb going through the hull.
+    Both keyframes are sampled from the clip the file ships -- fighter at frame
+    zero, the GERWALK hold around seven seconds -- instead of hand-measured
+    angles. Revised in L8.
 
 S4. Wing sweep follows speed, not the mode: the wings sit at `WING_SWEEP_FORWARD`
     (extended) at cruise and reach `WING_SWEEP_BACK` only above it, in both modes.
@@ -32,9 +33,10 @@ S5. The afterburner cones stay where the engines are: they are placed from the
     model's exhaust nozzles, not from `THRUSTER_X`/`THRUSTER_Z`, and still stretch
     with thrust and the acceleration kick.
 
-S6. The model carries no gunpod, so the procedural GU-11 stays: held in the right
-    hand in GERWALK, stowed on the centreline in FIGHTER. It is built as today and
-    parented so the hand bone can move it.
+S6. The model carries no gunpod, so the procedural GU-11 stays: on a fixed
+    right-side mount in GERWALK, stowed on the centreline in FIGHTER, lerped the
+    same way the pose is. Revised in L8: the asset's stance stows the arms along
+    the hull, so following the hand parked the pod behind the wing root.
 
 S7. Nothing about the flight model, weapons, damage, i-frames, shockwave or aim
     beam changes. Only the visual construction changes.
@@ -61,6 +63,7 @@ S10. The repository keeps only what the runtime needs: the GLB (textures are
 | T6 | S6 | inline | done | Pod-to-hand distance `0.000` in GERWALK; stowed at `(0.48, -0.27, 0.00)` |
 | T7 | S7, S10 | inline | done | `player.gd` 956 lines; loft/slab/limb builders deleted; extracted PNGs removed, only the GLB ships |
 | T8 | S9 | inline | done | 156 PASS / 0 FAIL (`./run.sh --headless tests/smoke_test.tscn`); docs updated |
+| T9 | S3, S6, S8 | inline | done | L8: clip frames sampled (fighter t=0, GERWALK t=7.0); canopy/gear frozen; airframe shadow off; 161 PASS / 0 FAIL; in-game captures clean |
 
 Route note: no delegation trigger fired — one understood change, one writer, no
 parallel units. Delivery: local commits on `main`, which is this repo's practice
@@ -124,3 +127,30 @@ thresholds are picked from the mode the switch is committing to instead of being
 blended, because a blended cruise would swing the wings back and forth while the
 ship decelerates through the transformation. `PlayerModel.sweep_degrees` exposes
 the value so the suite pins it: 0.0 at cruise, 26.6 at 58 u/s.
+
+L8: User, verbatim: "el player se ve raro ¿el fiel al gbl? analizalo". Compared the
+game with the raw import from the same orthographic camera: FIGHTER was already
+pixel-identical to the GLB, so the shape was never the problem -- the *pose* was.
+Two defects, both ours:
+
+1. The bare import is the bind pose, and the bind pose is not the fighter. Bone
+   diff against the shipped clip at t=0: `Bone.JetPack` +168.5 deg,
+   `Rudder.Wing.L/R` +145/+176, `GearDOOR*` +90..+120, `TailHOOK` +22.8. That is
+   the fast pack flipped onto its back and the tail surfaces folded, which is what
+   the floating grey and black blades were. Seeding those bones from frame zero
+   removed them (verified in renders and in-game at 6x zoom).
+2. The stance was hand-tuned (`THIGH_ANGLE -150`, `LEG_SPLAY 25`) and put the legs
+   out to the sides; the asset's own GERWALK frame hangs them under the hull. The
+   clip holds that stance from about 6 s to 8 s before it continues into Battroid,
+   so `PlayerModel` now samples frame zero and the 7.0 s hold once at build and
+   slerps between them per bone. Frame zero also parks the ship (gear down, canopy
+   open, wings half folded), so only the bones the transformation owns keep the
+   clip's value and the canopy/gear bones are frozen.
+
+Also found: the dark dotted arc trailing the ship in game was its own shadowmap at
+that scale, not debris. The airframe no longer casts a shadow, matching the gunpod.
+
+Suite: 161 PASS / 0 FAIL. Three assertions pinned the old hand-made stance (leg
+spread 0.95, feet ahead at x 1.33, pod handed to `Hand.R`); they now pin the
+authored stance (spread 0.56, feet under the hull at x 0.04, pod on the fixed
+right-side mount).

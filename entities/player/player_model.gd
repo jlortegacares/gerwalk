@@ -1,13 +1,14 @@
 class_name PlayerModel
 extends Node3D
-## Bone-driven VF-1S. The imported model is a fighter whose legs and arms are
-## folded back along the fuselage; this node poses those bones from the same mode
-## blend the flight rules use, so GERWALK is a stance instead of a second mesh.
+## Bone-driven VF-1S. The file ships the whole transformation as a clip, so this
+## node does not hand-pose a stance: it samples the fighter frame and the GERWALK
+## hold once at build time and slerps between them with the mode blend the flight
+## rules use. That keeps the stance the one the asset authored instead of a set of
+## angles guessed from screenshots.
 ##
 ## Godot stores a bone pose as an absolute transform, not as an offset from the
-## rest: writing an identity rotation collapses the skeleton. Every rotation here
-## is therefore composed on top of the bone's rest rotation, and the axis is
-## converted from model space into the bone's parent frame once at build time.
+## rest: writing an identity rotation collapses the skeleton. Both sampled frames
+## are stored as full poses for that reason, and nothing is rebuilt from the rest.
 ##
 ## The node itself sits at the origin of the player's visual container, so every
 ## anchor it reports is already in that container's space.
@@ -22,15 +23,11 @@ const YAW: float = -PI * 0.5
 ## The holder is offset by this so the hull is centred on the capsule origin.
 const PIVOT: Vector3 = Vector3(0.0, 1.238, -1.046)
 
-## GERWALK keyframe in degrees, about the model's own axes. The sign conventions
-## were measured on the imported rig: the legs hang aft in FIGHTER, so the thigh
-## swings about X and the splay about Z, mirrored per side.
-const THIGH_ANGLE: float = -150.0
-const KNEE_ANGLE: float = -40.0
-const LEG_SPLAY: float = 25.0
-const ARM_ANGLE: float = -180.0
-const ELBOW_ANGLE: float = -35.0
-const ARM_SPLAY: float = 22.0
+## The two frames of the shipped clip that matter, in seconds. Frame zero is the
+## fighter; the clip holds the canonical GERWALK stance from about six to eight
+## seconds before it carries on into Battroid, so seven is safely inside the hold.
+const FIGHTER_TIME: float = 0.0
+const GERWALK_TIME: float = 7.0
 
 ## Gear and crew ship inside the airframe and are never meant to be seen in
 ## flight. Matching by node name is the only handle the imported scene gives.
@@ -38,37 +35,54 @@ const HIDDEN_PREFIXES: Array[String] = [
 	"f35c-landingon", "whellnut", "00_milia",
 ]
 
-const BONE_THIGH_L: String = "Bone.LEG.UPPER.L"
-const BONE_THIGH_R: String = "Bone.LEG.UPPER.R"
-const BONE_KNEE_L: String = "Bone.LEG.LOWERx.L"
-const BONE_KNEE_R: String = "Bone.LEG.LOWER.R"
-const BONE_SHOULDER_L: String = "Shoulder_Joint_L"
-const BONE_SHOULDER_R: String = "Shoulder_Joint_R"
-const BONE_ELBOW_L: String = "Shoulder_Joint_001_L"
-const BONE_ELBOW_R: String = "Shoulder_Joint_001_R"
+## The bind pose is not the fighter. The armature was exported neutral, and the
+## fast pack, the rudders and the gear doors only land where the fighter wants
+## them once the clip that ships with the file is applied: the bare import shows
+## blades floating off the tail and a pack flipped onto its back.
+##
+## Frame zero of that clip is the working fighter, but it also parks the ship:
+## gear down, canopy open, wings half folded. Only the parts that ride the
+## transformation are taken from it. Everything the mode pose owns -- legs, arms,
+## wings, canopy -- goes back to the bind pose, which is the shape this class was
+## already tuned against and the one that stays symmetric.
+const SEEDED_PREFIXES: Array[String] = [
+	"Bone.JetPack", "Bone.Rudder", "Bone.GearDOOR", "Bone.gearDOOR",
+	"Bone.TailHOOK", "Bone.gearRear", "Bone.WheelStruct", "Bone.gearFRONT",
+]
+
+## The clip opens the canopy and cycles the gear on its way to the stance. The
+## pilot is hidden, so an open canopy would show an empty seat, and the gear is
+## hidden by name -- both keep the fighter pose in the GERWALK frame too.
+const FROZEN_PREFIXES: Array[String] = [
+	"Bone.GLASScanopy", "Bone.CanopyCover", "Bone.GearDOOR", "Bone.gearDOOR",
+	"Bone.gearRear", "Bone.gearFRONT", "Bone.WheelStruct",
+]
+
+
 const BONE_WING_L: String = "Bone.Wing.L"
 const BONE_WING_R: String = "Bone.Wing.R"
-const BONE_HAND_R: String = "Hand.R"
 const BONE_NOZZLE_L: String = "Exhaust.UPPERx.L"
 const BONE_NOZZLE_R: String = "Exhaust.UPPER.R"
 
 var _skeleton: Skeleton3D
-## Bone index -> rest rotation, and the three model axes pulled into that bone's
-## parent frame. Built once, so the per-frame pose is only quaternion products.
-var _rest: Dictionary = {}
-var _axis_x: Dictionary = {}
+## Bone index -> local pose at each sampled frame. Both are built once, so posing
+## a frame is one slerp per bone and nothing is derived from the rest pose.
+var _base_rotation: Dictionary = {}
+var _base_position: Dictionary = {}
+var _gerwalk_rotation: Dictionary = {}
+var _gerwalk_position: Dictionary = {}
+## Bone index -> the model's up axis pulled into that bone's parent frame, for the
+## wing sweep that rides on top of the sampled pose.
 var _axis_y: Dictionary = {}
-var _axis_z: Dictionary = {}
-var _thigh: Array[int] = []
-var _knee: Array[int] = []
-var _shoulder: Array[int] = []
-var _elbow: Array[int] = []
 var _wing: Array[int] = []
-var _hand: int = -1
 var _nozzles: Array[int] = []
 ## Wing sweep the last pose was built with, in degrees. Exposed so the wing rules
 ## can be checked without reading bones back.
 var sweep_degrees: float = 0.0
+## Last blend that was written, so a frame that changes neither the mode nor the
+## throttle skips touching the skeleton at all.
+var _last_gerwalk: float = -1.0
+var _last_sweep: float = 0.0
 
 
 ## Builds the airframe and returns false when the model is missing, so the caller
@@ -83,7 +97,7 @@ func build() -> bool:
 		push_error("PlayerModel: %s is not a 3D scene" % MODEL_PATH)
 		return false
 
-	_hide_ground_gear(model)
+	_prepare_meshes(model)
 
 	# The yaw has to be part of the pivot offset: the pivot is expressed in model
 	# space, so it is rotated into the holder's frame before it is cancelled.
@@ -101,27 +115,105 @@ func build() -> bool:
 		return false
 	_skeleton = found[0] as Skeleton3D
 
-	_thigh = [_bone(BONE_THIGH_L), _bone(BONE_THIGH_R)]
-	_knee = [_bone(BONE_KNEE_L), _bone(BONE_KNEE_R)]
-	_shoulder = [_bone(BONE_SHOULDER_L), _bone(BONE_SHOULDER_R)]
-	_elbow = [_bone(BONE_ELBOW_L), _bone(BONE_ELBOW_R)]
+	# The clip only plays once the model is inside the tree, so the frames are
+	# sampled after the holder is attached, not before it.
+	_sample_poses(model)
+
 	_wing = [_bone(BONE_WING_L), _bone(BONE_WING_R)]
-	_hand = _bone(BONE_HAND_R)
 	_nozzles = [_bone(BONE_NOZZLE_L), _bone(BONE_NOZZLE_R)]
 
-	_cache_bones()
+	_cache_wing_axes()
 	pose_mode(0.0, 0.0)
 	return true
 
 
-func _hide_ground_gear(model: Node3D) -> void:
+## Hides the gear and crew, and drops the shadow. The hull is a few dozen pixels
+## across and the directional light has to cover the whole arena, so its shadowmap
+## resolves as a dotted arc trailing the ship -- which reads as debris at gameplay
+## distance, the same reason the gunpod casts nothing.
+func _prepare_meshes(model: Node3D) -> void:
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = mi as MeshInstance3D
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var lower: String = String(mesh.name).to_lower()
 		for prefix in HIDDEN_PREFIXES:
 			if lower.begins_with(prefix):
 				mesh.visible = false
 				break
+
+
+## Samples the two frames the stance is built from. The clip only plays once the
+## model is in the tree, so this runs after the holder is attached.
+func _sample_poses(model: Node3D) -> void:
+	var count: int = _skeleton.get_bone_count()
+	var players: Array = model.find_children("*", "AnimationPlayer", true, false)
+	if players.is_empty():
+		push_warning("PlayerModel: no clip to pose from, the airframe keeps its bind pose")
+		_capture_bind_pose(count)
+		return
+	var player: AnimationPlayer = players[0] as AnimationPlayer
+	var clips: PackedStringArray = player.get_animation_list()
+	if clips.is_empty():
+		push_warning("PlayerModel: the clip list is empty, the airframe keeps its bind pose")
+		_capture_bind_pose(count)
+		return
+
+	player.play(clips[0])
+	player.seek(FIGHTER_TIME, true)
+	player.pause()
+	# Frame zero is the fighter, but it is the parked one: gear down, canopy open,
+	# wings half folded. Only the parts that ride the transformation keep the
+	# clip's value; everything the mode pose owns goes back to bind, which is the
+	# symmetric fighter this class was tuned against.
+	for idx in count:
+		if not _is_seeded(_skeleton.get_bone_name(idx)):
+			_skeleton.reset_bone_pose(idx)
+	_skeleton.force_update_all_bone_transforms()
+	for idx in count:
+		_base_rotation[idx] = _skeleton.get_bone_pose_rotation(idx)
+		_base_position[idx] = _skeleton.get_bone_pose_position(idx)
+
+	player.seek(GERWALK_TIME, true)
+	player.pause()
+	for idx in count:
+		if _is_frozen(_skeleton.get_bone_name(idx)):
+			_gerwalk_rotation[idx] = _base_rotation[idx]
+			_gerwalk_position[idx] = _base_position[idx]
+		else:
+			_gerwalk_rotation[idx] = _skeleton.get_bone_pose_rotation(idx)
+			_gerwalk_position[idx] = _skeleton.get_bone_pose_position(idx)
+
+	# Leave the skeleton on the fighter frame: the first pose is written from the
+	# captured values anyway, so the paused player is only a fallback.
+	for idx in count:
+		_skeleton.set_bone_pose_rotation(idx, _base_rotation[idx])
+		_skeleton.set_bone_pose_position(idx, _base_position[idx])
+	_skeleton.force_update_all_bone_transforms()
+
+
+## Fallback for a missing clip: both frames are the pose the file was exported in.
+func _capture_bind_pose(count: int) -> void:
+	for idx in count:
+		var rotation: Quaternion = _skeleton.get_bone_pose_rotation(idx)
+		var position: Vector3 = _skeleton.get_bone_pose_position(idx)
+		_base_rotation[idx] = rotation
+		_base_position[idx] = position
+		_gerwalk_rotation[idx] = rotation
+		_gerwalk_position[idx] = position
+
+
+func _is_seeded(bone_name: String) -> bool:
+	for prefix in SEEDED_PREFIXES:
+		if bone_name.begins_with(prefix):
+			return true
+	return false
+
+
+func _is_frozen(bone_name: String) -> bool:
+	for prefix in FROZEN_PREFIXES:
+		if bone_name.begins_with(prefix):
+			return true
+	return false
 
 
 func _bone(bone_name: String) -> int:
@@ -131,37 +223,43 @@ func _bone(bone_name: String) -> int:
 	return idx
 
 
-func _cache_bones() -> void:
-	for idx in _thigh + _knee + _shoulder + _elbow + _wing:
-		if idx < 0 or _rest.has(idx):
+## The sweep is the one rotation that rides on top of the sampled pose, so its
+## axis is pulled into the wing bone's parent frame once, from the fighter frame.
+func _cache_wing_axes() -> void:
+	for idx in _wing:
+		if idx < 0:
 			continue
-		_rest[idx] = _skeleton.get_bone_rest(idx).basis.get_rotation_quaternion()
 		var parent: int = _skeleton.get_bone_parent(idx)
 		var parent_basis: Basis = Basis.IDENTITY
 		if parent >= 0:
-			parent_basis = _skeleton.get_bone_global_rest(parent).basis
+			parent_basis = _skeleton.get_bone_global_pose(parent).basis
 		var to_parent: Basis = parent_basis.inverse()
-		_axis_x[idx] = (to_parent * Vector3.RIGHT).normalized()
 		_axis_y[idx] = (to_parent * Vector3.UP).normalized()
-		_axis_z[idx] = (to_parent * Vector3.BACK).normalized()
 
 
 ## Poses the airframe. `gerwalk` runs 0 (fighter) to 1 (stance); `sweep` is the
 ## wing sweep in degrees, positive aft.
 func _pose(gerwalk: float, sweep: float) -> void:
-	if _thigh.size() < 2:
+	if _base_rotation.is_empty():
 		return
-	for idx in _rest:
-		_skeleton.set_bone_pose_rotation(idx, _rest[idx])
+	if is_equal_approx(gerwalk, _last_gerwalk) and is_equal_approx(sweep, _last_sweep):
+		return
+	_last_gerwalk = gerwalk
+	_last_sweep = sweep
+	for idx in _base_rotation:
+		var rotation: Quaternion = (_base_rotation[idx] as Quaternion).slerp(
+			_gerwalk_rotation[idx] as Quaternion, gerwalk
+		)
+		_skeleton.set_bone_pose_rotation(idx, rotation)
+		var origin: Vector3 = (_base_position[idx] as Vector3).lerp(
+			_gerwalk_position[idx] as Vector3, gerwalk
+		)
+		_skeleton.set_bone_pose_position(idx, origin)
 
 	for side in 2:
+		if _wing[side] < 0:
+			continue
 		var out: float = 1.0 if side == 0 else -1.0
-		_rotate(_thigh[side], _axis_x[_thigh[side]], THIGH_ANGLE * gerwalk)
-		_rotate(_thigh[side], _axis_y[_thigh[side]], LEG_SPLAY * out * gerwalk)
-		_rotate(_knee[side], _axis_x[_knee[side]], KNEE_ANGLE * gerwalk)
-		_rotate(_shoulder[side], _axis_x[_shoulder[side]], ARM_ANGLE * gerwalk)
-		_rotate(_shoulder[side], _axis_z[_shoulder[side]], ARM_SPLAY * out * gerwalk)
-		_rotate(_elbow[side], _axis_x[_elbow[side]], ELBOW_ANGLE * gerwalk)
 		_rotate(_wing[side], _axis_y[_wing[side]], sweep * out)
 
 	_skeleton.force_update_all_bone_transforms()
@@ -187,11 +285,6 @@ func _anchor(bone: int) -> Vector3:
 	if bone < 0:
 		return Vector3.ZERO
 	return to_local(_skeleton.global_transform * _skeleton.get_bone_global_pose(bone).origin)
-
-
-## The right hand, where the gunpod rides in GERWALK.
-func hand_anchor() -> Vector3:
-	return _anchor(_hand)
 
 
 ## The two engine nozzles, which are also the feet: the flames follow them so a

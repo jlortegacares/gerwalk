@@ -317,38 +317,49 @@ games rather than two gears of the same one.
 ### The GERWALK airframe
 
 The rules above are the mode; the legs are how it reads. The airframe is the
-imported VF-1S (`models/vf-1s/source/Vf-01_BRoid_ULa.glb`) and the legs and arms
-are already on its skeleton, so `PlayerModel` poses the bone chain between the
-fighter's folded rest and the GERWALK stance instead of growing a second mesh.
+imported VF-1S (`models/vf-1s/source/Vf-01_BRoid_ULa.glb`), and it already carries
+the whole transformation as a clip, so `PlayerModel` samples that clip instead of
+posing a stance by hand.
 
 Four decisions keep that pose honest:
 
-- **Bones are posed absolutely, on top of the rest.** A Godot bone pose is a local
-  transform, not an offset: writing an identity rotation collapses the skeleton.
-  Every angle is composed on the bone's own rest rotation, and each model axis is
-  converted into its parent frame once at build time.
-- **The splay is a yaw, not a roll.** The legs hang forward and down in the
-  stance, so rolling them about the fore-aft axis barely moves the feet (`±0.30`);
-  yawing them about the model's vertical opens them to `±0.95`, out from under the
-  hull and ahead of the wing leading edge where the 75° camera can see them
-  (`x 1.33`).
+- **The bind pose is not the fighter.** The file exports in a neutral pose: the
+  fast pack sits flipped onto its back, the rudders folded, the gear doors open.
+  Rendered raw, those pieces read as blades floating off the tail, right where the
+  fighter should be smooth. Frame zero of the shipped clip
+  (`__ActionLegGERWALKgunner`) is the assembled fighter, so it is the base every
+  other pose is built on.
+- **The stance is the asset's, not a guess.** That clip holds the canonical
+  GERWALK from about six to eight seconds before it carries on into Battroid, so
+  the build samples the hold once and `_mode_blend` slerps the two frames bone by
+  bone. Angles measured off screenshots put the legs out to the sides; the
+  authored keyframe hangs them under the hull, which is what the 75° camera reads
+  as a stance.
+- **Only the pieces that ride the transformation take the clip.** Frame zero is
+  also the *parked* fighter: gear down, canopy open, wings half folded. The parts
+  the clip places (fast pack, rudders, tail hook, gear doors) keep its value;
+  everything the mode pose owns goes back to bind, and the canopy and gear bones
+  are frozen in both frames so a switch never opens an empty cockpit or cycles
+  gear nobody can see.
 - **GERWALK lifts the whole airframe.** The model's nacelles reach further below
   the hull than the placeholder's legs did, so `GERWALK_LIFT = 0.55` raises it
   while the nozzles keep their clearance above `GROUND_Y = -1.5`.
-- **The gunpod is held, not parented.** It is the one piece still built in code,
-  because the model carries a gun bone but no pod mesh. It is a child of the
-  visual, lerped between a stowed centreline position under the belly and the live
-  right-hand anchor (`Hand.R`), so FIGHTER still carries it and nothing pops or
-  re-parents mid-switch.
+
+The gunpod is the one piece still built in code, because the model carries a gun
+bone but no pod mesh. It is a child of the visual, lerped between a stowed
+centreline position under the belly and a fixed right-side mount, since the
+asset's stance stows the arms along the hull and following the hand put the pod
+behind the wing root.
 
 The model ships with its landing gear deployed and an F-35 cockpit crew inside;
 both are hidden by node name at build time, because the airframe is only ever seen
-in flight.
+in flight. It also casts no shadow: the hull is a few dozen pixels across and the
+directional light covers the whole arena, so its shadowmap resolves as a dotted
+arc trailing the ship, which reads as debris at gameplay distance.
 
-The pose is driven by `_mode_blend` and every joint has a FIGHTER keyframe and a
-GERWALK keyframe. The blend follows the mode the switch is *committing to*, so the
-shape finishes changing exactly when the flight rules flip rather than one switch
-later.
+The pose is driven by `_mode_blend`. The blend follows the mode the switch is
+*committing to*, so the shape finishes changing exactly when the flight rules flip
+rather than one switch later.
 
 **The stick asks for a heading, it does not translate.** This is the whole mode
 in one sentence. The stick angle names the bearing the ship should be flying,
