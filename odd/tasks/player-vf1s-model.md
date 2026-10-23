@@ -59,6 +59,13 @@ S11. The canopy reads as a cockpit: both of its panels carry the same celeste
      then "la ventanilla del piloto podria ser verde?", then "mejor cambia a un
      celeste".
 
+S12. Each nozzle leaves an exhaust trail whose length and density grow with
+     speed: a hover is a wisp, fighter cruise reaches about 24 units, and the
+     burner goes past 30. The emitters ride the nozzle anchors, so GERWALK drags
+     the wake with its feet, and nothing about the flight model changes. User,
+     verbatim: "ahora quiero que el avion deje una estela de humo desde sus
+     propulsores y esta aumente segun su velocidad".
+
 ## Tasks
 
 | ID | Spec | Route | Status | Evidence |
@@ -74,6 +81,7 @@ S11. The canopy reads as a cockpit: both of its panels carry the same celeste
 | T9 | S3, S6, S8 | inline | done | L8: clip frames sampled (fighter t=0, GERWALK t=7.0); canopy/gear frozen; airframe shadow off; 161 PASS / 0 FAIL; in-game captures clean |
 | T10 | S3, S6 | inline | done | L9: GERWALK hold moved to 9.0 s (gunner arms); `hand_anchor()` on `Wrist_STATIC.R` puts the pod in the hand; silhouette test pins pod-to-hand < 0.05 and hands ahead |
 | T11 | S11 | inline | done | L10: both canopy panels repainted celeste through per-surface overrides; identical in FIGHTER and GERWALK; 162 PASS / 0 FAIL |
+| T12 | S12 | inline | done | L11: one GPU emitter per nozzle left in world space; density from speed via `amount_ratio`; 166 PASS / 0 FAIL; captures at cruise, boost and GERWALK |
 
 Route note: no delegation trigger fired — one understood change, one writer, no
 parallel units. Delivery: local commits on `main`, which is this repo's practice
@@ -192,3 +200,30 @@ tint is written once at build.
 
 Suite: 162 PASS / 0 FAIL. Verified with the same fixed heading and camera in both
 modes: the canopy is the same celeste in FIGHTER and GERWALK.
+
+L11: User, verbatim: "ahora quiero que el avion deje una estela de humo desde sus
+propulsores y esta aumente segun su velocidad". Two emitters, one per nozzle,
+built once with their worst case and left in world space: a puff that stays where
+it was born is what turns a point emitter into a trail, and the gap between
+puffs is the speed itself, so the wake grows with the throttle without anyone
+rescaling it. Density is the one thing that needs a knob, and `amount_ratio`
+turns it without restarting the emission. The anchors come from
+`nozzle_anchors()`, which in GERWALK are the feet, so the stance drags a twin
+trail with it.
+
+Three passes were needed before the trail read as smoke. The first one laid the
+puffs down in visible batches, which is Godot's default 30 Hz simulation: with
+`fixed_fps = 0` they close into a ribbon. The second was a white pipe, because
+thirty overlapping puffs at alpha 0.7 saturate: the per-particle alpha is 0.30
+now and the ramp fades to nothing. The third was a string of beads at
+`amount = 150`; 450 per emitter is where consecutive puffs overlap at 60 u/s.
+
+Kept as a GPU emitter instead of reusing `SmokePuff`, and the reason is in the
+docs: the missile trail needs puffs that outlive the shot and curve with it, so
+it has to be nodes in the scene, while the ship needs a continuous ribbon at a
+cadence no node budget would enjoy.
+
+Suite: 166 PASS / 0 FAIL, with three assertions pinning the wake: one emitter
+per nozzle, puffs in world space, and density climbing with speed (0.05 at rest,
+0.95 flat out). Captures: cruise, fighter boost, GERWALK run and a hover that
+leaves nothing behind.

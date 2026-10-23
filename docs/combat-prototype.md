@@ -434,6 +434,17 @@ same frame, and that cone is drawn, so the picture and the hitbox are the same
 shape. Every current enemy shot counts as weak: the filter is geometry, not a
 damage threshold. A head-on run through a ring pattern is what the mode is for.
 
+**The exhaust leaves a trail that grows with speed.** Each nozzle carries a GPU
+emitter that drops soft puffs and leaves them where they were born, so the gap
+between consecutive puffs — and with it the length of the wake — is the speed
+itself: about 24 units at fighter cruise and past 30 at full burn. Density is the
+only knob that needs turning, and `amount_ratio` changes it without restarting the
+emission. This is deliberately a different mechanism from the missile trail: a
+missile needs puffs that outlive the shot and curve with it, which means nodes in
+the scene, while the ship needs a continuous ribbon at a cadence no node budget
+would enjoy. In GERWALK the two emitters sit on the feet, so the wake reads as a
+twin trail converging behind the stance.
+
 **The camera lead saturates.** FR-15 promises the ship never leads the frame by
 more than 16 px. At 180% speed and then 60 u/s the proportional lead would reach
 0.96 and 1.2 world units, which is over 20 px on this camera, so `LAG_MAX` caps
@@ -513,6 +524,7 @@ All values are named constants at the top of each script.
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
+| Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_LOW/HIGH`, `SMOKE_COLOR`; density follows speed in `_update_smoke()` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |

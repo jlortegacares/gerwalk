@@ -30,6 +30,7 @@ func _ready() -> void:
 	await _test_enemy_patterns()
 	await _test_enemies_roam_the_planet()
 	await _test_afterburner()
+	await _test_exhaust_trail()
 	await _test_arsenal()
 
 	_clear_enemies()
@@ -666,6 +667,34 @@ func _test_enemies_roam_the_planet() -> void:
 ## The burner is a tank, not a cooldown, so this drives the whole cycle in one
 ## run: burn, coast, burn out, release and re-arm. Those four states are the
 ## mechanic; checking a single one of them would miss the transitions.
+## The wake is a visual, but it is wired to the flight model: two emitters, one per
+## nozzle, and the density has to answer the speed rather than a clock. The puffs
+## are left in world space, which is what turns a point emitter into a trail.
+func _test_exhaust_trail() -> void:
+	var smoke: Array = _player.get("_smoke")
+	_check(smoke.size() == 2, "the airframe carries one exhaust emitter per nozzle")
+	if smoke.size() < 2:
+		return
+	var first: GPUParticles3D = smoke[0] as GPUParticles3D
+	_check(first != null and not first.local_coords, "the puffs stay where they were dropped")
+
+	_player.call("_update_smoke", 0.0, 0.0)
+	var idle: float = first.amount_ratio
+	_player.call("_update_smoke", Player.FIGHTER_BOOST_SPEED, 0.0)
+	var flat_out: float = first.amount_ratio
+	_check(
+		flat_out > idle * 2.0,
+		"the trail thickens with speed (%.2f at rest, %.2f flat out)" % [idle, flat_out]
+	)
+
+	var model: PlayerModel = _player.get("_model") as PlayerModel
+	var anchor: Vector3 = model.nozzle_anchors()[0]
+	_check(
+		first.position.distance_to(anchor) < 0.01,
+		"the emitter rides its nozzle"
+	)
+
+
 func _test_afterburner() -> void:
 	var turbo_events: Array = []
 	var handler: Callable = func(current: float, maximum: float) -> void:

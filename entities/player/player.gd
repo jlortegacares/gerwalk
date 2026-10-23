@@ -143,6 +143,17 @@ const GUNPOD_STOWED: Vector3 = Vector3(0.48, -0.27, 0.0)
 const GUNPOD_LENGTH: float = 0.90
 const GUNPOD_BARREL: float = 0.46
 
+## The exhaust wake. The puffs are dropped in world space and left behind, so the
+## gap between them -- and therefore the length of the trail -- grows with the
+## speed on its own. Only the density needs a knob: `amount_ratio` drops puffs
+## without reallocating the buffer or restarting the emission.
+const SMOKE_COLOR: Color = Color(0.74, 0.79, 0.85, 1.0)
+const SMOKE_AMOUNT: int = 450
+const SMOKE_LIFETIME: float = 0.50
+const SMOKE_PUFF: float = 0.80
+const SMOKE_DENSITY_LOW: float = 0.05
+const SMOKE_DENSITY_HIGH: float = 0.95
+
 @export var bullet_scene: PackedScene
 @export var impact_scene: PackedScene
 
@@ -195,6 +206,7 @@ var _thruster_plumes_material: StandardMaterial3D
 var _thruster_cores_material: StandardMaterial3D
 var _thruster_plumes: Array[MeshInstance3D] = []
 var _thruster_cores: Array[MeshInstance3D] = []
+var _smoke: Array[GPUParticles3D] = []
 
 
 func _ready() -> void:
@@ -203,6 +215,7 @@ func _ready() -> void:
 	_base_fov = camera.fov
 	_build_visual()
 	_build_thrusters()
+	_build_smoke()
 	_build_aim_beam()
 	_build_shockwave()
 
@@ -457,6 +470,7 @@ func _update_afterburner_visual(delta: float) -> void:
 	_nozzle_anchors = _model.nozzle_anchors() if _model != null else []
 	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65 + kick * 1.10)
 	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00 + kick * 0.70)
+	_update_smoke(forward_speed, kick)
 
 	_thruster_plumes_material.albedo_color = Color(
 		lerpf(0.22, 0.5, heat),
@@ -923,6 +937,117 @@ func _add_thruster(
 	flame.set_meta("nozzle", nozzle)
 	_visual.add_child(flame)
 	into.append(flame)
+
+
+## One emitter per nozzle, built once with its worst case. The puffs are not
+## carried along with the hull: `local_coords = false` leaves each one where it was
+## born, which is what turns a burst into a trail.
+func _build_smoke() -> void:
+	for nozzle in _nozzle_anchors.size():
+		var smoke: GPUParticles3D = GPUParticles3D.new()
+		smoke.amount = SMOKE_AMOUNT
+		smoke.lifetime = SMOKE_LIFETIME
+		smoke.local_coords = false
+		smoke.emitting = true
+		# At the default 30 Hz the emitter lays the puffs down in batches and the
+		# trail reads as a string of beads; the render rate closes the gaps.
+		smoke.fixed_fps = 0
+		smoke.amount_ratio = SMOKE_DENSITY_LOW
+		smoke.process_material = _make_smoke_process()
+		smoke.draw_pass_1 = _make_smoke_puff()
+		smoke.set_meta("nozzle", nozzle)
+		_visual.add_child(smoke)
+		_smoke.append(smoke)
+
+
+## Density follows speed; the length of the trail is that same speed applied to a
+## fixed lifetime, because the puffs stay where they were dropped. Nothing here
+## has to rescale the emitters as the ship accelerates, and `amount_ratio` changes
+## without restarting the emission.
+func _update_smoke(forward_speed: float, kick: float) -> void:
+	var speed_t: float = clampf(forward_speed / FIGHTER_BOOST_SPEED, 0.0, 1.0)
+	var density: float = lerpf(SMOKE_DENSITY_LOW, SMOKE_DENSITY_HIGH, speed_t)
+	density = clampf(density + kick * 0.05, 0.0, 1.0)
+	for smoke in _smoke:
+		var nozzle: int = int(smoke.get_meta("nozzle", 0))
+		if nozzle < _nozzle_anchors.size():
+			smoke.position = _nozzle_anchors[nozzle]
+		smoke.amount_ratio = density
+
+
+func _make_smoke_process() -> ParticleProcessMaterial:
+	var process: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	process.emission_sphere_radius = 0.05
+	# Local -X is aft: the emitter turns with the ship, the puff does not.
+	process.direction = Vector3(-1.0, 0.0, 0.0)
+	process.spread = 18.0
+	process.initial_velocity_min = 0.5
+	process.initial_velocity_max = 2.0
+	process.gravity = Vector3(0.0, 0.4, 0.0)
+	process.damping_min = 0.6
+	process.damping_max = 1.6
+	process.angle_min = -180.0
+	process.angle_max = 180.0
+	process.scale_min = 0.45
+	process.scale_max = 1.15
+	process.scale_curve = _make_smoke_curve()
+	process.color = SMOKE_COLOR
+	process.color_ramp = _make_smoke_ramp()
+	return process
+
+
+## Puffs grow as they age and fade out instead of vanishing, which is what keeps a
+## short trail from reading as a dotted line.
+func _make_smoke_curve() -> CurveTexture:
+	var curve: Curve = Curve.new()
+	curve.add_point(Vector2(0.0, 0.7))
+	curve.add_point(Vector2(1.0, 2.6))
+	var texture: CurveTexture = CurveTexture.new()
+	texture.curve = curve
+	return texture
+
+
+func _make_smoke_ramp() -> GradientTexture1D:
+	var gradient: Gradient = Gradient.new()
+	gradient.set_color(0, Color(1.0, 1.0, 1.0, 0.30))
+	gradient.add_point(0.35, Color(1.0, 1.0, 1.0, 0.18))
+	gradient.set_color(2, Color(1.0, 1.0, 1.0, 0.0))
+	var texture: GradientTexture1D = GradientTexture1D.new()
+	texture.gradient = gradient
+	texture.width = 64
+	return texture
+
+
+## A radial fade generated in code, so a puff is a soft disc instead of a square
+## and the repository does not have to carry art for one effect.
+func _make_smoke_puff() -> QuadMesh:
+	var quad: QuadMesh = QuadMesh.new()
+	quad.size = Vector2(SMOKE_PUFF, SMOKE_PUFF)
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.vertex_color_use_as_albedo = true
+	material.albedo_texture = _make_smoke_texture()
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	quad.material = material
+	return quad
+
+
+func _make_smoke_texture() -> GradientTexture2D:
+	var gradient: Gradient = Gradient.new()
+	gradient.set_color(0, Color(1.0, 1.0, 1.0, 1.0))
+	gradient.add_point(0.45, Color(1.0, 1.0, 1.0, 0.75))
+	gradient.set_color(2, Color(1.0, 1.0, 1.0, 0.0))
+	var texture: GradientTexture2D = GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(1.0, 0.5)
+	texture.width = 64
+	texture.height = 64
+	return texture
 
 
 func _build_aim_beam() -> void:
