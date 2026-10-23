@@ -24,16 +24,28 @@ const YAW: float = -PI * 0.5
 const PIVOT: Vector3 = Vector3(0.0, 1.238, -1.046)
 
 ## The two frames of the shipped clip that matter, in seconds. Frame zero is the
-## fighter; the clip holds the canonical GERWALK stance from about six to eight
-## seconds before it carries on into Battroid, so seven is safely inside the hold.
+## fighter. The clip is named `__ActionLegGERWALKgunner` for a reason: it lands the
+## legs first and then brings the arms out into the gunner stance, and holds both
+## from 8.5 s to 10 s before it carries on into Battroid. Nine is that hold -- the
+## legs are already planted there, and the hands are in front where the gunpod
+## needs them. Sampling the earlier seven-second hold leaves the arms stowed.
 const FIGHTER_TIME: float = 0.0
-const GERWALK_TIME: float = 7.0
+const GERWALK_TIME: float = 9.0
 
 ## Gear and crew ship inside the airframe and are never meant to be seen in
 ## flight. Matching by node name is the only handle the imported scene gives.
 const HIDDEN_PREFIXES: Array[String] = [
 	"f35c-landingon", "whellnut", "00_milia",
 ]
+
+## The canopy ships as two stacked panels: a tinted glass sheet on the glass
+## bone, and the grey shell the exporter hangs off the cover bone, which is the
+## one the camera actually sees. Only the panels are repainted -- the rib keeps
+## the file's trim -- and the colour is written once at build time, so the switch
+## between modes cannot change it.
+const CANOPY_BONES: Array[String] = ["Bone.GLASScanopy", "Bone.CanopyCover"]
+const CANOPY_MESH: String = "vf_1s-fast_canopy"
+const CANOPY_TINT: Color = Color(0.31, 0.70, 0.95)
 
 ## The bind pose is not the fighter. The armature was exported neutral, and the
 ## fast pack, the rudders and the gear doors only land where the fighter wants
@@ -63,6 +75,9 @@ const BONE_WING_L: String = "Bone.Wing.L"
 const BONE_WING_R: String = "Bone.Wing.R"
 const BONE_NOZZLE_L: String = "Exhaust.UPPERx.L"
 const BONE_NOZZLE_R: String = "Exhaust.UPPER.R"
+## The wrist, not "Hand.R": that name belongs to the link the gunner clip turns,
+## while the hand mesh rides the wrist attachment.
+const BONE_HAND_R: String = "Wrist_STATIC.R"
 
 var _skeleton: Skeleton3D
 ## Bone index -> local pose at each sampled frame. Both are built once, so posing
@@ -76,6 +91,7 @@ var _gerwalk_position: Dictionary = {}
 var _axis_y: Dictionary = {}
 var _wing: Array[int] = []
 var _nozzles: Array[int] = []
+var _hand: int = -1
 ## Wing sweep the last pose was built with, in degrees. Exposed so the wing rules
 ## can be checked without reading bones back.
 var sweep_degrees: float = 0.0
@@ -121,6 +137,7 @@ func build() -> bool:
 
 	_wing = [_bone(BONE_WING_L), _bone(BONE_WING_R)]
 	_nozzles = [_bone(BONE_NOZZLE_L), _bone(BONE_NOZZLE_R)]
+	_hand = _bone(BONE_HAND_R)
 
 	_cache_wing_axes()
 	pose_mode(0.0, 0.0)
@@ -140,6 +157,29 @@ func _prepare_meshes(model: Node3D) -> void:
 			if lower.begins_with(prefix):
 				mesh.visible = false
 				break
+	_tint_canopy(model)
+
+
+## Repaints the canopy panels. The frame and the rib keep the materials the file
+## ships, so the canopy still has its silhouette and its trim.
+func _tint_canopy(model: Node3D) -> void:
+	for node in model.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		var attachment: BoneAttachment3D = mesh.get_parent() as BoneAttachment3D
+		if attachment == null or not CANOPY_BONES.has(attachment.bone_name):
+			continue
+		var lower: String = String(mesh.name).to_lower()
+		if not lower.contains(CANOPY_MESH) or lower.contains("rib"):
+			continue
+		for surface in mesh.mesh.get_surface_count():
+			var source: Material = mesh.get_active_material(surface)
+			if source == null:
+				continue
+			var panel: StandardMaterial3D = source.duplicate() as StandardMaterial3D
+			if panel == null:
+				continue
+			panel.albedo_color = CANOPY_TINT
+			mesh.set_surface_override_material(surface, panel)
 
 
 ## Samples the two frames the stance is built from. The clip only plays once the
@@ -293,3 +333,10 @@ func nozzle_anchors() -> Array[Vector3]:
 	if _nozzles.size() < 2:
 		return []
 	return [_anchor(_nozzles[0]), _anchor(_nozzles[1])]
+
+
+## Where the right hand ends up, which is where the gunpod rides in GERWALK. The
+## gunner stance puts it in front of the wing root, so the pod reaches ahead of
+## the hull instead of trailing the tail.
+func hand_anchor() -> Vector3:
+	return _anchor(_hand)

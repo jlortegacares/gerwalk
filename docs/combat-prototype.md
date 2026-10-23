@@ -329,12 +329,13 @@ Four decisions keep that pose honest:
   fighter should be smooth. Frame zero of the shipped clip
   (`__ActionLegGERWALKgunner`) is the assembled fighter, so it is the base every
   other pose is built on.
-- **The stance is the asset's, not a guess.** That clip holds the canonical
-  GERWALK from about six to eight seconds before it carries on into Battroid, so
-  the build samples the hold once and `_mode_blend` slerps the two frames bone by
+- **The stance is the asset's, not a guess.** The clip is named for what it does:
+  `__ActionLegGERWALKgunner` plants the legs first, then brings the arms out into
+  the gunner stance, and holds both from 8.5 to 10 seconds before it carries on
+  into Battroid. The build samples nine seconds, so the legs hang under the hull
+  *and* the hands are in front, and `_mode_blend` slerps the two frames bone by
   bone. Angles measured off screenshots put the legs out to the sides; the
-  authored keyframe hangs them under the hull, which is what the 75° camera reads
-  as a stance.
+  authored hold is the only pose that also gives the gunpod a hand to ride.
 - **Only the pieces that ride the transformation take the clip.** Frame zero is
   also the *parked* fighter: gear down, canopy open, wings half folded. The parts
   the clip places (fast pack, rudders, tail hook, gear doors) keep its value;
@@ -347,15 +348,20 @@ Four decisions keep that pose honest:
 
 The gunpod is the one piece still built in code, because the model carries a gun
 bone but no pod mesh. It is a child of the visual, lerped between a stowed
-centreline position under the belly and a fixed right-side mount, since the
-asset's stance stows the arms along the hull and following the hand put the pod
-behind the wing root.
+centreline position under the belly and the right hand, which the gunner hold puts
+in front of the wing root and to the right: the pod's origin is its grip, so
+reading the wrist keeps the receiver ahead of the fist and the stock behind it
+through the whole switch.
 
 The model ships with its landing gear deployed and an F-35 cockpit crew inside;
 both are hidden by node name at build time, because the airframe is only ever seen
-in flight. It also casts no shadow: the hull is a few dozen pixels across and the
-directional light covers the whole arena, so its shadowmap resolves as a dotted
-arc trailing the ship, which reads as debris at gameplay distance.
+in flight. The canopy is repainted in the same pass: the file's glass is a grey
+shell stacked over a teal sheet, which at the few dozen pixels the ship gets reads
+as part of the hull, so both panels take a celeste tint and the cockpit becomes
+the one piece of the airframe the eye lands on. It also casts no shadow: the hull
+is a few dozen pixels across and the directional light covers the whole arena, so
+its shadowmap resolves as a dotted arc trailing the ship, which reads as debris at
+gameplay distance.
 
 The pose is driven by `_mode_blend`. The blend follows the mode the switch is
 *committing to*, so the shape finishes changing exactly when the flight rules flip

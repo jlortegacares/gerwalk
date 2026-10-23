@@ -528,10 +528,15 @@ func _test_gerwalk_silhouette() -> void:
 		"the soles stay clear of the ground (%.2f vs %.2f)" % [sole, Arena.GROUND_Y]
 	)
 
-	# The asset's stance stows the arms along the hull, so the pod rides a fixed
-	# mount on the right side instead of following the hand back past the wing.
+	# The gunner hold brings the right arm out, so the pod has to be in the hand
+	# and the hand in front of the wing root, not trailing the tail.
+	var hand: Vector3 = model.to_global(model.hand_anchor())
+	_check(
+		pod.global_position.distance_to(hand) < 0.05,
+		"the gunpod is in the right hand in GERWALK"
+	)
 	var held: Vector3 = hull.to_local(pod.global_position)
-	_check(held.x > 0.3, "the gunpod stays ahead of the wing root (x %.2f)" % held.x)
+	_check(held.x > 0.3, "the gunpod reaches ahead of the wing root (x %.2f)" % held.x)
 	_check(held.z > 0.1, "the gunpod rides the right side (z %.2f)" % held.z)
 
 	_player.call("_start_transform")

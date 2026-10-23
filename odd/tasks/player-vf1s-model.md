@@ -20,8 +20,8 @@ S2. Orientation and scale: the model faces -Z and the game reads +X as forward, 
 S3. The FIGHTER <-> GERWALK switch (0.28 s) poses the skeleton from
     `_mode_blend`, continuously, with no pop and no limb going through the hull.
     Both keyframes are sampled from the clip the file ships -- fighter at frame
-    zero, the GERWALK hold around seven seconds -- instead of hand-measured
-    angles. Revised in L8.
+    zero, the GERWALK gunner hold at nine seconds -- instead of hand-measured
+    angles. Revised in L8 and L9.
 
 S4. Wing sweep follows speed, not the mode: the wings sit at `WING_SWEEP_FORWARD`
     (extended) at cruise and reach `WING_SWEEP_BACK` only above it, in both modes.
@@ -33,10 +33,11 @@ S5. The afterburner cones stay where the engines are: they are placed from the
     model's exhaust nozzles, not from `THRUSTER_X`/`THRUSTER_Z`, and still stretch
     with thrust and the acceleration kick.
 
-S6. The model carries no gunpod, so the procedural GU-11 stays: on a fixed
-    right-side mount in GERWALK, stowed on the centreline in FIGHTER, lerped the
-    same way the pose is. Revised in L8: the asset's stance stows the arms along
-    the hull, so following the hand parked the pod behind the wing root.
+S6. The model carries no gunpod, so the procedural GU-11 stays: it rides the
+    right hand in GERWALK and stows on the centreline in FIGHTER, lerped the same
+    way the pose is. Revised in L8 (fixed right-side mount while the stance stowed
+    the arms) and again in L9, when the stance moved to the gunner hold and gave
+    the pod a hand to follow.
 
 S7. Nothing about the flight model, weapons, damage, i-frames, shockwave or aim
     beam changes. Only the visual construction changes.
@@ -51,6 +52,13 @@ S10. The repository keeps only what the runtime needs: the GLB (textures are
      embedded) and no generated junk. `models/vf-1s/textures/` is dead weight and
      is not committed.
 
+S11. The canopy reads as a cockpit: both of its panels carry the same celeste
+     tint in FIGHTER and GERWALK, the tint never changes with the mode, and the
+     frame and rib keep the materials the file ships. User, verbatim: "la
+     ventanilla del piloto debe ser del mismo color de la que tiene el figther",
+     then "la ventanilla del piloto podria ser verde?", then "mejor cambia a un
+     celeste".
+
 ## Tasks
 
 | ID | Spec | Route | Status | Evidence |
@@ -64,6 +72,8 @@ S10. The repository keeps only what the runtime needs: the GLB (textures are
 | T7 | S7, S10 | inline | done | `player.gd` 956 lines; loft/slab/limb builders deleted; extracted PNGs removed, only the GLB ships |
 | T8 | S9 | inline | done | 156 PASS / 0 FAIL (`./run.sh --headless tests/smoke_test.tscn`); docs updated |
 | T9 | S3, S6, S8 | inline | done | L8: clip frames sampled (fighter t=0, GERWALK t=7.0); canopy/gear frozen; airframe shadow off; 161 PASS / 0 FAIL; in-game captures clean |
+| T10 | S3, S6 | inline | done | L9: GERWALK hold moved to 9.0 s (gunner arms); `hand_anchor()` on `Wrist_STATIC.R` puts the pod in the hand; silhouette test pins pod-to-hand < 0.05 and hands ahead |
+| T11 | S11 | inline | done | L10: both canopy panels repainted celeste through per-surface overrides; identical in FIGHTER and GERWALK; 162 PASS / 0 FAIL |
 
 Route note: no delegation trigger fired — one understood change, one writer, no
 parallel units. Delivery: local commits on `main`, which is this repo's practice
@@ -154,3 +164,31 @@ Suite: 161 PASS / 0 FAIL. Three assertions pinned the old hand-made stance (leg
 spread 0.95, feet ahead at x 1.33, pod handed to `Hand.R`); they now pin the
 authored stance (spread 0.56, feet under the hull at x 0.04, pod on the fixed
 right-side mount).
+
+L9: User, verbatim: "perfecto pero en el modo gerwalk necesito que muestre los
+brazos y el arma", then "pero los brazos deben estar adelante y uno sostenien do
+el arma", then "en el glb ya existe esa pose". The user was right about the last
+one, and it moved the keyframe: the clip plants the legs first and only then
+brings the arms forward, so the 7.0 s hold I had sampled stops at the legs. The
+hold that matches the request runs 8.5 to 10.0 s with the legs identical to the
+7 second frame -- handR (0.77, -0.43, 0.56), handL (0.63, -0.70, -0.75) -- so
+`GERWALK_TIME` became 9.0. That gave the pod a hand again: `hand_anchor()` reads
+`Wrist_STATIC.R` ("Hand.R" is a different link, the one the clip turns, and the
+mesh rides the wrist), and the fixed right-side mount was deleted. The silhouette
+test now pins pod-to-hand distance below 0.05 with the hands ahead of the hull,
+and the leg anchors barely moved. 162 PASS / 0 FAIL.
+
+L10: User, verbatim: "la ventanilla del piloto debe ser del mismo color de la que
+tiene el figther", then "la ventanilla del piloto podria ser verde?", then "mejor
+cambia a un celeste". Measured before painting: the canopy is two stacked
+meshes, a teal glass sheet (`Window.007/.008`, 0.43/0.63/0.63) on
+`Bone.GLASScanopy` and a light grey shell (`Aircraft BASE color.004`, 0.91) on
+`Bone.CanopyCover`, plus a dark rib. Painting the glass alone changed nothing on
+screen -- the shell sits on top of it -- which a probe that painted the two
+candidates magenta and yellow made obvious in one render. Both panels now take
+the tint through a duplicated material and a per-surface override, so the rib and
+the frame keep the file's trim and the colour cannot differ between modes. The
+tint is written once at build.
+
+Suite: 162 PASS / 0 FAIL. Verified with the same fixed heading and camera in both
+modes: the canopy is the same celeste in FIGHTER and GERWALK.

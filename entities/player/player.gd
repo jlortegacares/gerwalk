@@ -140,10 +140,6 @@ const GERWALK_LIFT: float = 0.55
 ## Where the gunpod rides in FIGHTER: centreline, under the belly, which is where
 ## a VF-1 carries it.
 const GUNPOD_STOWED: Vector3 = Vector3(0.48, -0.27, 0.0)
-## The asset's GERWALK stows the arms along the hull, so the pod cannot follow the
-## hand without ending up behind the wing root. It rides a fixed right-side mount
-## instead, which is where the hand would be if the arm were out.
-const GUNPOD_GERWALK: Vector3 = Vector3(0.66, -0.24, 0.23)
 const GUNPOD_LENGTH: float = 0.90
 const GUNPOD_BARREL: float = 0.46
 
@@ -852,11 +848,15 @@ func _update_mode_pose(sweep: float) -> void:
 	if _model != null:
 		_model.pose_mode(gerwalk, sweep)
 
-	# The pod rides the right side in GERWALK and stows on the centreline in
-	# FIGHTER. Both ends are fixed, so the switch slides it between the two.
+	# The pod rides the right hand in GERWALK and stows on the centreline in
+	# FIGHTER. Reading the hand instead of re-deriving its position keeps the pod
+	# glued to the grip while the arm is still swinging through the switch.
 	if _gunpod == null:
 		return
-	_gunpod.position = GUNPOD_STOWED.lerp(GUNPOD_GERWALK, gerwalk)
+	var held: Vector3 = GUNPOD_STOWED
+	if _model != null:
+		held = _model.hand_anchor()
+	_gunpod.position = GUNPOD_STOWED.lerp(held, gerwalk)
 
 
 func _block(size: Vector3, material: StandardMaterial3D) -> MeshInstance3D:
