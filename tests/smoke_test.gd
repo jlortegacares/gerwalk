@@ -952,6 +952,7 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	await _test_missile_radar_cone(weapons)
 	await _test_missile_cap(weapons)
 	await _test_missile_tap(weapons)
+	await _test_missile_wings(weapons)
 
 	Input.action_release(&"missile")
 	_clear_projectiles()
@@ -1227,6 +1228,75 @@ func _test_missile_tap(weapons: WeaponSystem) -> void:
 	Input.action_release(&"missile")
 	await _wait_frames(2)
 	_check(_player_projectiles().size() == 1, "one loaded missile leaves")
+	_clear_projectiles()
+
+
+## The salvo leaves from the wings, one missile per wing and alternating sides. The
+## hardpoint is read from the wing bone, so it rides the sweep instead of sitting at
+## the nose, and consecutive missiles pick opposite sides.
+func _test_missile_wings(weapons: WeaponSystem) -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	await _wait_frames(40)
+
+	var model: PlayerModel = _player.get("_model") as PlayerModel
+	_check(model != null, "the airframe exposes its wing bones")
+	if model == null:
+		return
+	var local: Array[Vector3] = model.wing_anchors()
+	_check(local.size() == 2, "the airframe carries two wing hardpoints")
+	if local.size() < 2:
+		return
+
+	var aim: Vector3 = _aim()
+	var right: Vector3 = Vector3(-aim.z, 0.0, aim.x)
+	var raw: Array = _player.call("_wing_hardpoints")
+	var points: Array[Vector3] = []
+	for item in raw:
+		points.append(item)
+	_check(points.size() == 2, "the player reports both wing hardpoints")
+	if points.size() < 2:
+		return
+
+	var first: float = (points[0] - _player.global_position).dot(right)
+	var second: float = (points[1] - _player.global_position).dot(right)
+	_check(
+		absf(first) > 0.5 and absf(second) > 0.5,
+		"the hardpoints sit out on the wings (%.2f / %.2f off centre)" % [first, second]
+	)
+	_check(
+		first * second < 0.0,
+		"the hardpoints straddle the hull (%.2f / %.2f)" % [first, second]
+	)
+
+	var enemy: Enemy = _spawn_enemy(_player.global_position + aim * 18.0)
+	_check(enemy != null, "spawned a contact for the wing salvo")
+	await _wait_frames(2)
+
+	Input.action_press(&"missile")
+	await _wait_frames(60)
+	_check(
+		weapons.salvo_count() >= 2,
+		"the rack loads a pair for the wing salvo (loaded %d)" % weapons.salvo_count()
+	)
+	Input.action_release(&"missile")
+	await _wait_frames(2)
+
+	var flight: Array[Projectile] = _player_projectiles()
+	_check(flight.size() >= 2, "a pair of missiles leaves (got %d)" % flight.size())
+	if flight.size() < 2:
+		return
+
+	var sides: Array[float] = []
+	for missile in flight:
+		sides.append((missile.global_position - _player.global_position).dot(right))
+	_check(absf(sides[0]) > 0.5, "the first missile leaves from a wing (%.2f)" % sides[0])
+	for index in range(1, sides.size()):
+		_check(
+			sides[index - 1] * sides[index] < 0.0,
+			"consecutive missiles alternate wings (%.2f then %.2f)"
+			% [sides[index - 1], sides[index]]
+		)
 	_clear_projectiles()
 
 

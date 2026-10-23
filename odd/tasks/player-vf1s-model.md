@@ -66,6 +66,13 @@ S12. Each nozzle leaves an exhaust trail whose length and density grow with
      verbatim: "ahora quiero que el avion deje una estela de humo desde sus
      propulsores y esta aumente segun su velocidad".
 
+S13. Missiles leave from the wing hardpoints, alternating wings one shot at a
+     time. The hardpoint is read from the wing bone's own span axis, so the
+     sweep carries it, and consecutive missiles pick opposite sides. The launch
+     point and the guidance curve agree: a missile angling out leaves from the
+     wing it angles towards. User, verbatim: "quiero que los misiles salgan
+     desde las alas de player intercalando uno a uno entre las alas".
+
 ## Tasks
 
 | ID | Spec | Route | Status | Evidence |
@@ -82,6 +89,7 @@ S12. Each nozzle leaves an exhaust trail whose length and density grow with
 | T10 | S3, S6 | inline | done | L9: GERWALK hold moved to 9.0 s (gunner arms); `hand_anchor()` on `Wrist_STATIC.R` puts the pod in the hand; silhouette test pins pod-to-hand < 0.05 and hands ahead |
 | T11 | S11 | inline | done | L10: both canopy panels repainted celeste through per-surface overrides; identical in FIGHTER and GERWALK; 162 PASS / 0 FAIL |
 | T12 | S12 | inline | done | L11: one GPU emitter per nozzle left in world space; density from speed via `amount_ratio`; 166 PASS / 0 FAIL; captures at cruise, boost and GERWALK |
+| T13 | S13 | inline | done | L12: `wing_anchors()` reads the span axis from `Bone.Wing.L/R`; `_launch_missile` picks the hardpoint by side plus `MISSILE_CLEARANCE`; 177 PASS / 0 FAIL; fighter capture shows one missile leaving each wing |
 
 Route note: no delegation trigger fired — one understood change, one writer, no
 parallel units. Delivery: local commits on `main`, which is this repo's practice
@@ -227,3 +235,31 @@ Suite: 166 PASS / 0 FAIL, with three assertions pinning the wake: one emitter
 per nozzle, puffs in world space, and density climbing with speed (0.05 at rest,
 0.95 flat out). Captures: cruise, fighter boost, GERWALK run and a hover that
 leaves nothing behind.
+
+L12: User, verbatim: "quiero que los misiles salgan desde las alas de player
+intercalando uno a uno entre las alas". The hardpoint is read from the wing bone
+instead of a hand-tuned offset: `wing_anchors()` takes the bone origin and walks
+outboard along `pose.basis.y`, which is the axis the sweep turns, so a folded wing
+launches from where the wing actually is. The span was measured first with a
+throwaway probe (`Bone.Wing.L` origin (-1.89, 1.33, 0.57), `basis.y` (-0.73, 0.03,
+0.69); `Bone.Wing.R` origin (2.25, 1.33, 0.59), `basis.y` (0.84, 0.03, 0.55)),
+which is why the hardpoint is `WING_HARDPOINT = 0.55` along that axis.
+
+The pair is chosen by side, not by index: `_launch_missile` already alternated the
+launch angle with `_missiles_fired % 2`, and the sign of the offset against the
+right vector is what says which wing is which. That keeps the launch point and the
+curve in agreement. `MISSILE_CLEARANCE = 0.12` moves the shot a hand's width ahead
+so it never spawns inside the pylon, and the old nose offset remains as the
+fallback when the model reports no hardpoints.
+
+The test reads both layers: the model's anchors are two and outboard, the player
+reports the same pair in world space, the pair straddles the hull, and the missiles
+in flight alternate sides. It passes with the hardpoints at -0.99 / 1.07 and the
+shots at 0.91 / -0.88. Suite: 177 PASS / 0 FAIL.
+
+Visual review took a few passes on the capture tool, not on the feature: the gun
+also fires while the aim stick is off centre, so a missile capture has to release
+both; the turret it needs for the radar was killing the ship, so it is spawned
+inert; and FIGHTER always moves at its minimum throttle, so the contact is spawned
+40 units out to stay inside the radar for the whole hold. With those, the fighter
+capture shows one missile leaving each wing.

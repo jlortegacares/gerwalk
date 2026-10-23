@@ -18,6 +18,10 @@ extends Node
 ## `--fighter N` transforms into FIGHTER, waits for the switch, then holds
 ## move_right for N frames: the swept silhouette and the nose-locked gun. Add
 ## `--boost N` to capture the supersonic burst cone instead of a plain run.
+## `--missile N` spawns a contact ahead, holds the missile rack for N frames and
+## captures right after the salvo leaves, which is how the wing hardpoints are
+## reviewed. Add `--close` to hang the camera nearer the ship, since the game
+## camera sits high enough that a missile is only a few pixels long.
 ## `--out PATH` overrides the output file.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
@@ -32,6 +36,8 @@ func _ready() -> void:
 	var weapon: String = _argument("weapon", "1")
 	var drop_bomb: bool = _argument("bomb", "0") == "1"
 	var fighter_frames: int = int(_argument("fighter", "0"))
+	var missile_frames: int = int(_argument("missile", "0"))
+	var close: bool = _argument("close", "0") == "1"
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
 
 	var arena: Node = load(ARENA_SCENE).instantiate()
@@ -45,7 +51,10 @@ func _ready() -> void:
 		Input.action_press("weapon_" + weapon)
 		await get_tree().physics_frame
 		Input.action_release("weapon_" + weapon)
-	Input.action_press(&"fire")
+	# The vulcan stream would hide the missiles leaving the wings, and it also
+	# kills the turret the rack needs, so a missile capture flies unarmed.
+	if missile_frames == 0:
+		Input.action_press(&"fire")
 
 	if fighter_frames > 0:
 		# The transform latch has to be driven from the handler: an action pressed
@@ -57,7 +66,11 @@ func _ready() -> void:
 		for _i in 18:
 			await get_tree().physics_frame
 		Input.action_press(&"move_right")
-		if boost_frames > 0:
+		if missile_frames > 0:
+			# A missile capture needs the contact to stay in the radar, and a
+			# fighter at speed would pass it before the rack loads.
+			Input.action_release(&"move_right")
+		elif boost_frames > 0:
 			Input.action_press(&"boost")
 			for _i in boost_frames:
 				await get_tree().physics_frame
@@ -92,6 +105,49 @@ func _ready() -> void:
 		Input.action_release(&"bomb")
 		for _i in 6:
 			await get_tree().physics_frame
+
+	# A salvo needs a contact: the rack only loads against the radar. The turret is
+	# dropped right before the hold so it sits inside the cone. The gun is silenced
+	# for the shot, otherwise its stream of bullets hides the missiles leaving the
+	# wings.
+	if missile_frames > 0:
+		Input.action_release(&"fire")
+		# The gun also fires whenever the aim stick is off centre, so both go up
+		# before the hold. The last bullets need a moment to clear the frame.
+		Input.action_release(&"aim_right")
+		for _i in 60:
+			await get_tree().physics_frame
+		var ship: Player = arena.get_node("%Player") as Player
+		if close:
+			# The camera rig is reset every frame from its captured base, so the
+			# new stand-off goes through `_base` instead of the node alone.
+			var rig: Node3D = ship.get_node("CameraRig") as Node3D
+			var cam: Camera3D = ship.get_node("CameraRig/Camera") as Camera3D
+			rig.position = Vector3(0.0, 16.0, 4.3)
+			cam.set("_base", rig.position)
+		var aim: Vector3 = ship.get("_aim_direction")
+		var turret_scene: PackedScene = load("res://entities/enemy/turret.tscn")
+		var turret: Node3D = turret_scene.instantiate() as Node3D
+		arena.add_child(turret)
+		turret.global_position = ship.global_position + aim * 40.0
+		# The radar only needs a contact in the group; a turret that shoots would
+		# blink the ship through its i-frames and spoil the frame.
+		turret.set_process(false)
+		turret.set_physics_process(false)
+		for _i in 2:
+			await get_tree().physics_frame
+		Input.action_press(&"missile")
+		for _i in missile_frames:
+			await get_tree().physics_frame
+		Input.action_release(&"missile")
+		for _i in 4:
+			await get_tree().physics_frame
+		# The arena keeps shooting, and the i-frame blink hides the hull on half the
+		# frames. The last frame is forced visible so the ship is in the picture.
+		ship.set("_invulnerable", 0.0)
+		var visual: Node3D = ship.get("_visual") as Node3D
+		if visual != null:
+			visual.visible = true
 
 	await RenderingServer.frame_post_draw
 	var image: Image = get_viewport().get_texture().get_image()

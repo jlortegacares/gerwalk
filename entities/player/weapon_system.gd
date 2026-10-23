@@ -7,6 +7,10 @@ extends Node3D
 ## Everything fires along the aim vector on the play plane, and nothing here
 ## touches the ship's velocity: firing must never cost speed.
 
+## How far ahead of a wing hardpoint the missile is born, so it never spawns inside
+## the wing it hangs from.
+const MISSILE_CLEARANCE: float = 0.12
+
 var _bullet_scene: PackedScene
 var _kind: Arsenal.Kind = Arsenal.Kind.VULCAN
 var _cooldown: float = 0.0
@@ -26,6 +30,10 @@ var _marked: Array[Enemy] = []
 ## Fighter mode is a profile, not a different arsenal: the same three archetypes
 ## keep their identity and only lose the freedom to point anywhere but forward.
 var _fighter: bool = false
+
+## The wing hardpoints in world space, left first, refreshed by the player every
+## frame because the sweep moves them. Empty means "fall back to the nose".
+var _hardpoints: Array[Vector3] = []
 
 var _bombs: int = Arsenal.BOMB_START_CHARGES
 var _kills: int = 0
@@ -77,9 +85,11 @@ func tick(
 	direction: Vector3,
 	wants_fire: bool,
 	fighter: bool = false,
-	wants_missile: bool = false
+	wants_missile: bool = false,
+	hardpoints: Array[Vector3] = []
 ) -> void:
 	_fighter = fighter
+	_hardpoints = hardpoints
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	# The beam is a fire-time visual: every frame it is not being drawn stays off,
 	# which covers switching weapons mid-burst without a special case.
@@ -372,6 +382,10 @@ func _fire_salvo(pool: Array[Enemy], origin: Vector3, direction: Vector3) -> voi
 ## Alternating wings and an outward angle, so the guidance curve is visible from
 ## the first frame instead of looking like a straight shot. Same salvo, different
 ## line: the load decides how many, the radar decides who.
+##
+## The missile leaves from the hardpoint on the wing it is angling towards, so the
+## two cues agree. The pair is picked by side rather than by index: with the wings
+## listed left first, the sign of the offset is what says which one is which.
 func _launch_missile(
 	target: Enemy, origin: Vector3, direction: Vector3, index: int
 ) -> void:
@@ -384,6 +398,12 @@ func _launch_missile(
 		+ direction * (Arsenal.MISSILE_LAUNCH_AHEAD + 0.06 * float(index))
 		+ right * Arsenal.MISSILE_LAUNCH_SIDE * side
 	)
+	if _hardpoints.size() >= 2:
+		var pick: int = 0
+		if (_hardpoints[0] - origin).dot(right) * side < 0.0:
+			pick = 1
+		# A hand's width ahead of the pylon, so the shot clears the wing it hangs from.
+		launch = _hardpoints[pick] + direction * MISSILE_CLEARANCE
 	var heading: Vector3 = direction.rotated(
 		Vector3.UP, deg_to_rad(Arsenal.MISSILE_LAUNCH_ANGLE_DEGREES) * side
 	)

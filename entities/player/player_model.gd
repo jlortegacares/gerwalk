@@ -73,6 +73,10 @@ const FROZEN_PREFIXES: Array[String] = [
 
 const BONE_WING_L: String = "Bone.Wing.L"
 const BONE_WING_R: String = "Bone.Wing.R"
+## The missiles leave from the wing hardpoints. The wing bone sits at the root, so
+## the point is pushed outboard along the wing's own axis, which carries the sweep:
+## a swept wing launches from where the wing actually is.
+const WING_HARDPOINT: float = 0.55
 const BONE_NOZZLE_L: String = "Exhaust.UPPERx.L"
 const BONE_NOZZLE_R: String = "Exhaust.UPPER.R"
 ## The wrist, not "Hand.R": that name belongs to the link the gunner clip turns,
@@ -340,3 +344,20 @@ func nozzle_anchors() -> Array[Vector3]:
 ## the hull instead of trailing the tail.
 func hand_anchor() -> Vector3:
 	return _anchor(_hand)
+
+
+## The two wing hardpoints, left first, in this node's space. The bone origin is
+## the root, so the point is pushed outboard along the bone's own span axis: that
+## axis is what the sweep turns, so a folded wing moves its hardpoint with it.
+func wing_anchors() -> Array[Vector3]:
+	if _wing.size() < 2:
+		return []
+	var points: Array[Vector3] = []
+	for idx in _wing:
+		if idx < 0:
+			return []
+		var pose: Transform3D = _skeleton.global_transform * _skeleton.get_bone_global_pose(idx)
+		var root: Vector3 = to_local(pose.origin)
+		var span: Vector3 = to_local(pose.origin + pose.basis.y.normalized()) - root
+		points.append(root + span.normalized() * WING_HARDPOINT)
+	return points

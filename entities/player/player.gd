@@ -723,8 +723,21 @@ func _update_weapons(delta: float) -> void:
 		_aim_direction,
 		wants_fire,
 		_mode == Mode.FIGHTER,
-		wants_missile
+		wants_missile,
+		_wing_hardpoints()
 	)
+
+
+## The wing hardpoints in world space. Read from the model every frame, because the
+## sweep moves them: a salvo fired with the wings folded leaves from the folded
+## wing, not from where the wing was at cruise.
+func _wing_hardpoints() -> Array[Vector3]:
+	var points: Array[Vector3] = []
+	if _model == null:
+		return points
+	for point in _model.wing_anchors():
+		points.append(_visual.to_global(point))
+	return points
 
 
 func _tick_timers(delta: float) -> void:

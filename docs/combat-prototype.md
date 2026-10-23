@@ -91,6 +91,14 @@ inherits a fraction of the missile's speed so a guided turn leaves a curved trai
 instead of a straight line. The interval is tight enough that consecutive puffs
 overlap: a sparser one reads as a dotted line, not as smoke.
 
+**Missiles leave from the wings.** Each shot is born on the hardpoint of the wing it
+is angling towards. The point is read from the wing bone's own span axis, so the
+sweep carries it: a folded wing launches from where the wing actually is, not from a
+fixed offset in the hull. Consecutive missiles alternate sides, and the launch point
+is the same wing the guidance curve bends away from, so the picture and the
+trajectory agree. A hand's width of clearance keeps the shot from spawning inside
+the pylon.
+
 Every contact is visible. While the button is down, each turret the radar holds
 carries a pulsing ring (`combat/lock_reticle.gd`): flat on the play plane and above
 the body, because that is what an angled camera reads as a ring around the unit
@@ -515,6 +523,7 @@ All values are named constants at the top of each script.
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load interval, max salvo, salvo cooldown, damage, turn rate, range, launch angle) |
+| Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
 | Lock reticle | `combat/lock_reticle.gd` | `RADIUS`, `THICKNESS`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH` |
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
