@@ -458,8 +458,10 @@ families.
 
 The cut is measured, not assumed — the canopy panels are projected into the mesh's
 own space and their forward-most vertex is the plane — so a re-export moves the
-boundary with the cockpit. Both sit on the fighter frame when the paint runs, and
-the canopy is frozen there, so the same plane holds in GERWALK.
+boundary with the cockpit. `NOSE_GAP` then pushes the paint a little ahead of that
+edge, which leaves a strip of hull in front of the cockpit instead of butting the
+nose colour straight against the canopy. Both sit on the fighter frame when the
+paint runs, and the canopy is frozen there, so the same plane holds in GERWALK.
 
 Two details make that safe:
 
@@ -680,7 +682,7 @@ All values are named constants at the top of each script.
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |
-| Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH`/`NOSE_MATERIAL` for the cone cut out of the forward fuselage; every other material keeps the file's paint |
+| Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH`/`NOSE_MATERIAL`/`NOSE_GAP` for the cone cut out of the forward fuselage; every other material keeps the file's paint |
 | Livery preview | `ui/menu/livery_preview.gd` | `TURN_SPEED`, `CAMERA_POSITION`, `CAMERA_TARGET` |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |

@@ -67,6 +67,11 @@ const CANOPY_MESH: String = "vf_1s-fast_canopy"
 ## families either way.
 const NOSE_MESH: String = "vf_1s-airframe_018"
 const NOSE_MATERIAL: String = "Player Nose"
+## How far ahead of the canopy's leading edge the nose paint starts, in the forward
+## fuselage's own units (about 0.021 game units each, so this is roughly 6 cm on a
+## four-metre ship). A small gap leaves the lip in front of the cockpit in the hull
+## colour instead of butting the nose colour straight against the canopy.
+const NOSE_GAP: float = 3.0
 
 ## The livery lives in three of the file's 59 materials: the hull sheets
 ## ("Aircraft BASE color"), the stripe that runs across them ("Pilot COLOR"), and
@@ -301,7 +306,9 @@ func _paint_livery(model: Node3D) -> void:
 
 
 ## Splits the hull sheet of the forward fuselage at the canopy's leading edge, so
-## the nose livery stops where the cockpit starts instead of running under it.
+## the nose livery stops where the cockpit starts instead of running under it. The
+## paint starts NOSE_GAP ahead of that edge, leaving a strip of hull in front of
+## the canopy.
 ##
 ## The halves become surfaces of a rebuilt mesh rather than two nodes: the file's
 ## vertices are not welded, so connectivity cannot tell the cone from the section
@@ -313,7 +320,7 @@ func _paint_livery(model: Node3D) -> void:
 ## file's own material is never touched, and the section behind keeps it, which is
 ## what the hull livery paints.
 func _split_nose_cone(model: Node3D, mesh: MeshInstance3D) -> void:
-	var cut: float = _canopy_front(model, mesh)
+	var cut: float = _canopy_front(model, mesh) + NOSE_GAP
 	var source: Mesh = mesh.mesh
 	var rebuilt: ArrayMesh = ArrayMesh.new()
 	for surface in source.get_surface_count():

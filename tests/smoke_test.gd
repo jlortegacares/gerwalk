@@ -368,16 +368,16 @@ func _test_livery_paint() -> void:
 		_all_colors_are(under_canopy, hull),
 		"the section behind the nose takes the hull colour"
 	)
-	var cut: float = _canopy_front(model)
+	var cut: float = _canopy_front(model) + PlayerModel.NOSE_GAP
 	var cone_span: Vector2 = _nose_surface_span(model, PlayerModel.NOSE_MATERIAL)
 	var aft_span: Vector2 = _nose_surface_span(model, PlayerModel.HULL_MATERIAL)
 	_check(
 		cone_span.x >= cut - 0.01,
-		"the nose paint starts at the canopy's leading edge (%.2f vs %.2f)" % [cone_span.x, cut]
+		"the nose paint starts a gap ahead of the canopy (%.2f vs %.2f)" % [cone_span.x, cut]
 	)
 	_check(
 		aft_span.y <= cut + 0.01,
-		"and stops there too (%.2f)" % aft_span.y
+		"and the hull keeps the lip in front of it (%.2f)" % aft_span.y
 	)
 	_check(
 		cone_span.y > aft_span.y,
