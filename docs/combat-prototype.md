@@ -371,6 +371,18 @@ is a few dozen pixels across and the directional light covers the whole arena, s
 its shadowmap resolves as a dotted arc trailing the ship, which reads as debris at
 gameplay distance.
 
+One sun and a mirrored airframe is the other half of that story, and it is why the
+two legs disagreed. The ship is a mirror, so the two legs present opposite facets
+to a light that comes from one side: one spine caught the sun and read warm grey,
+its twin turned away and crushed to black, which at gameplay distance looks like
+one leg wearing a shadow. No sun angle fixes it — moving the key light only makes
+the other leg the dark one. The airframe therefore carries a shadowless fill on the
+camera rig: the game camera is fixed behind and above the ship, so a light along
+its axis lands on exactly the facets the player can see, equally, whichever leg
+they belong to. It culls on the airframe's own render layer, so the planet, the
+stars and the enemies keep the single-sun look they were tuned with, and it is
+cooler than the sun because it stands in for sky bounce rather than a second key.
+
 The pose is driven by `_mode_blend`. The blend follows the mode the switch is
 *committing to*, so the shape finishes changing exactly when the flight rules flip
 rather than one switch later.
@@ -462,6 +474,13 @@ the scene, while the ship needs a continuous ribbon at a cadence no node budget
 would enjoy. In GERWALK the two emitters sit on the feet, so the wake reads as a
 twin trail converging behind the stance.
 
+At a standstill the ratio is zero, and that is the fix for a bug the eye finds
+before the profiler does: the puffs are born at the nozzle and stay there until the
+ship outruns them, so a ship standing on its legs wore its own plume. From the game
+camera the near leg sat behind it, and a grey veil over a white leg reads as a
+shadow the other leg does not have. With no airflow there is nothing to leave
+behind, so the wake is empty at rest and fills in as soon as the ship moves.
+
 **The camera lead saturates.** FR-15 promises the ship never leads the frame by
 more than 16 px. At 180% speed and then 60 u/s the proportional lead would reach
 0.96 and 1.2 world units, which is over 20 px on this camera, so `LAG_MAX` caps
@@ -542,11 +561,12 @@ All values are named constants at the top of each script.
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
-| Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_LOW/HIGH`, `SMOKE_COLOR`; density follows speed in `_update_smoke()` |
+| Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows speed from zero in `_update_smoke()` |
+| Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |
-| Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter`, `--fighter 1`, `--size`, `--out` (orthographic turntable for silhouette checks) |
+| Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter\|game`, `--fighter 1`, `--size`, `--nosun 1`, `--sunrot`, `--out` (orthographic turntable for silhouette and lighting checks) |
 | Muzzle clears the nose | `entities/player/player.gd` | `MUZZLE_DISTANCE`, `BEAM_START` |
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
@@ -646,6 +666,18 @@ wide, so a unit is under 2.5 px and the bus stays quiet.
     -- --fighter 26 --out /tmp/gerwalk_fighter.png
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --fighter 2 --boost 26 --out /tmp/gerwalk_burst.png
+
+# Review a hull detail close up, and split a dark patch into its three causes:
+# `--nosmoke` removes the wake, `--noshadow` the sun's shadow map, `--sunrot`
+# swings the sun around the ship
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --close 1 --zoom 0.22 --out /tmp/gerwalk_detail.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --close 1 --zoom 0.22 --nosmoke 1 --out /tmp/gerwalk_detail_nowake.png
+
+# Same airframe, the game camera's 15 degrees off vertical, with and without the sun
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/model_view.tscn \
+    -- --view game --nosun 1 --out /tmp/gerwalk_ambient.png
 ```
 
 Both exit non-zero on failure. The smoke test drives input through `InputMap`

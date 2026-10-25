@@ -153,12 +153,24 @@ const GUNPOD_BARREL: float = 0.46
 ## gap between them -- and therefore the length of the trail -- grows with the
 ## speed on its own. Only the density needs a knob: `amount_ratio` drops puffs
 ## without reallocating the buffer or restarting the emission.
+##
+## The density starts at zero and rises with forward speed. That is not a taste
+## call. A puff is born at the nozzle and stays there until the ship outruns it,
+## so a ship standing on its legs wears its own trail: from the game camera the
+## near leg sat behind the plume, and a grey veil over a white leg reads as a
+## shadow the other leg does not have. Standing still, the nozzles have nothing
+## to leave behind, and that is exactly what the wake should say.
 const SMOKE_COLOR: Color = Color(0.74, 0.79, 0.85, 1.0)
 const SMOKE_AMOUNT: int = 450
 const SMOKE_LIFETIME: float = 0.50
 const SMOKE_PUFF: float = 0.80
-const SMOKE_DENSITY_LOW: float = 0.05
 const SMOKE_DENSITY_HIGH: float = 0.95
+
+## The counter-light that keeps a mirrored airframe reading evenly. Level and tint
+## only; where it points is `_build_fill_light`'s story. It is cool because it
+## stands in for sky bounce rather than for a second sun.
+const FILL_ENERGY: float = 0.45
+const FILL_COLOR: Color = Color(0.62, 0.72, 0.95)
 
 @export var bullet_scene: PackedScene
 @export var impact_scene: PackedScene
@@ -837,7 +849,31 @@ func _build_visual() -> void:
 	_visual.add_child(_model)
 	_model.build()
 
+	_build_fill_light()
 	_gunpod = _build_gunpod()
+
+
+## The arena is lit by a single sun from one side and the airframe is a mirror, so
+## the two legs present opposite facets to it. One spine caught the sun and read as
+## warm grey; its twin, turned away, crushed to black -- which from the game camera
+## reads as one leg wearing a shadow the other does not have. That is what a single
+## key light does to symmetric geometry, and no angle fixes it: a counter-light from
+## the far side just makes the other leg the dark one.
+##
+## The fill therefore rides the camera rig, not the sun: the game camera is fixed
+## behind and above the ship, so a light along its axis lands on exactly the facets
+## the player can see, equally, whichever leg they belong to. It is shadowless and
+## cool because it stands in for sky bounce, and `light_cull_mask` keeps it on the
+## airframe's own render layer, so the planet, the stars and the enemies keep the
+## single-sun look they were tuned with.
+func _build_fill_light() -> void:
+	var fill: DirectionalLight3D = DirectionalLight3D.new()
+	fill.name = "FillLight"
+	fill.light_color = FILL_COLOR
+	fill.light_energy = FILL_ENERGY
+	fill.shadow_enabled = false
+	fill.light_cull_mask = PlayerModel.AIRFRAME_LAYER_MASK
+	camera.get_parent().add_child(fill)
 
 
 func _ship_material(color: Color, glow: float) -> StandardMaterial3D:
@@ -986,9 +1022,15 @@ func _build_smoke() -> void:
 		# At the default 30 Hz the emitter lays the puffs down in batches and the
 		# trail reads as a string of beads; the render rate closes the gaps.
 		smoke.fixed_fps = 0
-		smoke.amount_ratio = SMOKE_DENSITY_LOW
+		smoke.amount_ratio = 0.0
 		smoke.process_material = _make_smoke_process()
 		smoke.draw_pass_1 = _make_smoke_puff()
+		# The trail is world-space and the sun's shadow map covers the whole arena,
+		# so a puff that drifts back over the hull drops a soft blob on it. From the
+		# game camera that reads as one leg being in shadow and the other not, which
+		# is exactly what a transparent billboard must not do: it is haze, not a
+		# solid. Nothing else on the ship casts either (see `_prepare_meshes`).
+		smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		smoke.set_meta("nozzle", nozzle)
 		_visual.add_child(smoke)
 		_smoke.append(smoke)
@@ -997,10 +1039,11 @@ func _build_smoke() -> void:
 ## Density follows speed; the length of the trail is that same speed applied to a
 ## fixed lifetime, because the puffs stay where they were dropped. Nothing here
 ## has to rescale the emitters as the ship accelerates, and `amount_ratio` changes
-## without restarting the emission.
+## without restarting the emission. At a standstill the ratio is zero, so the hull
+## is never behind its own plume.
 func _update_smoke(forward_speed: float, kick: float) -> void:
 	var speed_t: float = clampf(forward_speed / FIGHTER_BOOST_SPEED, 0.0, 1.0)
-	var density: float = lerpf(SMOKE_DENSITY_LOW, SMOKE_DENSITY_HIGH, speed_t)
+	var density: float = speed_t * SMOKE_DENSITY_HIGH
 	density = clampf(density + kick * 0.05, 0.0, 1.0)
 	for smoke in _smoke:
 		var nozzle: int = int(smoke.get_meta("nozzle", 0))

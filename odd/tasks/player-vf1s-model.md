@@ -80,6 +80,14 @@ S14. The barrel roll reads slower than the jink and repeats the side it last wen
      animation agrees with the step. User, verbatim: "quiero que la animación de
      evasión sea mas lenta y se ejecute en direccion de la ultimo lado ejecutado".
 
+S15. The two legs and the two wings read the same. Neither the wake nor a cast
+     shadow may darken one side of a symmetric airframe: the trail leaves nothing
+     behind at a standstill and casts no shadow, and the airframe carries a
+     shadowless fill on the camera axis, culled to its own render layer so the
+     arena keeps its single sun. User, verbatim: "por que una pierna o turbina se
+     ve oscurecida en el player en comparación a la otra? puede corregirse y dejar
+     ambas sin ese oscurecimiento que parece ser una sombra?"
+
 ## Tasks
 
 | ID | Spec | Route | Status | Evidence |
@@ -98,6 +106,7 @@ S14. The barrel roll reads slower than the jink and repeats the side it last wen
 | T12 | S12 | inline | done | L11: one GPU emitter per nozzle left in world space; density from speed via `amount_ratio`; 166 PASS / 0 FAIL; captures at cruise, boost and GERWALK |
 | T13 | S13 | inline | done | L12: `wing_anchors()` reads the span axis from `Bone.Wing.L/R`; `_launch_missile` picks the hardpoint by side plus `MISSILE_CLEARANCE`; 177 PASS / 0 FAIL; fighter capture shows one missile leaving each wing |
 | T14 | S14 | inline | done | L13: the spin moved to its own `FIGHTER_ROLL_ANIM_TIME = 0.45 s` timer, `_roll_side` survives a neutral stick and signs the spin; 182 PASS / 0 FAIL; `--roll N` captures at 6/12/20 frames |
+| T15 | S15 | inline | done | L14: wake density starts at zero and the puffs cast no shadow; airframe on its own layer with a camera-axis fill (`FILL_ENERGY = 0.45`); both leg spines measure the same grey; arena pixels unchanged; 189 PASS / 0 FAIL |
 
 Route note: no delegation trigger fired — one understood change, one writer, no
 parallel units. Delivery: local commits on `main`, which is this repo's practice
@@ -294,3 +303,41 @@ Suite: 182 PASS / 0 FAIL. `--roll N` was added to `capture_frame.gd` (with
 the hull coming over, upside down, and back. The spin keeps counting through a
 transform on purpose: cutting it at the mode change snapped the hull from a half
 turn back to level.
+
+L14: User, verbatim: "por que una pierna o turbina se ve oscurecida en el player en
+comparación a la otra? puede corregirse y dejar ambas sin ese oscurecimiento que
+parece ser una sombra?" Two causes stacked, and the first one hid the second.
+
+The wake was the one thing on the ship that cast a shadow: every GLB mesh, the
+plumes, the pod and the beam were already off, but both `GPUParticles3D` had
+`cast_shadow` on. Worse, `local_coords = false` leaves the puffs where they were
+born, so a ship standing on its legs wore its own plume -- and at a floor of 0.05
+there were still 22 puffs a side. Hiding the wake made the legs identical, so that
+was real: the puffs no longer cast, and the density now starts at zero because a
+standing ship has no airflow and therefore nothing to leave behind.
+
+That fix alone was not the whole story, which is why the report survived it. Two
+leg spines measured (47, 45, 43) and (81, 78, 73): one near black, one warm grey.
+Ruling out the livery came first -- every `Leg Spine Dark Gray` variant carries the
+same albedo (0.0977, 0.1173, 0.1533) -- and then the light: swinging the sun to the
+other side moved the light spine 81 to 61 while the dark one stayed put. The ship
+is a mirror, so the two legs present opposite facets to a light that comes from one
+side, and one of them ends up in its own shade. Physically correct, and at gameplay
+distance it reads as one leg wearing a shadow.
+
+The counter-light from the far side did not work, and that was the useful failure:
+at 0.9 energy from three different yaws the dark spine only moved 47 to 52. The
+legs do not present mirror facets to any single world direction, so there is no
+angle from which a fixed second sun lights the one the key misses. What does work
+is the camera: it is fixed behind and above the ship, so a light along its axis
+lands on exactly the facets the player can see, equally, whichever leg they belong
+to. The airframe moved to its own render layer (2) and the fill culls on it, so the
+arena is untouched -- the far-left and far-right patches of the capture are
+byte-identical before and after.
+
+Both spines now read the same grey. Suite: 189 PASS / 0 FAIL, with four checks on
+the fill (it exists on the rig, casts nothing, culls to the airframe layer, and
+every airframe mesh is on that layer) and two on the wake (no shadow, zero density
+at rest). The diagnostics that settled it stayed in the tools: `--sunrot` in both
+`capture_frame.gd` and `model_view.gd`, `--nosmoke`, `--noshadow` and `--zoom` in
+the capture, and the `game` view plus `--nosun` in the model viewer.

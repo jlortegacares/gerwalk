@@ -31,6 +31,7 @@ func _ready() -> void:
 	await _test_enemies_roam_the_planet()
 	await _test_afterburner()
 	await _test_exhaust_trail()
+	_test_airframe_lighting()
 	await _test_arsenal()
 
 	_clear_enemies()
@@ -717,14 +718,26 @@ func _test_exhaust_trail() -> void:
 		return
 	var first: GPUParticles3D = smoke[0] as GPUParticles3D
 	_check(first != null and not first.local_coords, "the puffs stay where they were dropped")
+	_check(
+		first.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+		"the trail casts no shadow on the hull"
+	)
 
+	# A puff born at the nozzle stays there until the ship outruns it, so the floor
+	# is zero. With a floor the standing ship wore its own plume: from the game
+	# camera the near leg sat behind it, and a grey veil over a white leg reads as
+	# a shadow the other leg does not have.
 	_player.call("_update_smoke", 0.0, 0.0)
 	var idle: float = first.amount_ratio
+	_player.call("_update_smoke", Player.FIGHTER_BOOST_SPEED * 0.25, 0.0)
+	var cruise: float = first.amount_ratio
 	_player.call("_update_smoke", Player.FIGHTER_BOOST_SPEED, 0.0)
 	var flat_out: float = first.amount_ratio
+	_check(is_zero_approx(idle), "a standing ship leaves no trail on its hull")
 	_check(
-		flat_out > idle * 2.0,
-		"the trail thickens with speed (%.2f at rest, %.2f flat out)" % [idle, flat_out]
+		cruise > idle and flat_out > cruise,
+		"the trail thickens with speed (%.2f at rest, %.2f cruising, %.2f flat out)"
+		% [idle, cruise, flat_out]
 	)
 
 	var model: PlayerModel = _player.get("_model") as PlayerModel
@@ -733,6 +746,33 @@ func _test_exhaust_trail() -> void:
 		first.position.distance_to(anchor) < 0.01,
 		"the emitter rides its nozzle"
 	)
+
+
+## The ship is a mirror lit by one sun, so the two legs present opposite facets and
+## one spine crushed to black while its twin read warm grey: one leg wearing a
+## shadow the other did not have. The fill rides the camera and culls on the
+## airframe layer. Both halves matter -- a fill that lit the arena would change the
+## scene, and meshes left off the layer would not receive it at all.
+func _test_airframe_lighting() -> void:
+	var rig: Node = _player.camera.get_parent()
+	var fill: DirectionalLight3D = rig.get_node_or_null("FillLight") as DirectionalLight3D
+	_check(fill != null, "the camera rig carries the airframe fill light")
+	if fill == null:
+		return
+	_check(not fill.shadow_enabled, "the fill casts no shadow of its own")
+	_check(
+		fill.light_cull_mask == PlayerModel.AIRFRAME_LAYER_MASK,
+		"the fill reaches the airframe layer and nothing else"
+	)
+
+	var model: PlayerModel = _player.get("_model") as PlayerModel
+	var meshes: Array = model.find_children("*", "MeshInstance3D", true, false)
+	var on_layer: bool = not meshes.is_empty()
+	for node in meshes:
+		if (node as MeshInstance3D).layers != PlayerModel.AIRFRAME_LAYER_MASK:
+			on_layer = false
+			break
+	_check(on_layer, "every airframe mesh sits on the layer the fill targets")
 
 
 func _test_afterburner() -> void:

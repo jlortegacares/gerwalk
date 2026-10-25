@@ -38,6 +38,12 @@ const HIDDEN_PREFIXES: Array[String] = [
 	"f35c-landingon", "whellnut", "00_milia",
 ]
 
+## The airframe renders on its own layer so the player's fill light can target the
+## ship and nothing else: the arena, the stars and the enemies keep the single-sun
+## look. Layer 1 is the default the rest of the scene uses.
+const AIRFRAME_LAYER: int = 2
+const AIRFRAME_LAYER_MASK: int = 1 << (AIRFRAME_LAYER - 1)
+
 ## The canopy ships as two stacked panels: a tinted glass sheet on the glass
 ## bone, and the grey shell the exporter hangs off the cover bone, which is the
 ## one the camera actually sees. Only the panels are repainted -- the rib keeps
@@ -156,6 +162,9 @@ func _prepare_meshes(model: Node3D) -> void:
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = mi as MeshInstance3D
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# The fill light culls on this layer, so the ship gets its counter-light and
+		# the arena keeps the single sun it was tuned with.
+		mesh.layers = AIRFRAME_LAYER_MASK
 		var lower: String = String(mesh.name).to_lower()
 		for prefix in HIDDEN_PREFIXES:
 			if lower.begins_with(prefix):
