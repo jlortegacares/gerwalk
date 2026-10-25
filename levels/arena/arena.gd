@@ -55,6 +55,10 @@ const DESPAWN_DISTANCE: float = 190.0
 const SPAWN_SEED: int = 20261022
 
 const ENEMY_SCENE: PackedScene = preload("res://entities/enemy/turret.tscn")
+const MISSILE_ENEMY_SCENE: PackedScene = preload("res://entities/enemy/missile_enemy.tscn")
+## One launcher in three. It is a priority target, not the baseline pressure: a ring
+## of them would turn every encounter into a missile-only fight.
+const MISSILE_ENEMY_SHARE: float = 0.34
 
 const STAR_COUNT: int = 700
 const STAR_MIN_DISTANCE: float = 320.0
@@ -248,7 +252,11 @@ func _spawn_angle() -> float:
 
 
 func _spawn_enemy(distance: float, angle: float) -> void:
-	var enemy: Enemy = ENEMY_SCENE.instantiate()
+	var scene: PackedScene = ENEMY_SCENE
+	if _rng.randf() < MISSILE_ENEMY_SHARE:
+		scene = MISSILE_ENEMY_SCENE
+
+	var enemy: Enemy = scene.instantiate()
 	_enemies.add_child(enemy)
 
 	var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * distance

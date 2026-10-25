@@ -9,6 +9,7 @@ extends CanvasLayer
 @onready var _mode_label: Label = %ModeLabel
 @onready var _bomb_pips: Control = %BombPips
 @onready var _salvo_label: Label = %SalvoLabel
+@onready var _decoy_label: Label = %DecoyLabel
 @onready var _game_over: Control = %GameOver
 
 var _game_over_visible: bool = false
@@ -22,6 +23,7 @@ func _ready() -> void:
 	GlobalEventBus.player_mode_changed.connect(_on_player_mode_changed)
 	GlobalEventBus.player_bombs_changed.connect(_on_player_bombs_changed)
 	GlobalEventBus.player_missile_salvo_changed.connect(_on_player_missile_salvo_changed)
+	GlobalEventBus.player_decoy_changed.connect(_on_player_decoy_changed)
 	GlobalEventBus.player_died.connect(_on_player_died)
 
 
@@ -58,6 +60,15 @@ func _on_player_bombs_changed(current: int, maximum: int) -> void:
 func _on_player_missile_salvo_changed(current: int, maximum: int) -> void:
 	_salvo_label.visible = current > 0
 	_salvo_label.text = "SALVO %d / %d" % [current, maximum]
+
+
+## The decoy has no count, only a cooldown, so the label is a state rather than a
+## level: ready means the button will work, charging means it will not.
+func _on_player_decoy_changed(ready: bool) -> void:
+	_decoy_label.text = "DECOY READY" if ready else "DECOY CHARGING"
+	_decoy_label.modulate = (
+		Color(1.0, 1.0, 1.0, 1.0) if ready else Color(1.0, 1.0, 1.0, 0.35)
+	)
 
 
 func _on_player_died() -> void:

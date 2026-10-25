@@ -26,6 +26,7 @@ window and is what CI uses.
 | Missile salvo (hold) | Right mouse button / F | X |
 | Select weapon | 1 / 2 / 3 | D-pad left / right (cycle) |
 | Bomb | E | Y |
+| Decoy | C | Right bumper |
 | Afterburner (hold) | Shift | Right trigger |
 | Dash | Double tap WASD, or Space | Double tap left stick, or left stick click |
 | Transform | Q | Left bumper |
@@ -80,10 +81,11 @@ The missile is the one projectile with a silhouette of its own
 (`Projectile.Style.MISSILE`): an off-white body, a tinted warhead cone and band, four
 swept fins and a lit exhaust cone, built along `+Z` because `rotation.y` maps that
 axis onto the flight vector. The style is a parameter of the weapon, not a guess from
-guidance: a homing plasma bolt stays a dart, and enemy fire stays an orb whatever the
-caller asks for.
+guidance: a homing plasma bolt stays a dart, and enemy fire stays an orb unless the
+weapon asks for a missile, which is the one silhouette that warns the shot is guided
+and can be shaken off.
 
-Each missile drops a puff of smoke every 0.022 s at its tail, and each puff is a node
+Each missile drops a puff of smoke every 0.018 s at its tail, and each puff is a node
 in the scene rather than a child of the missile. That is the whole point of the
 design: the smoke already in the air has to survive the impact that frees the shot.
 A puff grows from 0.10 to 0.55, fades out over 0.62 s and frees itself, and it
@@ -112,6 +114,17 @@ enemy fire inside it and pays 8 damage to every turret in range, in the same fra
 The rack holds 5 and starts at 3; every 12 kills refunds one charge, and a full rack
 stops banking progress it cannot spend. The ring is presentation only: the damage
 and the cancel already happened when it spawned.
+
+**The decoy answers guided fire, and only guided fire.** A flare dropped with C stays
+where the ship was, and every enemy missile within 30 units of it takes it as its
+target on the next steering step. It burns for 3 s; when it goes out the missile is
+left with nothing and keeps its heading, so the drop buys the distance the ship put
+between itself and where the shot was going. It is a 4 s cooldown rather than a
+resource, because a countermeasure you can spam is a dodge, and the HUD says
+`DECOY READY` or `DECOY CHARGING` instead of a count. Unguided fire ignores it: an orb
+was never chasing anything. The check runs on the missile every frame rather than once
+on the drop, so a salvo that arrives after the flare still takes it — which is what
+lets the countermeasure be a read about timing instead of a reflex about the button.
 
 None of this touches the ship's velocity. Firing never costs translation speed, and
 `tests/smoke_test.tscn` asserts it by holding fire and comparing top speed.
@@ -517,10 +530,14 @@ terrain, not through the ship sliding off centre.
 2. **Does the HP bar create tension instead of relief?** 6 segments, 1 damage
    per hit, 0.85 s of invulnerability. If you never feel threatened, the problem
    is the damage economy, not the bar.
-3. **Are deaths attributable?** Every enemy pattern is telegraphed for 0.42 s
-   and the two patterns are different on purpose:
+3. **Are deaths attributable?** Every enemy attack is telegraphed — 0.42 s for the
+   turret's two patterns, 0.72 s for the launcher's salvo — and the shapes are
+   different on purpose:
    - **Ring** — 14 slow bullets. Dodge through the gaps. Tests reading space.
    - **Fan** — 5 fast aimed bullets. Dash or sidestep. Tests reaction.
+   - **Salvo** — 2 guided missiles that outrun the hover's cruise. Spend the
+     burner, transform, turn, dash or drop a decoy. Tests whether a warning
+     window can be spent.
 4. **Is the dash a decision or a reflex?** 0.12 s burst at 3.17x cruise, 0.85 s
    cooldown, and it grants invulnerability, so it doubles as an escape. The
    gesture is a double tap on the direction you want, so the way out and the way
@@ -579,6 +596,7 @@ All values are named constants at the top of each script.
 | Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
+| Decoy | `combat/arsenal.gd`, `combat/decoy.gd` | `DECOY_COOLDOWN`; `LIFETIME`, `CAPTURE_RADIUS` |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
 | Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
@@ -602,6 +620,8 @@ All values are named constants at the top of each script.
 | Camera framing | `entities/player/player.tscn` | `CameraRig` position, pitch, `Camera3D.fov` |
 | Camera shake | `entities/player/player_camera.gd` | `MAX_OFFSET`, `DECAY_PER_SECOND` |
 | Enemy engagement | `entities/enemy/turret.gd` | `AGGRO_RADIUS`, `LEASH_RADIUS`, `ORBIT_RADIUS`, `PURSUIT_SPEED`, `STRAFE_SPEED` |
+| Missile launcher | `entities/enemy/missile_enemy.gd` | `LAUNCHER_HP`, `SALVO_MISSILES`, `MISSILE_SPEED`, `MISSILE_TURN_RATE`, `MISSILE_DAMAGE`, `MISSILE_LIFETIME`, `MISSILE_SPREAD_DEGREES`, `LAUNCH_TELEGRAPH`, `LAUNCH_RECOVER` |
+| Launcher share of the population | `levels/arena/arena.gd` | `MISSILE_ENEMY_SHARE` |
 | Enemy roaming | `entities/enemy/turret.gd` | `ROAM_SPEED`, `ROAM_LEG_MIN`, `ROAM_LEG_MAX`, `ROAM_LEG_TIME` |
 | Encounter streaming | `levels/arena/arena.gd` | `MAX_ENEMIES`, `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE` |
 
@@ -614,10 +634,12 @@ combat/arsenal.gd               weapon catalogue: every number a player feels
 combat/projectile.*             one shared bullet, team decides layers + shape, guidance here
 combat/smoke_puff.gd            self-freeing trail puff, added to the scene, not the shot
 combat/bomb_wave.gd             expanding shockwave, presentation only
+combat/decoy.gd                 dropped flare: takes the lock of nearby guided shots, self-freeing
 combat/lock_reticle.gd          world-space mark on a radar lock, dies with its turret
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
-entities/player/weapon_system.gd  primaries, missiles and the bomb, spawned per ship
+entities/player/weapon_system.gd  primaries, missiles, the bomb and the decoy, spawned per ship
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
+entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
 ui/hud/                         event-fed bars; the radar polls the enemy group for bearings
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
 ```
@@ -644,11 +666,12 @@ stance swings the nacelles forward. The muzzle distance still clears the nose, s
 bullets leave the airframe instead of spawning inside it.
 
 Weapons follow the same ownership rule. `WeaponSystem` holds the selected weapon,
-the bomb rack and the missile radar, and exposes only `select()`, `cycle()`,
-`fire_bomb()`, `kind()`, `bomb_charges()`, `salvo_count()` and `max_salvo()`; the
-player owns the input that drives it, and the HUD is a projection of
-`player_weapon_changed`, `player_bombs_changed` and `player_missile_salvo_changed`.
-`Arsenal` holds the tuning so no weapon hard-codes a cadence inside firing code.
+the bomb rack, the missile radar and the decoy cooldown, and exposes only `select()`,
+`cycle()`, `fire_bomb()`, `drop_decoy()`, `kind()`, `bomb_charges()`, `salvo_count()`
+and `max_salvo()`; the player owns the input that drives it, and the HUD is a
+projection of `player_weapon_changed`, `player_bombs_changed`,
+`player_missile_salvo_changed` and `player_decoy_changed`. `Arsenal` holds the tuning
+so no weapon hard-codes a cadence inside firing code.
 
 Ownership rule: the player owns its HP and its turbo reserve, and only exposes
 `take_damage()`. The HUD is a projection of `player_health_changed` and
@@ -759,14 +782,18 @@ actions, so it exercises the same path a player does.
   from the head of the pool.
 - **The bomb grants no invulnerability.** It cancels bullets inside its radius, so
   a pattern that arrives from outside the ring in the same frame still hurts.
+- **The decoy only answers guidance.** Turret bullets ignore it, and it does not
+  break the launcher's aim: the flare buys the flight time of the salvo already in
+  the air, not a safe spot. Nothing draws a line between the flare and the missiles
+  it pulled, so the player reads the turn itself.
 
 - **Bullets are one node each.** At 400 concurrent bullets this will need a
   pooled manager or `PhysicsServer3D` (NFR-05). Not measured yet.
 - **No audio.** Hit and dash feedback are visual only.
 - **The afterburner outruns everything on purpose.** `BOOST_SPEED` (42) sits far
-  above `PURSUIT_SPEED` (24), so a full reserve buys a clean disengage. The
-  reserve is the price; if escaping stops feeling earned, raise the drain before
-  lowering the speed.
+  above `PURSUIT_SPEED` (24) and above the launcher's missile (33), so a full
+  reserve buys a clean disengage. The reserve is the price; if escaping stops
+  feeling earned, raise the drain before lowering the speed.
 - **Shift no longer dashes.** It is the afterburner now; the dash is Space. The
   keyboard mapping is the one binding that changed when the burner landed.
 - **No art.** Every visual is a runtime placeholder mesh built in code; the
@@ -784,9 +811,9 @@ actions, so it exercises the same path a player does.
   ship mesh sets `SHADOW_CASTING_SETTING_OFF`. A dedicated shadow would need its
   own light or a blob quad, and altitude is currently read from the camera framing
   and the plume instead.
-- **No wave escalation.** A population of up to 3 turrets is streamed around the
-  ship, so the planet stays inhabited and the difficulty stays flat (FR-10 is
-  still a proposal, not implemented).
+- **No wave escalation.** A population of up to 3 enemies — one in three a missile
+  launcher — is streamed around the ship, so the planet stays inhabited and the
+  difficulty stays flat (FR-10 is still a proposal, not implemented).
 - **The planet no longer shows a limb.** At `PLANET_RADIUS = 1600` the surface
   fills the frame, so the star field is effectively scenery and the "globe" read
   comes from rolling terrain, not from a visible edge. The star shell still sits

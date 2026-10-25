@@ -8,6 +8,7 @@ signal player_weapon_changed(weapon_name: String)
 signal player_mode_changed(mode_name: String)
 signal player_bombs_changed(current: int, maximum: int)
 signal player_missile_salvo_changed(current: int, maximum: int)
+signal player_decoy_changed(ready: bool)
 signal player_died
 signal enemy_killed
 signal camera_shake_requested(strength: float)

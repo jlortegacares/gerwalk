@@ -29,6 +29,7 @@ func _ready() -> void:
 	await _test_firing()
 	await _test_enemy_patterns()
 	await _test_enemies_roam_the_planet()
+	await _test_missile_enemy()
 	await _test_afterburner()
 	await _test_exhaust_trail()
 	_test_airframe_lighting()
@@ -857,6 +858,65 @@ func _test_enemies_roam_the_planet() -> void:
 	)
 
 
+## The launcher is a new threat, not a new rule set: it has to be a real enemy, so
+## the radar, the bomb and the player's own missiles all still see it, and its
+## attack has to be a guided missile, because that is the thing the decoy answers.
+func _test_missile_enemy() -> void:
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	_player.global_position = Vector3.ZERO
+	_player.velocity = Vector3.ZERO
+
+	var enemy: MissileEnemy = _spawn_missile_enemy(Vector3(18.0, 0.0, 0.0))
+	_check(enemy != null, "the missile launcher spawns")
+	if enemy == null:
+		return
+	_check(enemy.is_in_group(&"enemy"), "the launcher is a target like any other")
+	_check(
+		enemy.current_hp() == MissileEnemy.LAUNCHER_HP,
+		"the launcher carries its own hull (%d hp)" % enemy.current_hp()
+	)
+
+	# The approach, the warning and the launch are the attack: wait for the first
+	# missile instead of calling the fire function behind the state machine.
+	var missile: Projectile = null
+	for _i in 240:
+		await get_tree().physics_frame
+		for child in get_children():
+			var shot: Projectile = child as Projectile
+			if shot == null or shot.is_queued_for_deletion():
+				continue
+			if int(shot.get("_team")) != Projectile.Team.ENEMY:
+				continue
+			if int(shot.get("_style")) != Projectile.Style.MISSILE:
+				continue
+			missile = shot
+			break
+		if missile != null:
+			break
+
+	_check(missile != null, "the launcher fires a missile")
+	if missile != null:
+		_check(bool(missile.call("is_homing")), "the launcher's missile is guided")
+		_check(
+			missile.get("_target") == _player,
+			"the launcher's missile chases the ship"
+		)
+		_check(
+			int(missile.get("_damage")) == MissileEnemy.MISSILE_DAMAGE,
+			"the launcher's missile carries its own warhead"
+		)
+
+	# Break the chase before it lands: this check is about the attack, not about
+	# how much health the player has left at this point in the suite.
+	_player.global_position = Vector3(0.0, 0.0, 120.0)
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+
 ## The burner is a tank, not a cooldown, so this drives the whole cycle in one
 ## run: burn, coast, burn out, release and re-arm. Those four states are the
 ## mechanic; checking a single one of them would miss the transitions.
@@ -1091,6 +1151,7 @@ func _test_arsenal() -> void:
 	await _test_bomb(weapons)
 	await _test_bomb_refill(weapons)
 	await _test_firing_costs_no_speed(weapons)
+	await _test_decoy(weapons)
 
 	Input.action_release(&"aim_left")
 	Input.action_release(&"fire")
@@ -1735,6 +1796,65 @@ func _test_bomb_refill(weapons: WeaponSystem) -> void:
 	)
 
 
+## The decoy is a countermeasure, not a weapon: the only thing it has to do is take
+## a guided shot off the ship and leave it flying straight when the flare burns out.
+func _test_decoy(weapons: WeaponSystem) -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	await get_tree().physics_frame
+
+	_player.global_position = Vector3.ZERO
+	_player.velocity = Vector3.ZERO
+
+	var missile: Projectile = _spawn_enemy_missile(Vector3(0.0, 0.0, 14.0), _player)
+	_check(bool(missile.call("is_homing")), "an enemy missile is a guided shot")
+	_check(missile.get("_target") == _player, "a guided shot starts on the ship")
+
+	_check(weapons.drop_decoy(Vector3.ZERO), "the ship drops a decoy")
+
+	# The ship leaves the spot: the flare only pays if the missile is now heading
+	# somewhere the player is not.
+	_player.global_position = Vector3(30.0, 0.0, -20.0)
+	for _i in 4:
+		await get_tree().physics_frame
+
+	var decoy: Node3D = null
+	for node in get_tree().get_nodes_in_group(&"decoy"):
+		decoy = node as Node3D
+	_check(decoy != null, "the decoy joins the decoy group")
+	_check(missile.get("_target") == decoy, "the decoy takes the missile's lock")
+	_check(
+		not weapons.drop_decoy(_player.global_position),
+		"the decoy has a cooldown"
+	)
+
+	# A shot with nothing left to chase flies straight: the drop buys distance,
+	# never a kill. The flare is set alight early instead of waiting the whole
+	# three seconds, which is the same path the lifetime takes.
+	if decoy != null:
+		decoy.set("_life", 0.05)
+	for _i in 8:
+		await get_tree().physics_frame
+	_check(not is_instance_valid(decoy), "the decoy burns out")
+
+	if is_instance_valid(missile):
+		var heading: Vector3 = missile.get("_velocity")
+		for _i in 10:
+			await get_tree().physics_frame
+		var after: Vector3 = missile.get("_velocity")
+		_check(
+			after.is_equal_approx(heading),
+			"the missile flies straight once the decoy is gone"
+		)
+	else:
+		_check(false, "the missile survives the decoy")
+
+	_clear_projectiles()
+	for node in get_tree().get_nodes_in_group(&"decoy"):
+		node.queue_free()
+	await get_tree().physics_frame
+
+
 func _test_firing_costs_no_speed(weapons: WeaponSystem) -> void:
 	weapons.select(Arsenal.Kind.VULCAN)
 	Input.action_press(&"move_right")
@@ -1770,6 +1890,42 @@ func _spawn_enemy_bullet(position: Vector3) -> Projectile:
 	bullet.global_position = position
 	bullet.setup(Vector3(1.0, 0.0, 0.0), 20.0, Projectile.Team.ENEMY, 1)
 	return bullet
+
+
+## A guided enemy shot, built the way the launcher builds one, so the decoy check
+## exercises the same projectile contract the enemy actually fires.
+func _spawn_enemy_missile(position: Vector3, target: Node3D) -> Projectile:
+	var scene: PackedScene = load("res://combat/projectile.tscn")
+	var missile: Projectile = scene.instantiate() as Projectile
+	add_child(missile)
+	missile.global_position = position
+	var direction: Vector3 = target.global_position - position
+	direction.y = 0.0
+	if direction.length_squared() < 0.01:
+		direction = Vector3.FORWARD
+	missile.setup(
+		direction.normalized(),
+		MissileEnemy.MISSILE_SPEED,
+		Projectile.Team.ENEMY,
+		MissileEnemy.MISSILE_DAMAGE,
+		MissileEnemy.MISSILE_SIZE,
+		target,
+		MissileEnemy.MISSILE_TURN_RATE,
+		Color(0.0, 0.0, 0.0, 0.0),
+		MissileEnemy.MISSILE_LIFETIME,
+		Projectile.Style.MISSILE
+	)
+	return missile
+
+
+func _spawn_missile_enemy(position: Vector3) -> MissileEnemy:
+	var scene: PackedScene = load("res://entities/enemy/missile_enemy.tscn")
+	if scene == null:
+		return null
+	var enemy: MissileEnemy = scene.instantiate() as MissileEnemy
+	_arena.add_child(enemy)
+	enemy.global_position = position
+	return enemy
 
 
 func _player_projectiles() -> Array[Projectile]:

@@ -77,6 +77,13 @@ var _roam_target: Vector3 = Vector3.ZERO
 var _roam_timer: float = 0.0
 var _strafe_direction: float = 1.0
 
+## Per-variant presentation and timing. They live here instead of being read
+## straight from the constants so a variant can repaint itself and commit longer
+## without copying the state machine.
+var _base_color: Color = BASE_COLOR
+var _telegraph_time: float = TELEGRAPH_TIME
+var _recover_time: float = RECOVER_TIME
+
 var _visual: Node3D
 var _material: StandardMaterial3D
 var _aim_beam: MeshInstance3D
@@ -187,19 +194,19 @@ func _enter_engaged() -> void:
 func _enter_roam() -> void:
 	_state = State.ROAM
 	_aim_beam.visible = false
-	_set_body_color(BASE_COLOR)
+	_set_body_color(_base_color)
 	_pick_roam_target()
 
 
 func _enter_telegraph() -> void:
 	_state = State.TELEGRAPH
-	_timer = TELEGRAPH_TIME
+	_timer = _telegraph_time
 	_aim_beam.visible = _pattern == Pattern.FAN
 
 
 func _tick_telegraph() -> void:
-	var progress: float = 1.0 - clampf(_timer / TELEGRAPH_TIME, 0.0, 1.0)
-	_set_body_color(BASE_COLOR.lerp(TELEGRAPH_COLOR, progress))
+	var progress: float = 1.0 - clampf(_timer / _telegraph_time, 0.0, 1.0)
+	_set_body_color(_base_color.lerp(TELEGRAPH_COLOR, progress))
 
 	var offset: Vector3 = _player.global_position - global_position
 	offset.y = 0.0
@@ -212,8 +219,8 @@ func _tick_telegraph() -> void:
 
 func _enter_recover() -> void:
 	_state = State.RECOVER
-	_timer = RECOVER_TIME
-	_set_body_color(BASE_COLOR)
+	_timer = _recover_time
+	_set_body_color(_base_color)
 	_aim_beam.visible = false
 
 
@@ -291,9 +298,9 @@ func _build_visual() -> void:
 	add_child(_visual)
 
 	_material = StandardMaterial3D.new()
-	_material.albedo_color = BASE_COLOR
+	_material.albedo_color = _base_color
 	_material.emission_enabled = true
-	_material.emission = BASE_COLOR
+	_material.emission = _base_color
 	_material.emission_energy_multiplier = 0.8
 	_material.roughness = 0.5
 

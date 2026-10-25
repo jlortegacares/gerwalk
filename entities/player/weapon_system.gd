@@ -37,6 +37,8 @@ var _hardpoints: Array[Vector3] = []
 
 var _bombs: int = Arsenal.BOMB_START_CHARGES
 var _kills: int = 0
+## Seconds until the next flare. The cooldown is the whole cost of the decoy.
+var _decoy_cooldown: float = 0.0
 
 
 func setup(bullet_scene: PackedScene) -> void:
@@ -50,6 +52,7 @@ func _ready() -> void:
 	# state: the player must never sit with an empty weapon label.
 	GlobalEventBus.player_weapon_changed.emit.call_deferred(Arsenal.NAMES[_kind])
 	GlobalEventBus.player_bombs_changed.emit.call_deferred(_bombs, Arsenal.BOMB_MAX_CHARGES)
+	GlobalEventBus.player_decoy_changed.emit.call_deferred(true)
 
 
 func kind() -> Arsenal.Kind:
@@ -91,6 +94,12 @@ func tick(
 	_fighter = fighter
 	_hardpoints = hardpoints
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	# The decoy reloads on its own clock whether or not anything else is firing:
+	# it is a countermeasure, not a weapon the player has to be holding.
+	if _decoy_cooldown > 0.0:
+		_decoy_cooldown = maxf(_decoy_cooldown - delta, 0.0)
+		if _decoy_cooldown <= 0.0:
+			GlobalEventBus.player_decoy_changed.emit(true)
 	# The beam is a fire-time visual: every frame it is not being drawn stays off,
 	# which covers switching weapons mid-burst without a special case.
 	_beam.visible = false
@@ -459,6 +468,25 @@ func fire_bomb(origin: Vector3) -> bool:
 
 	_spawn_wave(origin)
 	GlobalEventBus.camera_shake_requested.emit(1.4)
+	return true
+
+
+## Drops a flare where the ship is. It stays there while the ship flies on, which
+## is the whole manoeuvre: the countermeasure only pays if the ship leaves the spot
+## the missile was already heading for.
+func drop_decoy(origin: Vector3) -> bool:
+	if _decoy_cooldown > 0.0:
+		return false
+
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return false
+
+	_decoy_cooldown = Arsenal.DECOY_COOLDOWN
+	var decoy: Decoy = Decoy.new()
+	scene.add_child(decoy)
+	decoy.global_position = origin
+	GlobalEventBus.player_decoy_changed.emit(false)
 	return true
 
 

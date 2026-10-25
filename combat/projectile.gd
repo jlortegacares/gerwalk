@@ -41,8 +41,10 @@ const ORB_RADIUS: float = 0.55
 ##
 ## The spacing at the missile's speed is what decides smoke versus dotted line: one
 ## puff every TRAIL_INTERVAL has to overlap the last one, so the interval stays
-## tight and the puffs grow past the gap between them.
-const TRAIL_INTERVAL: float = 0.022
+## tight and the puffs grow past the gap between them. It is tuned against the
+## fastest shot in the game (the player's missile at 42), where one interval is
+## still under a puff's diameter at the tail.
+const TRAIL_INTERVAL: float = 0.018
 const TRAIL_PUFF_LIFETIME: float = 0.62
 const TRAIL_START_RADIUS: float = 0.10
 const TRAIL_END_RADIUS: float = 0.55
@@ -115,10 +117,14 @@ func setup(
 	else:
 		collision_layer = 1 << LAYER_ENEMY_BULLET
 		collision_mask = (1 << LAYER_WORLD) | (1 << LAYER_PLAYER)
-		# Enemy fire is the orb silhouette whatever the caller asked for: the team
-		# read outranks the weapon's own preference.
-		_style = Style.ORB
-		_build_visual(Vector3.ONE * ORB_RADIUS, color)
+		# Enemy fire is the orb silhouette by default: the team read outranks the
+		# weapon's own preference. A missile is the exception, because its shape is
+		# the warning that it is guided and can be shaken off.
+		if _style == Style.MISSILE:
+			_build_visual(size, color)
+		else:
+			_style = Style.ORB
+			_build_visual(Vector3.ONE * ORB_RADIUS, color)
 
 	_trail_offset = size.z * 0.5
 
@@ -307,12 +313,38 @@ func _spawn_puff() -> void:
 	)
 
 
+## A shot is guided when it has a turn rate. Only a guided shot can be pulled off
+## its chase, which is what makes the decoy worth dropping on one.
+func is_homing() -> bool:
+	return _turn_rate > 0.0
+
+
+## Hands the guidance to another target. The decoy is the only caller: the flare
+## takes the lock for as long as it burns, and the shot is left with nothing when
+## it is gone.
+func retarget(target: Node3D) -> void:
+	_target = target
+
+
 ## Homing shots keep their speed and turn towards the target at a fixed rate, so
 ## the curve is legible: snapping instantly would look like a second aim, and an
 ## unbounded turn would orbit the target instead of arriving. A freed target (it
-## died mid-flight) simply leaves the shot flying straight.
+## died mid-flight, or a decoy burned out) simply leaves the shot flying straight.
 func _steer(delta: float) -> void:
-	if _turn_rate <= 0.0 or not is_instance_valid(_target):
+	if _turn_rate <= 0.0:
+		return
+
+	# Enemy guidance is dumb enough to be fooled: any flare close enough outranks
+	# the ship. The check runs every frame rather than once on the drop, so a
+	# missile that arrives after the flare was dropped still takes it. Once the
+	# lock is on a flare the scan stops, because nothing outranks a flare.
+	if _team == Team.ENEMY:
+		if not is_instance_valid(_target) or not _target.is_in_group(&"decoy"):
+			var decoy: Node3D = _nearest_decoy()
+			if decoy != null:
+				retarget(decoy)
+
+	if not is_instance_valid(_target):
 		return
 
 	var to_target: Vector3 = _target.global_position - global_position
@@ -325,6 +357,26 @@ func _steer(delta: float) -> void:
 	var step: float = clampf(angle, -_turn_rate * delta, _turn_rate * delta)
 	_velocity = heading.rotated(Vector3.UP, step) * _speed
 	rotation.y = atan2(_velocity.x, _velocity.z)
+
+
+## The flare with the strongest pull: the closest one inside its own capture
+## radius, measured on the play plane like every other range in the prototype.
+## Null means nothing close enough is spoofing, so the current target stands.
+func _nearest_decoy() -> Node3D:
+	var best: Node3D = null
+	var best_distance: float = Decoy.CAPTURE_RADIUS
+	for node in get_tree().get_nodes_in_group(&"decoy"):
+		var decoy: Node3D = node as Node3D
+		if decoy == null:
+			continue
+		var distance: float = Vector2(
+			decoy.global_position.x - global_position.x,
+			decoy.global_position.z - global_position.z
+		).length()
+		if distance <= best_distance:
+			best_distance = distance
+			best = decoy
+	return best
 
 
 func _on_body_entered(body: Node3D) -> void:

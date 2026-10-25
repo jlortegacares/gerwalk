@@ -827,6 +827,11 @@ func _update_weapons(delta: float) -> void:
 	if Input.is_action_just_pressed(&"bomb") and _transform_time <= 0.0:
 		_weapons.fire_bomb(global_position)
 
+	# The decoy is defensive, but it is still the ship acting: the transform lock
+	# takes it offline with everything else so the switch keeps costing something.
+	if Input.is_action_just_pressed(&"decoy") and _transform_time <= 0.0:
+		_weapons.drop_decoy(global_position)
+
 	# The missile rack is a hold, not a press: the button marks while it is down and
 	# pays out when it comes up. Transform takes the rack offline with everything
 	# else the ship fires.

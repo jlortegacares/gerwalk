@@ -64,7 +64,10 @@ const FIGHTER_VULCAN_SPREAD_DEGREES: float = 4.0
 ## MISSILE_SALVO_INTERVAL and releasing fires the whole load, spread over those
 ## contacts. The launch angle matters as much as the turn rate: a missile that leaves
 ## straight ahead has no visible curve, and the curve is what sells the guidance.
-const MISSILE_SPEED: float = 34.0
+## Fast enough to catch a running turret before the rack's salvo cooldown matters,
+## and fast enough that the guidance curve is a short, legible flick instead of a
+## long arc the target can walk out of.
+const MISSILE_SPEED: float = 42.0
 const MISSILE_DAMAGE: int = 4
 const MISSILE_SIZE: Vector3 = Vector3(0.46, 0.38, 1.9)
 const MISSILE_TURN_RATE: float = 2.8
@@ -83,6 +86,13 @@ const MISSILE_LAUNCH_AHEAD: float = 0.3
 const MISSILE_LAUNCH_SIDE: float = 0.9
 const MISSILE_LAUNCH_ANGLE_DEGREES: float = 14.0
 const MISSILE_COLOR: Color = Color(1.0, 0.8, 0.42, 1.0)
+
+## Decoy: the countermeasure against guided fire. A flare burns where it was
+## dropped and takes the lock of every enemy missile close enough to be fooled,
+## which leaves that missile flying straight once the flare burns out. The
+## cooldown is the whole cost: a countermeasure you can spam is a dodge, not a
+## read.
+const DECOY_COOLDOWN: float = 4.0
 
 ## Bomb: the panic button. It cancels enemy fire around the ship and pays a flat
 ## lump of damage, then charges back up on kills rather than on a timer, so it
