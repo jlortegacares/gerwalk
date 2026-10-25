@@ -12,6 +12,8 @@ const FULLSCREEN_KEY: String = "fullscreen"
 const LIVERY_SECTION: String = "livery"
 const HULL_KEY: String = "hull"
 const TRIM_KEY: String = "trim"
+const CANOPY_KEY: String = "canopy"
+const LINES_KEY: String = "lines"
 
 ## The livery the file ships: a slightly warm white hull with the blue stripe the
 ## VF-1S wears. Both are also the defaults the options palette offers, so "never
@@ -20,6 +22,11 @@ const TRIM_KEY: String = "trim"
 ## close would paint a hull slightly off the file's own.
 const DEFAULT_HULL: Color = Color(0.9063318, 0.9063318, 0.9063318, 1.0)
 const DEFAULT_TRIM: Color = Color(0.027445495, 0.06274266, 0.83921564, 1.0)
+## The canopy glass has been tinted blue by the game since before it was an
+## option, so that tint is the factory colour rather than the file's clear glass.
+const DEFAULT_CANOPY: Color = Color(0.31, 0.70, 0.95, 1.0)
+## The file's dark trim: the lines that cut the hull and the stripe into panels.
+const DEFAULT_LINES: Color = Color(0.11997428, 0.11997428, 0.11997428, 1.0)
 
 
 ## A missing or unreadable file means "windowed", which is the engine default and
@@ -57,14 +64,31 @@ static func load_trim(path: String = CONFIG_PATH) -> Color:
 	return _load_color(path, TRIM_KEY, DEFAULT_TRIM)
 
 
-## Both colours travel together because they are one decision: a hull and the
-## stripe that cuts across it. Saving them separately would let a crash between
-## the two writes leave a livery nobody asked for.
-static func save_livery(hull: Color, trim: Color, path: String = CONFIG_PATH) -> void:
+static func load_canopy(path: String = CONFIG_PATH) -> Color:
+	return _load_color(path, CANOPY_KEY, DEFAULT_CANOPY)
+
+
+static func load_lines(path: String = CONFIG_PATH) -> Color:
+	return _load_color(path, LINES_KEY, DEFAULT_LINES)
+
+
+## The four colours travel together because they are one decision: a hull, the
+## stripe that cuts across it, the glass over the cockpit and the lines that
+## separate the panels. Saving them separately would let a crash between the
+## writes leave a livery nobody asked for.
+static func save_livery(
+	hull: Color,
+	trim: Color,
+	canopy: Color,
+	lines: Color,
+	path: String = CONFIG_PATH
+) -> void:
 	var config: ConfigFile = ConfigFile.new()
 	config.load(path)
 	config.set_value(LIVERY_SECTION, HULL_KEY, hull)
 	config.set_value(LIVERY_SECTION, TRIM_KEY, trim)
+	config.set_value(LIVERY_SECTION, CANOPY_KEY, canopy)
+	config.set_value(LIVERY_SECTION, LINES_KEY, lines)
 	config.save(path)
 
 

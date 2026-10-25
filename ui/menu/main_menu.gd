@@ -6,29 +6,31 @@ extends Control
 ## The window mode is the one display option the build honours, so it is applied
 ## here and nowhere else: the arena inherits it, and `GameSettings` restores it on
 ## the next launch. The livery is the one option the player sees in flight, so it
-## is previewed on a live copy of the airframe instead of on a colour chip: the
-## hull is a texture, and a chip does not say how a colour will land on it.
+## is previewed on a live copy of the airframe instead of on a colour chip: a chip
+## does not say how a colour will land on the panels, the glass or the lines.
 ##
 ## The controls reference lives in the same panel because a prototype is played by
 ## people who have not read the docs.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
 
-## One palette, offered twice. The hull and the stripe are the same decision, so
-## they get the same eight colours instead of two curated lists nobody asked for.
-## The first two entries are the colours the file ships, which makes "factory" a
-## swatch a player can come back to rather than a hidden reset.
+## One palette, offered four times. The hull, the stripe, the glass and the lines
+## are the same decision -- what colour is this ship -- so they get the same nine
+## colours instead of four curated lists nobody asked for. The first four entries
+## are the colours the file ships, which makes "factory" a swatch a player can come
+## back to rather than a hidden reset.
 const PALETTE: Array[Color] = [
 	GameSettings.DEFAULT_HULL,
 	GameSettings.DEFAULT_TRIM,
+	GameSettings.DEFAULT_CANOPY,
+	GameSettings.DEFAULT_LINES,
 	Color(0.80, 0.14, 0.16),
 	Color(0.93, 0.72, 0.18),
 	Color(0.10, 0.62, 0.60),
-	Color(0.13, 0.14, 0.17),
 	Color(0.25, 0.47, 0.85),
 	Color(0.86, 0.42, 0.12),
 ]
-const SWATCH_SIZE: float = 34.0
+const SWATCH_SIZE: float = 30.0
 
 ## Tests point this at a scratch file so a swatch click never rewrites the real
 ## settings. Nothing in the game changes it.
@@ -36,6 +38,8 @@ var settings_path: String = GameSettings.CONFIG_PATH
 
 var _hull: Color = GameSettings.DEFAULT_HULL
 var _trim: Color = GameSettings.DEFAULT_TRIM
+var _canopy: Color = GameSettings.DEFAULT_CANOPY
+var _lines: Color = GameSettings.DEFAULT_LINES
 
 @onready var _start_button: Button = %StartButton
 @onready var _options_button: Button = %OptionsButton
@@ -45,6 +49,8 @@ var _trim: Color = GameSettings.DEFAULT_TRIM
 @onready var _preview: LiveryPreview = %Preview
 @onready var _hull_row: HBoxContainer = %HullRow
 @onready var _trim_row: HBoxContainer = %TrimRow
+@onready var _canopy_row: HBoxContainer = %CanopyRow
+@onready var _lines_row: HBoxContainer = %LinesRow
 
 
 func _ready() -> void:
@@ -63,11 +69,15 @@ func _ready() -> void:
 
 	_hull = GameSettings.load_hull(settings_path)
 	_trim = GameSettings.load_trim(settings_path)
+	_canopy = GameSettings.load_canopy(settings_path)
+	_lines = GameSettings.load_lines(settings_path)
 	# The preview is a view: it is told the livery before it ever builds, so the
 	# airframe cannot appear in one colour and switch to another a frame later.
-	_preview.set_livery(_hull, _trim)
+	_preview.set_livery(_hull, _trim, _canopy, _lines)
 	_build_swatches(_hull_row, _hull, _on_hull_picked)
 	_build_swatches(_trim_row, _trim, _on_trim_picked)
+	_build_swatches(_canopy_row, _canopy, _on_canopy_picked)
+	_build_swatches(_lines_row, _lines, _on_lines_picked)
 
 	_start_button.grab_focus()
 
@@ -115,14 +125,29 @@ func _on_fullscreen_toggled(enabled: bool) -> void:
 
 func _on_hull_picked(color: Color) -> void:
 	_hull = color
-	_preview.set_livery(_hull, _trim)
-	GameSettings.save_livery(_hull, _trim, settings_path)
+	_push_livery()
 
 
 func _on_trim_picked(color: Color) -> void:
 	_trim = color
-	_preview.set_livery(_hull, _trim)
-	GameSettings.save_livery(_hull, _trim, settings_path)
+	_push_livery()
+
+
+func _on_canopy_picked(color: Color) -> void:
+	_canopy = color
+	_push_livery()
+
+
+func _on_lines_picked(color: Color) -> void:
+	_lines = color
+	_push_livery()
+
+
+## Every swatch is the same decision, so it takes the same two steps: show the
+## ship the new colour, then make it the ship the next launch builds.
+func _push_livery() -> void:
+	_preview.set_livery(_hull, _trim, _canopy, _lines)
+	GameSettings.save_livery(_hull, _trim, _canopy, _lines, settings_path)
 
 
 ## Builds one row of colour buttons and marks the one that matches the stored

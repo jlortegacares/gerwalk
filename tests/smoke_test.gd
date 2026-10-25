@@ -78,7 +78,11 @@ func _test_main_menu() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SETTINGS))
 	# A saved livery has to come back selected, not merely applied.
 	GameSettings.save_livery(
-		MainMenu.PALETTE[3], MainMenu.PALETTE[5], TEST_SETTINGS
+		MainMenu.PALETTE[4],
+		MainMenu.PALETTE[5],
+		MainMenu.PALETTE[6],
+		MainMenu.PALETTE[7],
+		TEST_SETTINGS
 	)
 
 	var menu: MainMenu = scene.instantiate() as MainMenu
@@ -92,6 +96,8 @@ func _test_main_menu() -> void:
 	var back_button: Button = menu.get_node("%BackButton") as Button
 	var hull_row: HBoxContainer = menu.get_node("%HullRow") as HBoxContainer
 	var trim_row: HBoxContainer = menu.get_node("%TrimRow") as HBoxContainer
+	var canopy_row: HBoxContainer = menu.get_node("%CanopyRow") as HBoxContainer
+	var lines_row: HBoxContainer = menu.get_node("%LinesRow") as HBoxContainer
 	var preview: LiveryPreview = menu.get_node("%Preview") as LiveryPreview
 	_check(start_button != null, "the menu offers a start button")
 	_check(options_button != null, "the menu offers an options button")
@@ -128,24 +134,36 @@ func _test_main_menu() -> void:
 			"the controls reference names the decoy"
 		)
 
-	_check(hull_row != null and trim_row != null, "the panel carries the colour rows")
-	if hull_row != null and trim_row != null:
+	_check(
+		hull_row != null and trim_row != null and canopy_row != null and lines_row != null,
+		"the panel carries all four colour rows"
+	)
+	if hull_row != null and trim_row != null and canopy_row != null and lines_row != null:
 		_check(
 			hull_row.get_child_count() == MainMenu.PALETTE.size(),
 			"the hull row offers the whole palette (%d swatches)"
 			% hull_row.get_child_count()
 		)
+		for row in [trim_row, canopy_row, lines_row]:
+			_check(
+				(row as HBoxContainer).get_child_count() == MainMenu.PALETTE.size(),
+				"every colour row offers the whole palette"
+			)
 		_check(
-			trim_row.get_child_count() == MainMenu.PALETTE.size(),
-			"the stripe row offers the whole palette"
-		)
-		_check(
-			_pressed_swatch(hull_row) == hull_row.get_child(3),
+			_pressed_swatch(hull_row) == hull_row.get_child(4),
 			"the saved hull comes back selected"
 		)
 		_check(
 			_pressed_swatch(trim_row) == trim_row.get_child(5),
 			"the saved stripe comes back selected"
+		)
+		_check(
+			_pressed_swatch(canopy_row) == canopy_row.get_child(6),
+			"the saved canopy comes back selected"
+		)
+		_check(
+			_pressed_swatch(lines_row) == lines_row.get_child(7),
+			"the saved lines come back selected"
 		)
 		var hull_button: Button = hull_row.get_child(0) as Button
 		_check(
@@ -162,12 +180,26 @@ func _test_main_menu() -> void:
 			),
 			"picking a hull swatch is saved"
 		)
-		(trim_row.get_child(4) as Button).pressed.emit()
+		(trim_row.get_child(8) as Button).pressed.emit()
 		_check(
 			GameSettings.load_trim(TEST_SETTINGS).is_equal_approx(
-				MainMenu.PALETTE[4]
+				MainMenu.PALETTE[8]
 			),
 			"picking a stripe swatch is saved"
+		)
+		(canopy_row.get_child(3) as Button).pressed.emit()
+		_check(
+			GameSettings.load_canopy(TEST_SETTINGS).is_equal_approx(
+				MainMenu.PALETTE[3]
+			),
+			"picking a canopy swatch is saved"
+		)
+		(lines_row.get_child(1) as Button).pressed.emit()
+		_check(
+			GameSettings.load_lines(TEST_SETTINGS).is_equal_approx(
+				MainMenu.PALETTE[1]
+			),
+			"picking a line swatch is saved"
 		)
 
 	back_button.pressed.emit()
@@ -177,7 +209,11 @@ func _test_main_menu() -> void:
 	# Both settings share one file, so neither save may erase the other.
 	GameSettings.save_fullscreen(true, TEST_SETTINGS)
 	GameSettings.save_livery(
-		MainMenu.PALETTE[2], MainMenu.PALETTE[4], TEST_SETTINGS
+		MainMenu.PALETTE[2],
+		MainMenu.PALETTE[8],
+		MainMenu.PALETTE[3],
+		MainMenu.PALETTE[1],
+		TEST_SETTINGS
 	)
 	_check(
 		GameSettings.load_fullscreen(TEST_SETTINGS),
@@ -188,8 +224,18 @@ func _test_main_menu() -> void:
 		"and saving it keeps the hull"
 	)
 	_check(
-		GameSettings.load_trim(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[4]),
+		GameSettings.load_trim(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[8]),
 		"and the stripe"
+	)
+	_check(
+		GameSettings.load_canopy(TEST_SETTINGS).is_equal_approx(
+			MainMenu.PALETTE[3]
+		),
+		"and the canopy"
+	)
+	_check(
+		GameSettings.load_lines(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[1]),
+		"and the lines"
 	)
 	GameSettings.save_fullscreen(false, TEST_SETTINGS)
 	_check(
@@ -197,7 +243,7 @@ func _test_main_menu() -> void:
 		"and the choice can be turned back off"
 	)
 	_check(
-		GameSettings.load_trim(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[4]),
+		GameSettings.load_lines(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[1]),
 		"turning it off keeps the livery"
 	)
 
@@ -214,37 +260,77 @@ func _test_main_menu() -> void:
 		),
 		"a missing file falls back to the factory stripe"
 	)
+	_check(
+		GameSettings.load_canopy(TEST_SETTINGS).is_equal_approx(
+			GameSettings.DEFAULT_CANOPY
+		),
+		"a missing file falls back to the factory canopy"
+	)
+	_check(
+		GameSettings.load_lines(TEST_SETTINGS).is_equal_approx(
+			GameSettings.DEFAULT_LINES
+		),
+		"a missing file falls back to the factory lines"
+	)
 
 	menu.queue_free()
 	await get_tree().process_frame
 
 
 ## The livery has to land on the right surfaces and nowhere else: the hull is one
-## family of materials, the stripe another, and the other fifty-seven surfaces are
-## what makes the airframe look like an aircraft instead of a painted brick.
+## family of materials, the stripe another, the lines a third, and the canopy is
+## found by the bones it hangs from. The rest of the airframe is what makes it look
+## like an aircraft instead of a painted brick.
 func _test_livery_paint() -> void:
 	var hull: Color = Color(0.85, 0.12, 0.10)
 	var trim: Color = Color(0.10, 0.75, 0.35)
+	var canopy: Color = Color(0.95, 0.45, 0.05)
+	var lines: Color = Color(0.90, 0.10, 0.80)
 
 	var model: PlayerModel = PlayerModel.new()
 	add_child(model)
-	model.set_livery(hull, trim)
+	model.set_livery(hull, trim, canopy, lines)
 	_check(model.build(), "the airframe builds wearing a livery")
 
 	var hulls: Array[Color] = _material_colors(model, PlayerModel.HULL_MATERIAL)
 	var trims: Array[Color] = _material_colors(model, PlayerModel.TRIM_MATERIAL)
+	var dark: Array[Color] = _material_colors(model, PlayerModel.LINE_MATERIAL)
+	var glass: Array[Color] = _canopy_colors(model)
 	_check(hulls.size() > 0, "the hull sheets are painted (%d surfaces)" % hulls.size())
 	_check(trims.size() > 0, "the stripe is painted (%d surfaces)" % trims.size())
+	_check(dark.size() > 0, "the black lines are painted (%d surfaces)" % dark.size())
+	_check(glass.size() > 0, "the canopy glass is painted (%d surfaces)" % glass.size())
 	_check(_all_colors_are(hulls, hull), "every hull surface takes the hull colour")
 	_check(_all_colors_are(trims, trim), "every stripe surface takes the stripe colour")
+	_check(_all_colors_are(dark, lines), "every line surface takes the line colour")
+	_check(_all_colors_are(glass, canopy), "every canopy panel takes the canopy colour")
+
+	# The canopy cover wears a hull-family material, so the hull pass must leave it
+	# alone: otherwise the cockpit ends up painted with the hull colour.
+	var cover: Array[Color] = _canopy_cover_colors(model)
+	_check(cover.size() > 0, "the canopy cover is found (%d surfaces)" % cover.size())
+	_check(
+		_all_colors_are(cover, canopy),
+		"the hull pass does not paint the canopy cover"
+	)
 
 	# A live repaint is what the options preview does on every click, so it has to
 	# reach surfaces that are already overridden.
 	var recoloured: Color = Color(0.20, 0.40, 0.90)
-	model.set_livery(recoloured, trim)
+	model.set_livery(recoloured, trim, canopy, lines)
 	var after: Array[Color] = _material_colors(model, PlayerModel.HULL_MATERIAL)
 	_check(after.size() == hulls.size(), "repainting keeps every hull surface")
 	_check(_all_colors_are(after, recoloured), "a live repaint reaches the hull")
+	model.set_livery(recoloured, trim, canopy, Color(0.0, 0.85, 0.95))
+	_check(
+		_all_colors_are(_material_colors(model, PlayerModel.LINE_MATERIAL), Color(0.0, 0.85, 0.95)),
+		"a live repaint reaches the lines"
+	)
+	model.set_livery(recoloured, trim, Color(0.95, 0.85, 0.10), Color(0.0, 0.85, 0.95))
+	_check(
+		_all_colors_are(_canopy_colors(model), Color(0.95, 0.85, 0.10)),
+		"a live repaint reaches the canopy"
+	)
 
 	# The GLB is shared by every ship and by the preview, so the paint lives in
 	# duplicated materials: a repainted file would recolour the next ship too.
@@ -257,6 +343,12 @@ func _test_livery_paint() -> void:
 	_check(
 		_all_colors_are(factory, GameSettings.DEFAULT_HULL),
 		"painting a ship leaves the shared model untouched"
+	)
+	_check(
+		_all_colors_match_rgb(
+			_material_colors(pristine, PlayerModel.LINE_MATERIAL), GameSettings.DEFAULT_LINES
+		),
+		"and leaves the file's own lines untouched"
 	)
 	pristine.queue_free()
 
@@ -273,11 +365,14 @@ func _pressed_swatch(row: HBoxContainer) -> Button:
 
 ## Every surface colour under `root` whose material carries the name prefix. The
 ## file suffixes the name per mesh ("Aircraft BASE color.014"), so the match is on
-## the prefix, the same rule the paint pass uses.
+## the prefix, the same rule the paint pass uses. The canopy panels are skipped:
+## the cover wears a hull-family material and belongs to the canopy pass.
 func _material_colors(root: Node, prefix: String) -> Array[Color]:
 	var colors: Array[Color] = []
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = node as MeshInstance3D
+		if _is_canopy_panel(mesh):
+			continue
 		for surface in mesh.mesh.get_surface_count():
 			var material: StandardMaterial3D = (
 				mesh.get_active_material(surface) as StandardMaterial3D
@@ -289,9 +384,63 @@ func _material_colors(root: Node, prefix: String) -> Array[Color]:
 	return colors
 
 
+## The colour of every canopy panel, found the same way the paint pass finds them.
+func _canopy_colors(root: Node) -> Array[Color]:
+	var colors: Array[Color] = []
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		if not _is_canopy_panel(mesh):
+			continue
+		for surface in mesh.mesh.get_surface_count():
+			var material: StandardMaterial3D = (
+				mesh.get_active_material(surface) as StandardMaterial3D
+			)
+			if material != null:
+				colors.append(material.albedo_color)
+	return colors
+
+
+## Only the cover panel, which is the one that ships wearing a hull material.
+func _canopy_cover_colors(root: Node) -> Array[Color]:
+	var colors: Array[Color] = []
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		var attachment: BoneAttachment3D = mesh.get_parent() as BoneAttachment3D
+		if attachment == null or attachment.bone_name != "Bone.CanopyCover":
+			continue
+		for surface in mesh.mesh.get_surface_count():
+			var material: StandardMaterial3D = (
+				mesh.get_active_material(surface) as StandardMaterial3D
+			)
+			if material != null:
+				colors.append(material.albedo_color)
+	return colors
+
+
+func _is_canopy_panel(mesh: MeshInstance3D) -> bool:
+	var attachment: BoneAttachment3D = mesh.get_parent() as BoneAttachment3D
+	if attachment == null or not PlayerModel.CANOPY_BONES.has(attachment.bone_name):
+		return false
+	var lower: String = String(mesh.name).to_lower()
+	return lower.contains(PlayerModel.CANOPY_MESH) and not lower.contains("rib")
+
+
 func _all_colors_are(colors: Array[Color], expected: Color) -> bool:
 	for color in colors:
 		if not color.is_equal_approx(expected):
+			return false
+	return true
+
+
+## The file's own lines carry alpha zero, so comparing them to a picked colour has
+## to ignore alpha.
+func _all_colors_match_rgb(colors: Array[Color], expected: Color) -> bool:
+	for color in colors:
+		if (
+			not is_equal_approx(color.r, expected.r)
+			or not is_equal_approx(color.g, expected.g)
+			or not is_equal_approx(color.b, expected.b)
+		):
 			return false
 	return true
 

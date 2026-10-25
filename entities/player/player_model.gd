@@ -47,19 +47,24 @@ const AIRFRAME_LAYER_MASK: int = 1 << (AIRFRAME_LAYER - 1)
 ## The canopy ships as two stacked panels: a tinted glass sheet on the glass
 ## bone, and the grey shell the exporter hangs off the cover bone, which is the
 ## one the camera actually sees. Only the panels are repainted -- the rib keeps
-## the file's trim -- and the colour is written once at build time, so the switch
-## between modes cannot change it.
+## the file's trim, which makes it part of the black lines -- and the colour is
+## written once at build time, so the switch between modes cannot change it.
+##
+## The panels are found by bone and mesh name rather than by material: the cover
+## wears a hull material ("Aircraft BASE color.004"), so a family match would
+## paint the cockpit with the hull colour.
 const CANOPY_BONES: Array[String] = ["Bone.GLASScanopy", "Bone.CanopyCover"]
 const CANOPY_MESH: String = "vf_1s-fast_canopy"
-const CANOPY_TINT: Color = Color(0.31, 0.70, 0.95)
 
-## The livery lives in two of the file's 59 materials: the hull sheets
-## ("Aircraft BASE color") and the stripe that runs across them ("Pilot COLOR").
-## Everything else -- trim, nozzles, gear, markings -- keeps what the file shipped,
-## because repainting those would flatten the airframe into one colour. The names
-## carry a suffix per mesh, so the match is on the prefix.
+## The livery lives in three of the file's 59 materials: the hull sheets
+## ("Aircraft BASE color"), the stripe that runs across them ("Pilot COLOR"), and
+## the dark trim that cuts both into panels ("Pilot TRIM"). Everything else --
+## nozzles, gear, markings -- keeps what the file shipped, because repainting
+## those would flatten the airframe into one colour. The names carry a suffix per
+## mesh, so the match is on the prefix.
 const HULL_MATERIAL: String = "Aircraft BASE color"
 const TRIM_MATERIAL: String = "Pilot COLOR"
+const LINE_MATERIAL: String = "Pilot TRIM"
 
 ## The bind pose is not the fighter. The armature was exported neutral, and the
 ## fast pack, the rudders and the gear doors only land where the fighter wants
@@ -120,12 +125,18 @@ var _last_sweep: float = 0.0
 
 ## Livery colours. Alpha zero means "leave the file's own paint alone", so a model
 ## built without one is the ship the asset ships, which is what the tools want.
+## The canopy and the lines are the two parts the game has always painted, so they
+## start at the factory colours instead of at "unpainted".
 var livery_hull: Color = Color(0.0, 0.0, 0.0, 0.0)
 var livery_trim: Color = Color(0.0, 0.0, 0.0, 0.0)
+var livery_canopy: Color = GameSettings.DEFAULT_CANOPY
+var livery_lines: Color = GameSettings.DEFAULT_LINES
 ## Every painted material, kept so a colour change after `build()` is a write
 ## instead of a rebuild: the options preview repaints the same airframe.
 var _hull_materials: Array[StandardMaterial3D] = []
 var _trim_materials: Array[StandardMaterial3D] = []
+var _line_materials: Array[StandardMaterial3D] = []
+var _canopy_materials: Array[StandardMaterial3D] = []
 
 
 ## Builds the airframe and returns false when the model is missing, so the caller
@@ -187,16 +198,18 @@ func _prepare_meshes(model: Node3D) -> void:
 			if lower.begins_with(prefix):
 				mesh.visible = false
 				break
-	_tint_canopy(model)
 	_paint_livery(model)
+	_paint_canopy(model)
 
 
 ## Repaints the airframe with the player's livery. Safe to call before `build()`
 ## (the paint pass picks the colours up) and after it (the kept materials are
 ## rewritten), which is what lets the options preview change colour live.
-func set_livery(hull: Color, trim: Color) -> void:
+func set_livery(hull: Color, trim: Color, canopy: Color, lines: Color) -> void:
 	livery_hull = hull
 	livery_trim = trim
+	livery_canopy = canopy
+	livery_lines = lines
 	_apply_livery()
 
 
@@ -207,14 +220,24 @@ func _apply_livery() -> void:
 	if livery_trim.a > 0.0:
 		for material in _trim_materials:
 			material.albedo_color = livery_trim
+	for material in _line_materials:
+		material.albedo_color = livery_lines
+	for material in _canopy_materials:
+		material.albedo_color = livery_canopy
 
 
-## Duplicates the two livery materials per surface instead of editing the imported
+## Duplicates each livery material per surface instead of editing the imported
 ## ones in place: the GLB is shared by every instance, so writing into it would
 ## repaint the enemy previews and every later ship too.
+##
+## The canopy panels are skipped here and painted by `_paint_canopy()`: the cover
+## wears a hull-family material, so leaving it in this pass would paint the cockpit
+## with the hull colour.
 func _paint_livery(model: Node3D) -> void:
 	for node in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = node as MeshInstance3D
+		if _is_canopy_panel(mesh):
+			continue
 		for surface in mesh.mesh.get_surface_count():
 			var source: StandardMaterial3D = (
 				mesh.get_active_material(surface) as StandardMaterial3D
@@ -230,6 +253,9 @@ func _paint_livery(model: Node3D) -> void:
 			elif material_name.begins_with(TRIM_MATERIAL):
 				painted_into = _trim_materials
 				color = livery_trim
+			elif material_name.begins_with(LINE_MATERIAL):
+				painted_into = _line_materials
+				color = livery_lines
 			else:
 				continue
 			if color.a <= 0.0:
@@ -241,26 +267,34 @@ func _paint_livery(model: Node3D) -> void:
 			painted_into.append(painted)
 
 
-## Repaints the canopy panels. The frame and the rib keep the materials the file
-## ships, so the canopy still has its silhouette and its trim.
-func _tint_canopy(model: Node3D) -> void:
+## Repaints the canopy glass. The rib is not a panel, so it keeps the line colour
+## and the canopy still has its frame and its silhouette.
+func _paint_canopy(model: Node3D) -> void:
 	for node in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = node as MeshInstance3D
-		var attachment: BoneAttachment3D = mesh.get_parent() as BoneAttachment3D
-		if attachment == null or not CANOPY_BONES.has(attachment.bone_name):
-			continue
-		var lower: String = String(mesh.name).to_lower()
-		if not lower.contains(CANOPY_MESH) or lower.contains("rib"):
+		if not _is_canopy_panel(mesh):
 			continue
 		for surface in mesh.mesh.get_surface_count():
-			var source: Material = mesh.get_active_material(surface)
+			var source: StandardMaterial3D = (
+				mesh.get_active_material(surface) as StandardMaterial3D
+			)
 			if source == null:
 				continue
 			var panel: StandardMaterial3D = source.duplicate() as StandardMaterial3D
-			if panel == null:
-				continue
-			panel.albedo_color = CANOPY_TINT
+			panel.albedo_color = livery_canopy
 			mesh.set_surface_override_material(surface, panel)
+			_canopy_materials.append(panel)
+
+
+## A canopy panel is a mesh hung off one of the canopy bones whose name carries
+## the canopy mesh and not the rib. The rib is the frame, and the frame belongs to
+## the lines.
+func _is_canopy_panel(mesh: MeshInstance3D) -> bool:
+	var attachment: BoneAttachment3D = mesh.get_parent() as BoneAttachment3D
+	if attachment == null or not CANOPY_BONES.has(attachment.bone_name):
+		return false
+	var lower: String = String(mesh.name).to_lower()
+	return lower.contains(CANOPY_MESH) and not lower.contains("rib")
 
 
 ## Samples the two frames the stance is built from. The clip only plays once the

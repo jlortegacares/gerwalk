@@ -939,7 +939,12 @@ func _build_visual() -> void:
 	_model.name = "Model"
 	# The livery is read once, at build: the ship the player flies is the ship the
 	# options preview showed, and nothing in flight repaints it.
-	_model.set_livery(GameSettings.load_hull(), GameSettings.load_trim())
+	_model.set_livery(
+		GameSettings.load_hull(),
+		GameSettings.load_trim(),
+		GameSettings.load_canopy(),
+		GameSettings.load_lines()
+	)
 	_visual.add_child(_model)
 	_model.build()
 

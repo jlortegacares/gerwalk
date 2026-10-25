@@ -21,6 +21,8 @@ var _model: PlayerModel
 ## push a livery at any time and the airframe is built already wearing it.
 var _hull: Color = GameSettings.DEFAULT_HULL
 var _trim: Color = GameSettings.DEFAULT_TRIM
+var _canopy: Color = GameSettings.DEFAULT_CANOPY
+var _lines: Color = GameSettings.DEFAULT_LINES
 var _built: bool = false
 
 
@@ -40,16 +42,18 @@ func ensure_built() -> void:
 	_built = true
 	_model = PlayerModel.new()
 	_pivot.add_child(_model)
-	_model.set_livery(_hull, _trim)
+	_model.set_livery(_hull, _trim, _canopy, _lines)
 	if not _model.build():
 		push_warning("LiveryPreview: the airframe did not build, the panel shows an empty bay")
 
 
-func set_livery(hull: Color, trim: Color) -> void:
+func set_livery(hull: Color, trim: Color, canopy: Color, lines: Color) -> void:
 	_hull = hull
 	_trim = trim
+	_canopy = canopy
+	_lines = lines
 	if _built:
-		_model.set_livery(hull, trim)
+		_model.set_livery(hull, trim, canopy, lines)
 
 
 func _process(delta: float) -> void:

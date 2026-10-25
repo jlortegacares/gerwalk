@@ -411,10 +411,10 @@ both are hidden by node name at build time, because the airframe is only ever se
 in flight. The canopy is repainted in the same pass: the file's glass is a grey
 shell stacked over a teal sheet, which at the few dozen pixels the ship gets reads
 as part of the hull, so both panels take a celeste tint and the cockpit becomes
-the one piece of the airframe the eye lands on. It also casts no shadow: the hull
-is a few dozen pixels across and the directional light covers the whole arena, so
-its shadowmap resolves as a dotted arc trailing the ship, which reads as debris at
-gameplay distance.
+the one piece of the airframe the eye lands on. That tint is now a livery colour
+(see below). It also casts no shadow: the hull is a few dozen pixels across and
+the directional light covers the whole arena, so its shadowmap resolves as a
+dotted arc trailing the ship, which reads as debris at gameplay distance.
 
 One sun and a mirrored airframe is the other half of that story, and it is why the
 two legs disagreed. The ship is a mirror, so the two legs present opposite facets
@@ -431,25 +431,32 @@ cooler than the sun because it stands in for sky bounce rather than a second key
 ### The livery
 
 The ship the player flies is the ship the options panel shows. The livery lives in
-two of the file's material families: `Aircraft BASE color*` is the hull, and
-`Pilot COLOR*` is the stripe that runs across it. Everything else — trim,
-nozzles, gear, markings — keeps the paint the file shipped, because repainting
-those would flatten the airframe into one colour and lose the panel lines that
-make it read as an aircraft. (The canopy is the one deliberate exception, and it
-has its own tint pass described above.)
+three of the file's material families — `Aircraft BASE color*` is the hull,
+`Pilot COLOR*` is the stripe that runs across it, and `Pilot TRIM*` is the dark
+trim that cuts both into panels — plus the canopy panels, which are found by the
+bones they hang from rather than by material. Everything else — nozzles, gear,
+markings — keeps the paint the file shipped, because repainting those would
+flatten the airframe into one colour and lose the detail that makes it read as an
+aircraft.
+
+The canopy is its own pass for a concrete reason: the cover panel ships wearing a
+hull material (`Aircraft BASE color.004`), so a family match would paint the
+cockpit with the hull colour. `_paint_canopy()` walks the canopy bones, takes the
+glass sheet and the cover, and leaves the rib alone — the rib is the frame, and
+the frame belongs to the lines.
 
 Two details make that safe:
 
 - **The paint is duplicated per surface.** The GLB is one shared resource, so
   writing into its materials would repaint every later ship and the preview along
-  with it. `_paint_livery()` clones the two families and installs them as surface
-  overrides, which also means a colour change is a write to the clones instead of
-  a rebuild of the model — that is what the preview does on every click.
-- **The options panel is a palette, not a colour wheel.** Eight swatches, offered
-  twice: one row for the hull and one for the stripe. The first two are the
-  factory white and blue, so coming back to the shipped livery is a swatch and not
-  a hidden reset. A `ButtonGroup` makes each row one exclusive choice, and the
-  group refuses to unpress, so the ship always has both colours.
+  with it. `_paint_livery()` clones the three families and installs them as
+  surface overrides, which also means a colour change is a write to the clones
+  instead of a rebuild of the model — that is what the preview does on every click.
+- **The options panel is a palette, not a colour wheel.** Nine swatches, offered
+  four times: one row each for the hull, the stripe, the canopy and the lines. The
+  first four are the factory colours, so coming back to the shipped livery is a
+  swatch and not a hidden reset. A `ButtonGroup` makes each row one exclusive
+  choice, and the group refuses to unpress, so the ship always has all four.
 
 The preview is not a picture: `LiveryPreview` builds the same `PlayerModel` the
 game builds and paints it through the same `set_livery()`, so it cannot drift from
@@ -649,8 +656,8 @@ All values are named constants at the top of each script.
 | Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows speed from zero in `_update_smoke()` |
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
-| Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first two swatches are the factory hull and stripe |
-| Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL` (name prefixes); every other material keeps the file's paint |
+| Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines |
+| Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass; every other material keeps the file's paint |
 | Livery preview | `ui/menu/livery_preview.gd` | `TURN_SPEED`, `CAMERA_POSITION`, `CAMERA_TARGET` |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |
