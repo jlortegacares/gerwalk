@@ -85,6 +85,14 @@ guidance: a homing plasma bolt stays a dart, and enemy fire stays an orb unless 
 weapon asks for a missile, which is the one silhouette that warns the shot is guided
 and can be shaken off.
 
+**A missile can be shot down.** Guided enemy shots are the one projectile the
+player's fire can destroy: they sit on their own collision layer, so the vulcan,
+plasma and the laser all answer a launch with gunfire while a bullet pattern stays
+untouchable. The laser cuts a missile down on contact instead of ticking damage into
+it, because a missile has no hull to chew through. The point is to give the warning
+window a second ending — a good player kills the shot instead of spending the
+burner on it — without turning a ring of orbs into a wall of props.
+
 Each missile drops a puff of smoke every 0.018 s at its tail, and each puff is a node
 in the scene rather than a child of the missile. That is the whole point of the
 design: the smoke already in the air has to survive the impact that frees the shot.
@@ -536,8 +544,8 @@ terrain, not through the ship sliding off centre.
    - **Ring** — 14 slow bullets. Dodge through the gaps. Tests reading space.
    - **Fan** — 5 fast aimed bullets. Dash or sidestep. Tests reaction.
    - **Salvo** — 2 guided missiles that outrun the hover's cruise. Spend the
-     burner, transform, turn, dash or drop a decoy. Tests whether a warning
-     window can be spent.
+     burner, transform, turn, dash, drop a decoy or shoot them down. Tests
+     whether a warning window can be spent.
 4. **Is the dash a decision or a reflex?** 0.12 s burst at 3.17x cruise, 0.85 s
    cooldown, and it grants invulnerability, so it doubles as an escape. The
    gesture is a double tap on the direction you want, so the way out and the way
@@ -631,7 +639,7 @@ All values are named constants at the top of each script.
 common/global_event_bus.gd      lifecycle signals only (< 15 events)
 common/hit_spark.*              self-freeing 3D impact flash
 combat/arsenal.gd               weapon catalogue: every number a player feels
-combat/projectile.*             one shared bullet, team decides layers + shape, guidance here
+combat/projectile.*             one shared bullet, team decides layers + shape, guidance and interception here
 combat/smoke_puff.gd            self-freeing trail puff, added to the scene, not the shot
 combat/bomb_wave.gd             expanding shockwave, presentation only
 combat/decoy.gd                 dropped flare: takes the lock of nearby guided shots, self-freeing

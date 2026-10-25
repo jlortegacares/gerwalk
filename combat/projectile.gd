@@ -27,6 +27,9 @@ const LAYER_PLAYER: int = 1
 const LAYER_PLAYER_BULLET: int = 2
 const LAYER_ENEMY: int = 3
 const LAYER_ENEMY_BULLET: int = 4
+## Enemy missiles get a layer of their own so the player can shoot them down
+## without turning every orb in a bullet pattern into a destructible prop.
+const LAYER_ENEMY_MISSILE: int = 5
 
 const LIFETIME: float = 3.5
 const PLAYER_COLOR: Color = Color(0.55, 0.98, 0.9, 1.0)
@@ -68,6 +71,7 @@ var _trail_timer: float = 0.0
 
 func _ready() -> void:
 	body_entered.connect(_on_body_entered)
+	area_entered.connect(_on_area_entered)
 	if _team == Team.ENEMY:
 		add_to_group(&"enemy_bullet")
 
@@ -112,17 +116,27 @@ func setup(
 	# change the shape, so a homing shot stays readable as a friendly dart.
 	if _team == Team.PLAYER:
 		collision_layer = 1 << LAYER_PLAYER_BULLET
-		collision_mask = (1 << LAYER_WORLD) | (1 << LAYER_ENEMY)
+		# The missile layer is in the mask so gunfire can intercept a guided shot.
+		# Nothing else lives there, so a pattern still passes through untouched.
+		collision_mask = (
+			(1 << LAYER_WORLD) | (1 << LAYER_ENEMY) | (1 << LAYER_ENEMY_MISSILE)
+		)
 		_build_visual(size, color)
 	else:
-		collision_layer = 1 << LAYER_ENEMY_BULLET
 		collision_mask = (1 << LAYER_WORLD) | (1 << LAYER_PLAYER)
 		# Enemy fire is the orb silhouette by default: the team read outranks the
 		# weapon's own preference. A missile is the exception, because its shape is
-		# the warning that it is guided and can be shaken off.
+		# the warning that it is guided, can be shaken off and can be shot down.
 		if _style == Style.MISSILE:
+			collision_layer = 1 << LAYER_ENEMY_MISSILE
+			# A bullet is not monitorable because nothing should ever detect one. A
+			# missile is the opposite: it is a target, so the player's fire has to be
+			# able to see it.
+			monitorable = true
+			add_to_group(&"enemy_missile")
 			_build_visual(size, color)
 		else:
+			collision_layer = 1 << LAYER_ENEMY_BULLET
 			_style = Style.ORB
 			_build_visual(Vector3.ONE * ORB_RADIUS, color)
 
@@ -385,6 +399,22 @@ func _on_body_entered(body: Node3D) -> void:
 	elif body is Enemy and _team == Team.PLAYER:
 		body.take_damage(_damage)
 
+	_spawn_impact()
+	queue_free()
+
+
+## Shooting down a missile is a player privilege, and the layer makes it a cheap
+## check: only guided enemy shots sit on the missile layer, so anything the player's
+## fire meets there is worth killing. An orb never reaches this function.
+func _on_area_entered(area: Area3D) -> void:
+	if _team != Team.PLAYER:
+		return
+	if not area.is_in_group(&"enemy_missile"):
+		return
+	if area.is_queued_for_deletion():
+		return
+
+	area.queue_free()
 	_spawn_impact()
 	queue_free()
 

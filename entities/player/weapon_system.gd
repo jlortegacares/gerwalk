@@ -157,8 +157,14 @@ func _fire_laser(delta: float, muzzle: Vector3, direction: Vector3) -> void:
 	var end: Vector3 = reach
 	if not hit.is_empty():
 		end = hit.position
-		if _laser_tick <= 0.0 and hit.collider is Enemy:
-			(hit.collider as Enemy).take_damage(Arsenal.LASER_DAMAGE)
+		var collider: Object = hit.collider
+		if collider is Projectile:
+			# A missile has no hull to chew through: the beam cuts it down. Only the
+			# enemy missile layer is in the ray's mask, so this cannot reach the
+			# player's own shots.
+			(collider as Projectile).queue_free()
+		elif _laser_tick <= 0.0 and collider is Enemy:
+			(collider as Enemy).take_damage(Arsenal.LASER_DAMAGE)
 
 	if _laser_tick <= 0.0:
 		_laser_tick = Arsenal.LASER_TICK
@@ -166,9 +172,15 @@ func _fire_laser(delta: float, muzzle: Vector3, direction: Vector3) -> void:
 
 
 func _raycast(from: Vector3, to: Vector3) -> Dictionary:
-	var mask: int = (1 << Projectile.LAYER_WORLD) | (1 << Projectile.LAYER_ENEMY)
+	var mask: int = (
+		(1 << Projectile.LAYER_WORLD)
+		| (1 << Projectile.LAYER_ENEMY)
+		| (1 << Projectile.LAYER_ENEMY_MISSILE)
+	)
 	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to, mask)
-	query.collide_with_areas = false
+	# A missile is an area, not a body, so the beam has to see areas to intercept
+	# one. Missiles are the only area on this mask, so nothing else changes.
+	query.collide_with_areas = true
 	return get_world_3d().direct_space_state.intersect_ray(query)
 
 

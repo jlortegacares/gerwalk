@@ -1152,6 +1152,7 @@ func _test_arsenal() -> void:
 	await _test_bomb_refill(weapons)
 	await _test_firing_costs_no_speed(weapons)
 	await _test_decoy(weapons)
+	await _test_missile_intercept()
 
 	Input.action_release(&"aim_left")
 	Input.action_release(&"fire")
@@ -1855,6 +1856,53 @@ func _test_decoy(weapons: WeaponSystem) -> void:
 	await get_tree().physics_frame
 
 
+## Interception is the second answer to a guided shot, and it is deliberately
+## narrow: the missile is a target, a bullet from a pattern is not. Making every
+## orb shootable would turn a bullet-hell pattern into a wall of props, so the two
+## halves are checked together.
+func _test_missile_intercept() -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	await get_tree().physics_frame
+
+	_player.global_position = Vector3.ZERO
+	_player.velocity = Vector3.ZERO
+
+	# Both shots are parked well off to the side and aimed at each other, so the
+	# check is the interception and not a race against a missile reaching the ship.
+	var dummy: Node3D = Node3D.new()
+	add_child(dummy)
+	dummy.global_position = Vector3(-40.0, 0.0, -60.0)
+
+	var missile: Projectile = _spawn_enemy_missile(Vector3(-40.0, 0.0, 20.0), dummy)
+	_spawn_player_bullet(Vector3(-40.0, 0.0, 10.0), Vector3(0.0, 0.0, 1.0))
+	for _i in 30:
+		await get_tree().physics_frame
+		if not is_instance_valid(missile):
+			break
+	_check(
+		not is_instance_valid(missile),
+		"a player shot destroys an enemy missile"
+	)
+
+	var orb_scene: PackedScene = load("res://combat/projectile.tscn")
+	var orb: Projectile = orb_scene.instantiate() as Projectile
+	add_child(orb)
+	orb.global_position = Vector3(-40.0, 0.0, 20.0)
+	orb.setup(Vector3(0.0, 0.0, -1.0), 20.0, Projectile.Team.ENEMY, 1)
+	_spawn_player_bullet(Vector3(-40.0, 0.0, 10.0), Vector3(0.0, 0.0, 1.0))
+	for _i in 30:
+		await get_tree().physics_frame
+	_check(
+		is_instance_valid(orb),
+		"a player shot passes through a bullet pattern"
+	)
+
+	dummy.queue_free()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+
 func _test_firing_costs_no_speed(weapons: WeaponSystem) -> void:
 	weapons.select(Arsenal.Kind.VULCAN)
 	Input.action_press(&"move_right")
@@ -1889,6 +1937,17 @@ func _spawn_enemy_bullet(position: Vector3) -> Projectile:
 	add_child(bullet)
 	bullet.global_position = position
 	bullet.setup(Vector3(1.0, 0.0, 0.0), 20.0, Projectile.Team.ENEMY, 1)
+	return bullet
+
+
+## A player shot, built the way the vulcan builds one: same scene, same team, same
+## layer the interception check depends on.
+func _spawn_player_bullet(position: Vector3, direction: Vector3) -> Projectile:
+	var scene: PackedScene = load("res://combat/projectile.tscn")
+	var bullet: Projectile = scene.instantiate() as Projectile
+	add_child(bullet)
+	bullet.global_position = position
+	bullet.setup(direction, 40.0, Projectile.Team.PLAYER, 1)
 	return bullet
 
 
