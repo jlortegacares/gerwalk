@@ -12,9 +12,10 @@ decision D-03.
 ./run.sh
 ```
 
-Opens `levels/arena/arena.tscn`. Engine pinned to **Godot 4.7.2 stable, Forward+**.
-`./run.sh --editor` opens the editor instead; `./run.sh --headless` runs without a
-window and is what CI uses.
+Opens `ui/menu/main_menu.tscn`, the boot menu: **START** loads the arena,
+**OPTIONS** opens the fullscreen toggle and the controls reference. Engine pinned to
+**Godot 4.7.2 stable, Forward+**. `./run.sh --editor` opens the editor instead;
+`./run.sh --headless` runs without a window and is what CI uses.
 
 ## Controls
 
@@ -37,6 +38,9 @@ never reads the aim vector and `_update_aim()` never reads the movement vector.
 The right stick also fires, so a pad player never has to reach for the trigger.
 That independence is a GERWALK property; FIGHTER deliberately gives it up, which
 is what the next section is about.
+
+The boot menu takes the same keys: `ui_accept` activates the focused button and
+Escape closes the options panel.
 
 ## The arsenal
 
@@ -649,6 +653,7 @@ entities/player/weapon_system.gd  primaries, missiles, the bomb and the decoy, s
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
 ui/hud/                         event-fed bars; the radar polls the enemy group for bearings
+ui/menu/                        boot menu: start, and the display option plus controls reference
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
 ```
 

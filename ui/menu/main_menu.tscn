@@ -1,0 +1,355 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://ui/menu/main_menu.gd" id="1_menu"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button"]
+content_margin_left = 24.0
+content_margin_top = 12.0
+content_margin_right = 24.0
+content_margin_bottom = 12.0
+bg_color = Color(0.05490196, 0.078431375, 0.105882354, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.55, 0.98, 0.9, 0.25)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hover"]
+content_margin_left = 24.0
+content_margin_top = 12.0
+content_margin_right = 24.0
+content_margin_bottom = 12.0
+bg_color = Color(0.09019608, 0.14117648, 0.18039216, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.55, 0.98, 0.9, 0.75)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pressed"]
+content_margin_left = 24.0
+content_margin_top = 12.0
+content_margin_right = 24.0
+content_margin_bottom = 12.0
+bg_color = Color(0.55, 0.98, 0.9, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.55, 0.98, 0.9, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_focus"]
+content_margin_left = 24.0
+content_margin_top = 12.0
+content_margin_right = 24.0
+content_margin_bottom = 12.0
+bg_color = Color(0, 0, 0, 0)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.55, 0.98, 0.9, 0.55)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.03529412, 0.05098039, 0.07058824, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.55, 0.98, 0.9, 0.2)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="Theme" id="Theme_body"]
+default_font_size = 14
+Label/colors/font_color = Color(1, 1, 1, 0.78)
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.023529412, 0.03137255, 0.047058824, 1)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Menu" type="VBoxContainer" parent="Center"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Center/Menu"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_font_sizes/font_size = 64
+text = "GERWALK"
+horizontal_alignment = 1
+
+[node name="Tagline" type="Label" parent="Center/Menu"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.45)
+theme_override_font_sizes/font_size = 15
+text = "variable fighter combat prototype"
+horizontal_alignment = 1
+
+[node name="Spacer" type="Control" parent="Center/Menu"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+
+[node name="StartButton" type="Button" parent="Center/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "START"
+
+[node name="OptionsButton" type="Button" parent="Center/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "OPTIONS"
+
+[node name="Options" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Backdrop" type="ColorRect" parent="Options"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.023529412, 0.03137255, 0.047058824, 1)
+
+[node name="Center" type="CenterContainer" parent="Options"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Options/Center"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="Margin" type="MarginContainer" parent="Options/Center/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 32
+
+[node name="Body" type="VBoxContainer" parent="Options/Center/Panel/Margin"]
+custom_minimum_size = Vector2(560, 0)
+layout_mode = 2
+theme = SubResource("Theme_body")
+theme_override_constants/separation = 12
+
+[node name="Heading" type="Label" parent="Options/Center/Panel/Margin/Body"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_font_sizes/font_size = 30
+text = "OPTIONS"
+
+[node name="Fullscreen" type="CheckButton" parent="Options/Center/Panel/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_font_sizes/font_size = 18
+text = "Fullscreen"
+
+[node name="Rule" type="HSeparator" parent="Options/Center/Panel/Margin/Body"]
+layout_mode = 2
+
+[node name="ControlsTitle" type="Label" parent="Options/Center/Panel/Margin/Body"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.5)
+theme_override_font_sizes/font_size = 14
+text = "CONTROLS"
+
+[node name="Grid" type="GridContainer" parent="Options/Center/Panel/Margin/Body"]
+layout_mode = 2
+theme_override_constants/h_separation = 32
+theme_override_constants/v_separation = 6
+columns = 2
+
+[node name="MoveAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Move"
+
+[node name="MoveKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "WASD / left stick"
+
+[node name="AimAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Aim"
+
+[node name="AimKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "Mouse / right stick"
+
+[node name="FireAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Fire"
+
+[node name="FireKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "Left mouse / right stick"
+
+[node name="SalvoAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Missile salvo (hold)"
+
+[node name="SalvoKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "Right mouse / F / X"
+
+[node name="WeaponAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Select weapon"
+
+[node name="WeaponKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "1 - 3 / D-pad"
+
+[node name="BombAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Bomb"
+
+[node name="BombKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "E / Y"
+
+[node name="DecoyAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Decoy"
+
+[node name="DecoyKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "C / right bumper"
+
+[node name="AfterburnerAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Afterburner (hold)"
+
+[node name="AfterburnerKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "Shift / right trigger"
+
+[node name="DashAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Dash"
+
+[node name="DashKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "Double tap WASD / Space / L3"
+
+[node name="TransformAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Transform"
+
+[node name="TransformKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "Q / left bumper"
+
+[node name="RestartAction" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+text = "Restart"
+
+[node name="RestartKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Grid"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+text = "R / Start"
+
+[node name="BackButton" type="Button" parent="Options/Center/Panel/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "BACK"

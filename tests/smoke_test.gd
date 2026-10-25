@@ -25,6 +25,7 @@ func _ready() -> void:
 	_check(_player is CharacterBody3D, "player is a CharacterBody3D")
 
 	_test_player_is_centered()
+	await _test_main_menu()
 	await _test_movement()
 	await _test_firing()
 	await _test_enemy_patterns()
@@ -60,6 +61,83 @@ func _ready() -> void:
 	await _test_death()
 
 	_report()
+
+
+func _test_main_menu() -> void:
+	var scene: PackedScene = load("res://ui/menu/main_menu.tscn")
+	_check(scene != null, "the boot menu scene loads")
+	if scene == null:
+		return
+
+	var menu: MainMenu = scene.instantiate() as MainMenu
+	add_child(menu)
+	await get_tree().process_frame
+
+	var start_button: Button = menu.get_node("%StartButton") as Button
+	var options_button: Button = menu.get_node("%OptionsButton") as Button
+	var options: Control = menu.get_node("%Options") as Control
+	var back_button: Button = menu.get_node("%BackButton") as Button
+	_check(start_button != null, "the menu offers a start button")
+	_check(options_button != null, "the menu offers an options button")
+	_check(options != null, "the menu carries an options panel")
+	_check(
+		ResourceLoader.exists(MainMenu.ARENA_SCENE),
+		"the start button points at a scene that exists"
+	)
+	if options == null:
+		menu.queue_free()
+		return
+
+	_check(not options.visible, "the options panel starts hidden")
+
+	options_button.pressed.emit()
+	await get_tree().process_frame
+	_check(options.visible, "the options button opens the panel")
+
+	# The controls reference is the second half of the panel, so a row has to be
+	# there and it has to name a control the build really has.
+	var grid: GridContainer = options.get_node(
+		"Center/Panel/Margin/Body/Grid"
+	) as GridContainer
+	_check(grid != null, "the options panel lists the controls")
+	if grid != null:
+		_check(
+			grid.get_child_count() == 22,
+			"every control row has an action and its keys (%d cells)"
+			% grid.get_child_count()
+		)
+		_check(
+			_has_label_text(grid, "Decoy"),
+			"the controls reference names the decoy"
+		)
+
+	back_button.pressed.emit()
+	await get_tree().process_frame
+	_check(not options.visible, "the back button closes the panel")
+
+	# The fullscreen choice is the only setting, so it is the only one that has to
+	# survive a restart. The round trip uses a scratch file, never the real one.
+	var path: String = "user://test-settings.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	GameSettings.save_fullscreen(true, path)
+	_check(GameSettings.load_fullscreen(path), "the fullscreen choice is remembered")
+	GameSettings.save_fullscreen(false, path)
+	_check(
+		not GameSettings.load_fullscreen(path),
+		"and the choice can be turned back off"
+	)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+	menu.queue_free()
+	await get_tree().process_frame
+
+
+func _has_label_text(parent: Node, text: String) -> bool:
+	for child in parent.get_children():
+		var label: Label = child as Label
+		if label != null and label.text == text:
+			return true
+	return false
 
 
 func _test_player_is_centered() -> void:
