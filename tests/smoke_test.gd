@@ -82,6 +82,7 @@ func _test_main_menu() -> void:
 		MainMenu.PALETTE[5],
 		MainMenu.PALETTE[6],
 		MainMenu.PALETTE[7],
+		MainMenu.PALETTE[8],
 		TEST_SETTINGS
 	)
 
@@ -95,6 +96,7 @@ func _test_main_menu() -> void:
 	var options: Control = menu.get_node("%Options") as Control
 	var back_button: Button = menu.get_node("%BackButton") as Button
 	var hull_row: HBoxContainer = menu.get_node("%HullRow") as HBoxContainer
+	var nose_row: HBoxContainer = menu.get_node("%NoseRow") as HBoxContainer
 	var trim_row: HBoxContainer = menu.get_node("%TrimRow") as HBoxContainer
 	var canopy_row: HBoxContainer = menu.get_node("%CanopyRow") as HBoxContainer
 	var lines_row: HBoxContainer = menu.get_node("%LinesRow") as HBoxContainer
@@ -135,16 +137,26 @@ func _test_main_menu() -> void:
 		)
 
 	_check(
-		hull_row != null and trim_row != null and canopy_row != null and lines_row != null,
-		"the panel carries all four colour rows"
+		hull_row != null
+		and nose_row != null
+		and trim_row != null
+		and canopy_row != null
+		and lines_row != null,
+		"the panel carries all five colour rows"
 	)
-	if hull_row != null and trim_row != null and canopy_row != null and lines_row != null:
+	if (
+		hull_row != null
+		and nose_row != null
+		and trim_row != null
+		and canopy_row != null
+		and lines_row != null
+	):
 		_check(
 			hull_row.get_child_count() == MainMenu.PALETTE.size(),
 			"the hull row offers the whole palette (%d swatches)"
 			% hull_row.get_child_count()
 		)
-		for row in [trim_row, canopy_row, lines_row]:
+		for row in [nose_row, trim_row, canopy_row, lines_row]:
 			_check(
 				(row as HBoxContainer).get_child_count() == MainMenu.PALETTE.size(),
 				"every colour row offers the whole palette"
@@ -152,6 +164,10 @@ func _test_main_menu() -> void:
 		_check(
 			_pressed_swatch(hull_row) == hull_row.get_child(4),
 			"the saved hull comes back selected"
+		)
+		_check(
+			_pressed_swatch(nose_row) == nose_row.get_child(8),
+			"the saved nose comes back selected"
 		)
 		_check(
 			_pressed_swatch(trim_row) == trim_row.get_child(5),
@@ -179,6 +195,13 @@ func _test_main_menu() -> void:
 				MainMenu.PALETTE[2]
 			),
 			"picking a hull swatch is saved"
+		)
+		(nose_row.get_child(6) as Button).pressed.emit()
+		_check(
+			GameSettings.load_nose(TEST_SETTINGS).is_equal_approx(
+				MainMenu.PALETTE[6]
+			),
+			"picking a nose swatch is saved"
 		)
 		(trim_row.get_child(8) as Button).pressed.emit()
 		_check(
@@ -213,6 +236,7 @@ func _test_main_menu() -> void:
 		MainMenu.PALETTE[8],
 		MainMenu.PALETTE[3],
 		MainMenu.PALETTE[1],
+		MainMenu.PALETTE[6],
 		TEST_SETTINGS
 	)
 	_check(
@@ -236,6 +260,10 @@ func _test_main_menu() -> void:
 	_check(
 		GameSettings.load_lines(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[1]),
 		"and the lines"
+	)
+	_check(
+		GameSettings.load_nose(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[6]),
+		"and the nose"
 	)
 	GameSettings.save_fullscreen(false, TEST_SETTINGS)
 	_check(
@@ -272,38 +300,48 @@ func _test_main_menu() -> void:
 		),
 		"a missing file falls back to the factory lines"
 	)
+	_check(
+		GameSettings.load_nose(TEST_SETTINGS).is_equal_approx(
+			GameSettings.DEFAULT_NOSE
+		),
+		"a missing file falls back to the factory nose"
+	)
 
 	menu.queue_free()
 	await get_tree().process_frame
 
 
 ## The livery has to land on the right surfaces and nowhere else: the hull is one
-## family of materials, the stripe another, the lines a third, and the canopy is
-## found by the bones it hangs from. The rest of the airframe is what makes it look
-## like an aircraft instead of a painted brick.
+## family of materials, the stripe another, the lines a third, the nose its own,
+## and the canopy is found by the bones it hangs from. The rest of the airframe is
+## what makes it look like an aircraft instead of a painted brick.
 func _test_livery_paint() -> void:
 	var hull: Color = Color(0.85, 0.12, 0.10)
 	var trim: Color = Color(0.10, 0.75, 0.35)
 	var canopy: Color = Color(0.95, 0.45, 0.05)
 	var lines: Color = Color(0.90, 0.10, 0.80)
+	var nose: Color = Color(0.10, 0.25, 0.95)
 
 	var model: PlayerModel = PlayerModel.new()
 	add_child(model)
-	model.set_livery(hull, trim, canopy, lines)
+	model.set_livery(hull, trim, canopy, lines, nose)
 	_check(model.build(), "the airframe builds wearing a livery")
 
 	var hulls: Array[Color] = _material_colors(model, PlayerModel.HULL_MATERIAL)
 	var trims: Array[Color] = _material_colors(model, PlayerModel.TRIM_MATERIAL)
 	var dark: Array[Color] = _material_colors(model, PlayerModel.LINE_MATERIAL)
 	var glass: Array[Color] = _canopy_colors(model)
+	var cones: Array[Color] = _nose_colors(model)
 	_check(hulls.size() > 0, "the hull sheets are painted (%d surfaces)" % hulls.size())
 	_check(trims.size() > 0, "the stripe is painted (%d surfaces)" % trims.size())
 	_check(dark.size() > 0, "the black lines are painted (%d surfaces)" % dark.size())
 	_check(glass.size() > 0, "the canopy glass is painted (%d surfaces)" % glass.size())
+	_check(cones.size() > 0, "the nose cone is painted (%d surfaces)" % cones.size())
 	_check(_all_colors_are(hulls, hull), "every hull surface takes the hull colour")
 	_check(_all_colors_are(trims, trim), "every stripe surface takes the stripe colour")
 	_check(_all_colors_are(dark, lines), "every line surface takes the line colour")
 	_check(_all_colors_are(glass, canopy), "every canopy panel takes the canopy colour")
+	_check(_all_colors_are(cones, nose), "every nose surface takes the nose colour")
 
 	# The canopy cover wears a hull-family material, so the hull pass must leave it
 	# alone: otherwise the cockpit ends up painted with the hull colour.
@@ -314,22 +352,46 @@ func _test_livery_paint() -> void:
 		"the hull pass does not paint the canopy cover"
 	)
 
+	# The nose is hull geometry with a colour of its own, so the hull pass has to
+	# leave it alone too -- but only its hull surfaces: the lines that cross the
+	# cone are still lines.
+	_check(
+		_all_colors_are(cones, nose) and not _all_colors_are(cones, hull),
+		"the hull pass does not paint the nose"
+	)
+	var nose_lines: Array[Color] = _nose_line_colors(model)
+	_check(nose_lines.size() > 0, "the nose keeps its panel lines (%d surfaces)" % nose_lines.size())
+	_check(
+		_all_colors_are(nose_lines, lines),
+		"the lines across the nose still take the line colour"
+	)
+
 	# A live repaint is what the options preview does on every click, so it has to
 	# reach surfaces that are already overridden.
 	var recoloured: Color = Color(0.20, 0.40, 0.90)
-	model.set_livery(recoloured, trim, canopy, lines)
+	model.set_livery(recoloured, trim, canopy, lines, nose)
 	var after: Array[Color] = _material_colors(model, PlayerModel.HULL_MATERIAL)
 	_check(after.size() == hulls.size(), "repainting keeps every hull surface")
 	_check(_all_colors_are(after, recoloured), "a live repaint reaches the hull")
-	model.set_livery(recoloured, trim, canopy, Color(0.0, 0.85, 0.95))
+	model.set_livery(recoloured, trim, canopy, Color(0.0, 0.85, 0.95), nose)
 	_check(
 		_all_colors_are(_material_colors(model, PlayerModel.LINE_MATERIAL), Color(0.0, 0.85, 0.95)),
 		"a live repaint reaches the lines"
 	)
-	model.set_livery(recoloured, trim, Color(0.95, 0.85, 0.10), Color(0.0, 0.85, 0.95))
+	model.set_livery(
+		recoloured, trim, Color(0.95, 0.85, 0.10), Color(0.0, 0.85, 0.95), nose
+	)
 	_check(
 		_all_colors_are(_canopy_colors(model), Color(0.95, 0.85, 0.10)),
 		"a live repaint reaches the canopy"
+	)
+	model.set_livery(
+		recoloured, trim, Color(0.95, 0.85, 0.10), Color(0.0, 0.85, 0.95),
+		Color(0.95, 0.05, 0.35)
+	)
+	_check(
+		_all_colors_are(_nose_colors(model), Color(0.95, 0.05, 0.35)),
+		"a live repaint reaches the nose"
 	)
 
 	# The GLB is shared by every ship and by the preview, so the paint lives in
@@ -343,6 +405,10 @@ func _test_livery_paint() -> void:
 	_check(
 		_all_colors_are(factory, GameSettings.DEFAULT_HULL),
 		"painting a ship leaves the shared model untouched"
+	)
+	_check(
+		_all_colors_are(_nose_colors(pristine), GameSettings.DEFAULT_NOSE),
+		"and leaves the file's own nose untouched"
 	)
 	_check(
 		_all_colors_match_rgb(
@@ -366,12 +432,16 @@ func _pressed_swatch(row: HBoxContainer) -> Button:
 ## Every surface colour under `root` whose material carries the name prefix. The
 ## file suffixes the name per mesh ("Aircraft BASE color.014"), so the match is on
 ## the prefix, the same rule the paint pass uses. The canopy panels are skipped:
-## the cover wears a hull-family material and belongs to the canopy pass.
+## the cover wears a hull-family material and belongs to the canopy pass. The nose
+## hull surfaces are skipped too: they are the one hull surface that takes the nose
+## colour, so the list is what the hull pass actually paints.
 func _material_colors(root: Node, prefix: String) -> Array[Color]:
 	var colors: Array[Color] = []
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = node as MeshInstance3D
 		if _is_canopy_panel(mesh):
+			continue
+		if prefix == PlayerModel.HULL_MATERIAL and _is_nose_mesh(mesh):
 			continue
 		for surface in mesh.mesh.get_surface_count():
 			var material: StandardMaterial3D = (
@@ -423,6 +493,48 @@ func _is_canopy_panel(mesh: MeshInstance3D) -> bool:
 		return false
 	var lower: String = String(mesh.name).to_lower()
 	return lower.contains(PlayerModel.CANOPY_MESH) and not lower.contains("rib")
+
+
+## The hull surfaces of the forward fuselage mesh, which are the ones the nose
+## colour owns.
+func _nose_colors(root: Node) -> Array[Color]:
+	var colors: Array[Color] = []
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		if not _is_nose_mesh(mesh):
+			continue
+		for surface in mesh.mesh.get_surface_count():
+			var material: StandardMaterial3D = (
+				mesh.get_active_material(surface) as StandardMaterial3D
+			)
+			if material == null:
+				continue
+			if String(material.resource_name).begins_with(PlayerModel.HULL_MATERIAL):
+				colors.append(material.albedo_color)
+	return colors
+
+
+## The lines that cross the nose: they share the mesh with the cone, so they are
+## the check that the nose colour does not swallow them.
+func _nose_line_colors(root: Node) -> Array[Color]:
+	var colors: Array[Color] = []
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		if not _is_nose_mesh(mesh):
+			continue
+		for surface in mesh.mesh.get_surface_count():
+			var material: StandardMaterial3D = (
+				mesh.get_active_material(surface) as StandardMaterial3D
+			)
+			if material == null:
+				continue
+			if String(material.resource_name).begins_with(PlayerModel.LINE_MATERIAL):
+				colors.append(material.albedo_color)
+	return colors
+
+
+func _is_nose_mesh(mesh: MeshInstance3D) -> bool:
+	return String(mesh.name).to_lower().contains(PlayerModel.NOSE_MESH)
 
 
 func _all_colors_are(colors: Array[Color], expected: Color) -> bool:

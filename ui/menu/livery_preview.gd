@@ -20,6 +20,7 @@ var _model: PlayerModel
 ## The colours are kept even before there is a model to paint, so the owner can
 ## push a livery at any time and the airframe is built already wearing it.
 var _hull: Color = GameSettings.DEFAULT_HULL
+var _nose: Color = GameSettings.DEFAULT_NOSE
 var _trim: Color = GameSettings.DEFAULT_TRIM
 var _canopy: Color = GameSettings.DEFAULT_CANOPY
 var _lines: Color = GameSettings.DEFAULT_LINES
@@ -42,18 +43,21 @@ func ensure_built() -> void:
 	_built = true
 	_model = PlayerModel.new()
 	_pivot.add_child(_model)
-	_model.set_livery(_hull, _trim, _canopy, _lines)
+	_model.set_livery(_hull, _trim, _canopy, _lines, _nose)
 	if not _model.build():
 		push_warning("LiveryPreview: the airframe did not build, the panel shows an empty bay")
 
 
-func set_livery(hull: Color, trim: Color, canopy: Color, lines: Color) -> void:
+func set_livery(
+	hull: Color, trim: Color, canopy: Color, lines: Color, nose: Color
+) -> void:
 	_hull = hull
 	_trim = trim
 	_canopy = canopy
 	_lines = lines
+	_nose = nose
 	if _built:
-		_model.set_livery(hull, trim, canopy, lines)
+		_model.set_livery(hull, trim, canopy, lines, nose)
 
 
 func _process(delta: float) -> void:

@@ -943,7 +943,8 @@ func _build_visual() -> void:
 		GameSettings.load_hull(),
 		GameSettings.load_trim(),
 		GameSettings.load_canopy(),
-		GameSettings.load_lines()
+		GameSettings.load_lines(),
+		GameSettings.load_nose()
 	)
 	_visual.add_child(_model)
 	_model.build()

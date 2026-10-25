@@ -56,6 +56,13 @@ const AIRFRAME_LAYER_MASK: int = 1 << (AIRFRAME_LAYER - 1)
 const CANOPY_BONES: Array[String] = ["Bone.GLASScanopy", "Bone.CanopyCover"]
 const CANOPY_MESH: String = "vf_1s-fast_canopy"
 
+## The nose is not a mesh of its own: the exporter merged the cone, the panel
+## lines across it, the nose gear and the cockpit housing into the forward
+## fuselage mesh. It is found by name because the file gives no other handle, and
+## only its hull-family surfaces take the nose colour -- the trim, the gear and
+## the housing keep their own families.
+const NOSE_MESH: String = "vf_1s-airframe_018"
+
 ## The livery lives in three of the file's 59 materials: the hull sheets
 ## ("Aircraft BASE color"), the stripe that runs across them ("Pilot COLOR"), and
 ## the dark trim that cuts both into panels ("Pilot TRIM"). Everything else --
@@ -125,18 +132,20 @@ var _last_sweep: float = 0.0
 
 ## Livery colours. Alpha zero means "leave the file's own paint alone", so a model
 ## built without one is the ship the asset ships, which is what the tools want.
-## The canopy and the lines are the two parts the game has always painted, so they
-## start at the factory colours instead of at "unpainted".
+## The canopy, the lines and the nose are the parts the game paints on its own, so
+## they start at the factory colours instead of at "unpainted".
 var livery_hull: Color = Color(0.0, 0.0, 0.0, 0.0)
 var livery_trim: Color = Color(0.0, 0.0, 0.0, 0.0)
 var livery_canopy: Color = GameSettings.DEFAULT_CANOPY
 var livery_lines: Color = GameSettings.DEFAULT_LINES
+var livery_nose: Color = GameSettings.DEFAULT_NOSE
 ## Every painted material, kept so a colour change after `build()` is a write
 ## instead of a rebuild: the options preview repaints the same airframe.
 var _hull_materials: Array[StandardMaterial3D] = []
 var _trim_materials: Array[StandardMaterial3D] = []
 var _line_materials: Array[StandardMaterial3D] = []
 var _canopy_materials: Array[StandardMaterial3D] = []
+var _nose_materials: Array[StandardMaterial3D] = []
 
 
 ## Builds the airframe and returns false when the model is missing, so the caller
@@ -205,11 +214,14 @@ func _prepare_meshes(model: Node3D) -> void:
 ## Repaints the airframe with the player's livery. Safe to call before `build()`
 ## (the paint pass picks the colours up) and after it (the kept materials are
 ## rewritten), which is what lets the options preview change colour live.
-func set_livery(hull: Color, trim: Color, canopy: Color, lines: Color) -> void:
+func set_livery(
+	hull: Color, trim: Color, canopy: Color, lines: Color, nose: Color
+) -> void:
 	livery_hull = hull
 	livery_trim = trim
 	livery_canopy = canopy
 	livery_lines = lines
+	livery_nose = nose
 	_apply_livery()
 
 
@@ -224,6 +236,8 @@ func _apply_livery() -> void:
 		material.albedo_color = livery_lines
 	for material in _canopy_materials:
 		material.albedo_color = livery_canopy
+	for material in _nose_materials:
+		material.albedo_color = livery_nose
 
 
 ## Duplicates each livery material per surface instead of editing the imported
@@ -233,11 +247,16 @@ func _apply_livery() -> void:
 ## The canopy panels are skipped here and painted by `_paint_canopy()`: the cover
 ## wears a hull-family material, so leaving it in this pass would paint the cockpit
 ## with the hull colour.
+##
+## The nose is the one place where the hull family splits: its hull surfaces take
+## the nose colour and everything else on that mesh keeps its own family, so the
+## panel lines and the nose gear still read as themselves.
 func _paint_livery(model: Node3D) -> void:
 	for node in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = node as MeshInstance3D
 		if _is_canopy_panel(mesh):
 			continue
+		var nose_mesh: bool = _is_nose_mesh(mesh)
 		for surface in mesh.mesh.get_surface_count():
 			var source: StandardMaterial3D = (
 				mesh.get_active_material(surface) as StandardMaterial3D
@@ -248,8 +267,12 @@ func _paint_livery(model: Node3D) -> void:
 			var painted_into: Array[StandardMaterial3D]
 			var color: Color
 			if material_name.begins_with(HULL_MATERIAL):
-				painted_into = _hull_materials
-				color = livery_hull
+				if nose_mesh:
+					painted_into = _nose_materials
+					color = livery_nose
+				else:
+					painted_into = _hull_materials
+					color = livery_hull
 			elif material_name.begins_with(TRIM_MATERIAL):
 				painted_into = _trim_materials
 				color = livery_trim
@@ -295,6 +318,11 @@ func _is_canopy_panel(mesh: MeshInstance3D) -> bool:
 		return false
 	var lower: String = String(mesh.name).to_lower()
 	return lower.contains(CANOPY_MESH) and not lower.contains("rib")
+
+
+## The forward fuselage mesh, which carries the nose cone.
+func _is_nose_mesh(mesh: MeshInstance3D) -> bool:
+	return String(mesh.name).to_lower().contains(NOSE_MESH)
 
 
 ## Samples the two frames the stance is built from. The clip only plays once the

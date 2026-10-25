@@ -14,11 +14,12 @@ extends Control
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
 
-## One palette, offered four times. The hull, the stripe, the glass and the lines
-## are the same decision -- what colour is this ship -- so they get the same nine
-## colours instead of four curated lists nobody asked for. The first four entries
-## are the colours the file ships, which makes "factory" a swatch a player can come
-## back to rather than a hidden reset.
+## One palette, offered five times. The hull, the nose, the stripe, the glass and
+## the lines are the same decision -- what colour is this ship -- so they get the
+## same nine colours instead of five curated lists nobody asked for. The first four
+## entries are the colours the file ships, which makes "factory" a swatch a player
+## can come back to rather than a hidden reset; the nose shares the hull's white,
+## so the same swatch is the factory nose too.
 const PALETTE: Array[Color] = [
 	GameSettings.DEFAULT_HULL,
 	GameSettings.DEFAULT_TRIM,
@@ -37,6 +38,7 @@ const SWATCH_SIZE: float = 30.0
 var settings_path: String = GameSettings.CONFIG_PATH
 
 var _hull: Color = GameSettings.DEFAULT_HULL
+var _nose: Color = GameSettings.DEFAULT_NOSE
 var _trim: Color = GameSettings.DEFAULT_TRIM
 var _canopy: Color = GameSettings.DEFAULT_CANOPY
 var _lines: Color = GameSettings.DEFAULT_LINES
@@ -48,6 +50,7 @@ var _lines: Color = GameSettings.DEFAULT_LINES
 @onready var _back_button: Button = %BackButton
 @onready var _preview: LiveryPreview = %Preview
 @onready var _hull_row: HBoxContainer = %HullRow
+@onready var _nose_row: HBoxContainer = %NoseRow
 @onready var _trim_row: HBoxContainer = %TrimRow
 @onready var _canopy_row: HBoxContainer = %CanopyRow
 @onready var _lines_row: HBoxContainer = %LinesRow
@@ -68,13 +71,15 @@ func _ready() -> void:
 	_fullscreen.set_pressed_no_signal(fullscreen)
 
 	_hull = GameSettings.load_hull(settings_path)
+	_nose = GameSettings.load_nose(settings_path)
 	_trim = GameSettings.load_trim(settings_path)
 	_canopy = GameSettings.load_canopy(settings_path)
 	_lines = GameSettings.load_lines(settings_path)
 	# The preview is a view: it is told the livery before it ever builds, so the
 	# airframe cannot appear in one colour and switch to another a frame later.
-	_preview.set_livery(_hull, _trim, _canopy, _lines)
+	_preview.set_livery(_hull, _trim, _canopy, _lines, _nose)
 	_build_swatches(_hull_row, _hull, _on_hull_picked)
+	_build_swatches(_nose_row, _nose, _on_nose_picked)
 	_build_swatches(_trim_row, _trim, _on_trim_picked)
 	_build_swatches(_canopy_row, _canopy, _on_canopy_picked)
 	_build_swatches(_lines_row, _lines, _on_lines_picked)
@@ -128,6 +133,11 @@ func _on_hull_picked(color: Color) -> void:
 	_push_livery()
 
 
+func _on_nose_picked(color: Color) -> void:
+	_nose = color
+	_push_livery()
+
+
 func _on_trim_picked(color: Color) -> void:
 	_trim = color
 	_push_livery()
@@ -146,8 +156,8 @@ func _on_lines_picked(color: Color) -> void:
 ## Every swatch is the same decision, so it takes the same two steps: show the
 ## ship the new colour, then make it the ship the next launch builds.
 func _push_livery() -> void:
-	_preview.set_livery(_hull, _trim, _canopy, _lines)
-	GameSettings.save_livery(_hull, _trim, _canopy, _lines, settings_path)
+	_preview.set_livery(_hull, _trim, _canopy, _lines, _nose)
+	GameSettings.save_livery(_hull, _trim, _canopy, _lines, _nose, settings_path)
 
 
 ## Builds one row of colour buttons and marks the one that matches the stored

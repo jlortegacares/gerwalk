@@ -241,6 +241,17 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 8
 
+[node name="NoseLabel" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Left"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.5)
+theme_override_font_sizes/font_size = 13
+text = "NOSE"
+
+[node name="NoseRow" type="HBoxContainer" parent="Options/Center/Panel/Margin/Body/Columns/Left"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
 [node name="TrimLabel" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Left"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 0.5)
