@@ -253,7 +253,7 @@ the player needs, and the genre forgives neither. The split this build uses is
 | Hull direction | 1800 deg/s, so a 180 flip lands in six frames | `VISUAL_TURN_RATE = 1800` |
 | Bank | up to 32 deg in GERWALK from lateral drift plus turn rate; a fighter rolls 50 deg into a full-rate turn | `MAX_BANK`, `YAW_BANK`, `FIGHTER_BANK`, `BANK_RATE` |
 | Dash | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one | `DASH_SPEED`, `DASH_DURATION` |
-| Dash trigger | double tap the movement stick the way you want to go; Space / L3 click still works | `DOUBLE_TAP_WINDOW = 0.28`, `DOUBLE_TAP_SIMILARITY = 0.5` |
+| Dash trigger | double tap the movement stick the way you want to go, any direction; Space / L3 click still works | `DOUBLE_TAP_WINDOW = 0.28`, `DOUBLE_TAP_SIMILARITY = 0.5` |
 | Camera lead | `velocity * 0.02`, about 8 px at cruise and 12 under the burner, saturating at 0.6 units | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX` |
 
 **Acceleration is quantised, so it has to fit in whole frames.** At 60 physics
@@ -307,9 +307,15 @@ movement vector leaving the deadzone, so the gesture is two rising edges inside
 not a click, and the gesture is the same on keyboard, pad and any remap. Two taps
 that disagree are a direction change and spend nothing, which is what keeps a
 quick left-then-up flick a turn instead of an accidental dash. Space and L3 stay
-as the alternative for a player who would rather press once. In FIGHTER the
-vertical axis is the throttle, so only a lateral double tap rolls: straight up or
-down is a throttle gesture and is ignored.
+as the alternative for a player who would rather press once.
+
+In FIGHTER the jink follows the tap on both axes, so up, down and the diagonals
+are all valid: the stick is read in the same world axes the flight model uses, so
+a tap up is a step forward when the nose is up-screen and a step to the side when
+it is not, and the diagonals are simply a direction. The push is composed from
+the airframe's own axes, so it still turns with the nose during the 0.20 s, and
+`_roll_velocity` is subtracted before airspeed is measured, which is what keeps a
+forward jink a seven-unit step instead of a free speed boost.
 
 **Thrust cues fire on change, not on speed.** Plumes follow the forward component
 of velocity at a steady state. The burst is a separate term (`_thrust_kick`) set
@@ -331,7 +337,7 @@ games rather than two gears of the same one.
 | Wind | none: the hover holds station | a constant 7 u/s world vector |
 | Aim | mouse or right stick, instantly | the nose, and only the nose |
 | Hull turn | 1800 °/s, presentation only | 400 °/s, and it is the turn rate the game reads |
-| Dash | 3.17x burst, 0.12 s, i-frames, on a double tap of the direction | barrel roll, 55 u/s sideways over 0.20 s with a 0.45 s turn-over, heading kept, last side repeated, on a lateral double tap |
+| Dash | 3.17x burst, 0.12 s, i-frames, on a double tap of the direction | barrel roll, 55 u/s in the tapped direction over 0.20 s with a 0.45 s turn-over, heading kept; the button still repeats the last side |
 | Afterburner | 42 u/s | 60 u/s plus the shockwave cone |
 | Gun | free aim, 16° vulcan fan, base range | 0°, 4° fan, 1.35x muzzle speed, 1.4x range, no plasma lock |
 
@@ -452,7 +458,9 @@ step and the i-frames it buys. The airframe's turn-over is presentation, and at
 over where they can be seen while the distance covered and the protection window
 stay exactly as they were. The side is remembered too: a centred stick repeats the
 last roll instead of defaulting right, and the spin follows that side, so a left
-dodge rolls left and the animation agrees with the step.
+dodge rolls left and the animation agrees with the step. A jink with no side of its
+own — straight ahead, or straight back — keeps the side it last rolled to, because
+the step has a direction but the spin still has to pick one.
 
 **The switch costs 0.28 s and buys nothing.** Weapons are locked, the ship takes
 no thrust, and it grants no invulnerability. A free dodge on the same button that
@@ -467,8 +475,8 @@ identity in the hover. Missiles and the bomb are untouched: they are
 fire-and-forget systems of their own, not the main gun, and the spec's constraint
 is about where the gun points. The right stick keeps two small jobs instead of an
 aim: it bends the requested bearing by up to 8° and nudges the course at 60 °/s
-while coasting, and the dash becomes a barrel roll that steps the ship sideways
-without turning the nose.
+while coasting, and the dash becomes a barrel roll that steps the ship in the
+tapped direction without turning the nose.
 
 **The shockwave is a rule, not an aura.** While the burner is lit in FIGHTER, any
 enemy projectile inside a 7-unit cone of ±30° off the nose is destroyed in the

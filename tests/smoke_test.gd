@@ -225,8 +225,8 @@ func _test_maneuverability() -> void:
 
 ## The dash gesture: a double tap on the movement stick dashes the way it was
 ## tapped, one tap and two taps in different directions spend nothing, and in
-## FIGHTER the lateral double tap is the roll while the vertical one is the
-## throttle. The Space / L3 button stays as the alternative.
+## FIGHTER the jink follows the tap on both axes, diagonals included. The Space /
+## L3 button stays as the alternative.
 func _test_double_tap_dash() -> void:
 	await _reset_dash_gesture()
 	Input.action_press(&"move_right")
@@ -270,7 +270,8 @@ func _test_double_tap_dash() -> void:
 	)
 	Input.action_release(&"move_up")
 
-	# FIGHTER: the lateral double tap rolls to the tapped side ...
+	# FIGHTER: the lateral double tap rolls to the tapped side. With the nose
+	# up-screen, screen-left is the airframe's own left.
 	await _reset_dash_gesture()
 	_player.call("_start_transform")
 	for _i in 20:
@@ -281,6 +282,9 @@ func _test_double_tap_dash() -> void:
 	await get_tree().physics_frame
 	Input.action_release(&"move_left")
 	await get_tree().physics_frame
+	# The first tap is a heading request too, so the nose is reset between taps:
+	# the jink is measured against the heading it was actually asked from.
+	_player.set("_heading", Vector3.FORWARD)
 	Input.action_press(&"move_left")
 	await get_tree().physics_frame
 	var roll_side: float = float(_player.get("_roll_side"))
@@ -290,19 +294,64 @@ func _test_double_tap_dash() -> void:
 	)
 	Input.action_release(&"move_left")
 
-	# ... and the vertical one is the throttle, so it must not spend the jink.
+	# In FIGHTER any direction is a jink, diagonals included. The stick is read in
+	# the same world axes the flight model uses, so with the nose up-screen a tap
+	# up is forward, down is backward, and up-right is the diagonal between them.
 	await _reset_dash_gesture()
+	_player.set("_heading", Vector3.FORWARD)
 	Input.action_press(&"move_up")
 	await get_tree().physics_frame
 	Input.action_release(&"move_up")
 	await get_tree().physics_frame
+	_player.set("_heading", Vector3.FORWARD)
 	Input.action_press(&"move_up")
-	await get_tree().physics_frame
+	for _i in 4:
+		await get_tree().physics_frame
+	var forward_push: Vector2 = _jink_push()
 	_check(
-		float(_player.get("_dash_time")) <= 0.0,
-		"a vertical double tap in FIGHTER is throttle, not a roll"
+		forward_push.x > 20.0 and absf(forward_push.y) < 2.0,
+		"a double tap forward jinks along the nose (%.1f u/s)" % forward_push.x
 	)
 	Input.action_release(&"move_up")
+
+	await _reset_dash_gesture()
+	_player.set("_heading", Vector3.FORWARD)
+	Input.action_press(&"move_down")
+	await get_tree().physics_frame
+	Input.action_release(&"move_down")
+	await get_tree().physics_frame
+	_player.set("_heading", Vector3.FORWARD)
+	Input.action_press(&"move_down")
+	for _i in 4:
+		await get_tree().physics_frame
+	var back_push: Vector2 = _jink_push()
+	_check(
+		back_push.x < -20.0 and absf(back_push.y) < 2.0,
+		"a double tap backward jinks against the nose (%.1f u/s)" % back_push.x
+	)
+	Input.action_release(&"move_down")
+
+	await _reset_dash_gesture()
+	_player.set("_heading", Vector3.FORWARD)
+	Input.action_press(&"move_up")
+	Input.action_press(&"move_right")
+	await get_tree().physics_frame
+	Input.action_release(&"move_up")
+	Input.action_release(&"move_right")
+	await get_tree().physics_frame
+	_player.set("_heading", Vector3.FORWARD)
+	Input.action_press(&"move_up")
+	Input.action_press(&"move_right")
+	for _i in 4:
+		await get_tree().physics_frame
+	var diagonal_push: Vector2 = _jink_push()
+	_check(
+		diagonal_push.x > 15.0 and diagonal_push.y > 15.0,
+		"a diagonal double tap jinks on both axes (%.1f forward, %.1f right)"
+		% [diagonal_push.x, diagonal_push.y]
+	)
+	Input.action_release(&"move_up")
+	Input.action_release(&"move_right")
 
 	# Leave the ship in GERWALK: the rest of the suite starts from the hover.
 	await _reset_dash_gesture()
@@ -1868,6 +1917,16 @@ func _sideways_airspeed() -> float:
 	var heading: Vector3 = _player.get("_heading")
 	var right: Vector3 = Vector3(-heading.z, 0.0, heading.x)
 	return (_player.velocity - Player.WIND).dot(right)
+
+
+## The fighter jink's push split on the airframe: x along the nose, y to its
+## right. `_roll_velocity` is exactly the push applied on this frame, so the pair
+## says which way the step goes with the steady flight left out.
+func _jink_push() -> Vector2:
+	var heading: Vector3 = _player.get("_heading")
+	var right: Vector3 = Vector3(-heading.z, 0.0, heading.x)
+	var push: Vector3 = _player.get("_roll_velocity")
+	return Vector2(push.dot(heading), push.dot(right))
 
 
 func _test_damage_and_iframes() -> void:

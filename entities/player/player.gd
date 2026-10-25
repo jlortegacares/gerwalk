@@ -217,6 +217,10 @@ var _heading: Vector3 = Vector3.RIGHT
 ## instead of snapping to the right, so the dodge is a direction the player
 ## remembers rather than one the stick has to re-state every time.
 var _roll_side: float = 1.0
+## The jink's step in the airframe's own frame at the moment it was asked for:
+## x along the nose, y to the right. A double tap can point anywhere, so the push
+## is composed from both every frame and still turns with the nose.
+var _roll_local: Vector2 = Vector2(0.0, 1.0)
 var _roll_anim_time: float = 0.0
 ## The lateral push the barrel roll added last frame. It is not airspeed, so the
 ## flight model subtracts it before reading the air: otherwise every jink tops up
@@ -391,12 +395,16 @@ func _move_fighter(delta: float) -> void:
 	var rate: float = FIGHTER_ACCELERATION if thrusting else FIGHTER_DRAG
 	airspeed = move_toward(airspeed, wanted, rate * delta)
 
-	# The barrel roll is a lateral push that ramps in and out, so it never snaps
-	# the velocity sideways at either end of the jink.
+	# The jink is a push that ramps in and out, so it never snaps the velocity at
+	# either end. It is composed from the airframe's own axes, so a lateral step
+	# keeps turning with the nose and a forward one reads as a burst along it
+	# without ever becoming airspeed: `_roll_velocity` is subtracted before the
+	# air is measured.
 	var push: Vector3 = Vector3.ZERO
 	if _dash_time > 0.0:
 		var progress: float = 1.0 - _dash_time / FIGHTER_ROLL_TIME
-		push = right * _roll_side * sin(progress * PI) * FIGHTER_ROLL_SPEED
+		var step: float = sin(progress * PI) * FIGHTER_ROLL_SPEED
+		push = (_heading * _roll_local.x + right * _roll_local.y) * step
 
 	velocity = Vector3(cos(course), 0.0, -sin(course)) * airspeed + push + WIND
 	velocity.y = 0.0
@@ -628,12 +636,7 @@ func _tap_dash(direction: Vector2) -> void:
 	if _dash_cooldown > 0.0:
 		return
 	if _mode == Mode.FIGHTER:
-		# The vertical axis is the throttle here, so a double tap straight up or
-		# down is a throttle gesture and must not spend the jink. A lateral one
-		# rolls to the side that was tapped.
-		if is_zero_approx(direction.x):
-			return
-		_start_barrel_roll(signf(direction.x))
+		_start_barrel_roll(direction)
 		return
 	_start_dash(direction)
 
@@ -661,19 +664,32 @@ func _start_dash(direction: Vector2 = Vector2.ZERO) -> void:
 
 
 ## In Fighter the dash is the roll the spec puts on the right stick: the ship steps
-## sideways without changing where it points, and the airframe spins around its own
-## nose. The capsule never spins, so it is a jink with i-frames, not a free turn.
+## without changing where it points, and the airframe spins around its own nose.
+## The capsule never spins, so it is a jink with i-frames, not a free turn.
 ##
-## `tapped_side` is the side the movement stick asked for when the gesture was a
-## double tap. It wins over the aim axis; only a centred tap repeats the last
-## side, which is what makes the dodge a direction the player keeps instead of a
-## guess that always defaults right.
-func _start_barrel_roll(tapped_side: float = 0.0) -> void:
-	var side: float = signf(tapped_side)
-	if is_zero_approx(side):
-		side = signf(Input.get_axis(&"aim_left", &"aim_right"))
-	if not is_zero_approx(side):
+## `tapped` is the stick a double tap asked for, in the same world axes the flight
+## model reads, so any direction is a valid jink and diagonals are just a
+## direction. It is converted to the airframe's own frame, which is what lets the
+## step turn with the nose. Without a tap (the button) the aim axis picks the
+## side, and a centred stick repeats the last one instead of defaulting right.
+func _start_barrel_roll(tapped: Vector2 = Vector2.ZERO) -> void:
+	var world: Vector3 = Vector3.ZERO
+	if tapped.length_squared() > 0.0:
+		world = Vector3(tapped.x, 0.0, tapped.y).normalized()
+	var right: Vector3 = Vector3(-_heading.z, 0.0, _heading.x)
+	if world.length_squared() <= 0.0:
+		var side: float = signf(Input.get_axis(&"aim_left", &"aim_right"))
+		if is_zero_approx(side):
+			side = _roll_side
 		_roll_side = side
+		_roll_local = Vector2(0.0, side)
+	else:
+		_roll_local = Vector2(world.dot(_heading), world.dot(right))
+		# The spin has to agree with the step. A straight-ahead jink has no side
+		# of its own, so it keeps the one it last rolled to.
+		var spin_side: float = signf(_roll_local.y)
+		if not is_zero_approx(spin_side):
+			_roll_side = spin_side
 	_dash_time = FIGHTER_ROLL_TIME
 	_roll_anim_time = FIGHTER_ROLL_ANIM_TIME
 	_dash_cooldown = DASH_COOLDOWN
