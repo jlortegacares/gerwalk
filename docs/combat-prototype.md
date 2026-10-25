@@ -553,6 +553,7 @@ All values are named constants at the top of each script.
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load interval, max salvo, salvo cooldown, damage, turn rate, range, launch angle) |
 | Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
 | Lock reticle | `combat/lock_reticle.gd` | `RADIUS`, `THICKNESS`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH` |
+| Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
@@ -594,7 +595,7 @@ combat/lock_reticle.gd          world-space mark on a radar lock, dies with its 
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
 entities/player/weapon_system.gd  primaries, missiles and the bomb, spawned per ship
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
-ui/hud/                         listens to the bus, never touches the player
+ui/hud/                         event-fed bars; the radar polls the enemy group for bearings
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
 ```
 
@@ -631,6 +632,23 @@ Ownership rule: the player owns its HP and its turbo reserve, and only exposes
 `player_turbo_changed`. Nothing in the UI mutates gameplay. The turbo event fires
 once per whole reserve unit rather than once per physics frame: the bar is 234 px
 wide, so a unit is under 2.5 px and the bus stays quiet.
+
+The radar scope in the bottom-right corner is the one HUD element that does not
+listen to the bus. Health, mode and charges are transitions and fit a signal; a
+contact's bearing changes every frame, and pushing two vectors through the bus
+would add a per-frame allocation to say what a group query already says. It is
+world-fixed rather than heading-up because the camera never yaws: screen up is
+`-Z` and screen right is `+X` in every mode, so a scope that rotated with the nose
+would put a contact on the opposite side of the screen from where it is drawn.
+Detection is a 360 degree range (`Radar.DETECTION_RANGE`, 140 units), not the
+missile radar's forward cone — the cone answers "what can I shoot", the scope
+answers "what is around me" — and contacts past the range are not drawn at all
+instead of pinned to the rim, because a blip on the rim claims a bearing the ship
+cannot act on. The marker points along `Player.nose_direction()`, the vector the
+airframe's yaw follows, so the scope shows where the ship is pointing rather than
+where it happens to drift. The backdrop is nearly opaque for a reason: at the
+first pass's 0.55 a turret flying under the corner showed through the disk and
+read as a contact that was not on the scope.
 
 ## Checks
 

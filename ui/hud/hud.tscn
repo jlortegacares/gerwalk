@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://ui/hud/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://ui/hud/health_bar.gd" id="2_health"]
 [ext_resource type="Script" path="res://ui/hud/turbo_bar.gd" id="3_turbo"]
 [ext_resource type="Script" path="res://ui/hud/bomb_pips.gd" id="4_bombs"]
+[ext_resource type="Script" path="res://ui/hud/radar.gd" id="5_radar"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -101,6 +102,23 @@ offset_bottom = -20.0
 grow_vertical = 0
 mouse_filter = 2
 script = ExtResource("4_bombs")
+
+[node name="Radar" type="Control" parent="HudRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -192.0
+offset_top = -192.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("5_radar")
 
 [node name="HintLabel" type="Label" parent="HudRoot"]
 layout_mode = 1

@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _test_afterburner()
 	await _test_exhaust_trail()
 	_test_airframe_lighting()
+	await _test_radar()
 	await _test_arsenal()
 
 	_clear_enemies()
@@ -773,6 +774,73 @@ func _test_airframe_lighting() -> void:
 			on_layer = false
 			break
 	_check(on_layer, "every airframe mesh sits on the layer the fill targets")
+
+
+## The scope is the one HUD element that reads positions instead of events, so the
+## test drives the real query: a turret placed off the starboard bow must paint
+## right of the centre, one placed aft must paint below it, and a contact past the
+## range must paint nothing. The world-fixed mapping is the part worth pinning: a
+## heading-up scope would still pass a "one blip" check and be wrong on screen.
+func _test_radar() -> void:
+	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
+	var radar: Radar = hud.get_node("%Radar") as Radar
+	_check(radar != null, "the HUD carries a radar scope")
+	if radar == null:
+		return
+
+	_check(
+		radar.anchor_left == 1.0 and radar.anchor_top == 1.0,
+		"the scope is anchored to the bottom-right corner"
+	)
+
+	# The streamer drops a turret every two seconds; one appearing mid-test would
+	# be indistinguishable from the contact the test placed.
+	var spawn_timer: float = float(_arena.get("_spawn_timer"))
+	_arena.set("_spawn_timer", 999.0)
+	_clear_enemies()
+	await _wait_frames(2)
+	_check(radar.contact_offsets().is_empty(), "an empty sky paints no blips")
+
+	var contact: Enemy = _spawn_enemy(_player.global_position + Vector3(30.0, 0.0, 0.0))
+	await _wait_frames(2)
+	var offsets: Array[Vector2] = radar.contact_offsets()
+	_check(offsets.size() == 1, "a contact inside the range paints one blip")
+	if offsets.size() == 1:
+		_check(
+			offsets[0].x > 0.0 and absf(offsets[0].y) < 0.5,
+			"a contact to starboard paints right of centre"
+		)
+
+	if contact != null:
+		contact.global_position = _player.global_position + Vector3(0.0, 0.0, 20.0)
+	await _wait_frames(1)
+	offsets = radar.contact_offsets()
+	_check(
+		offsets.size() == 1 and offsets[0].y > 0.0,
+		"a contact aft paints below centre"
+	)
+
+	_check(
+		radar.detects(_player.global_position + Vector3(10.0, 0.0, 0.0)),
+		"a point inside the range is detected"
+	)
+	_check(
+		not radar.detects(
+			_player.global_position + Vector3(0.0, 0.0, Radar.DETECTION_RANGE + 1.0)
+		),
+		"a point past the range is not detected"
+	)
+
+	var nose: Vector3 = _player.nose_direction()
+	var expected: Vector2 = Vector2(nose.x, nose.z).normalized()
+	_check(
+		radar.marker_direction().distance_to(expected) < 0.01,
+		"the marker points where the nose points"
+	)
+
+	_clear_enemies()
+	_arena.set("_spawn_timer", spawn_timer)
+	await _wait_frames(2)
 
 
 func _test_afterburner() -> void:

@@ -413,6 +413,13 @@ func mode_name() -> String:
 	return "FIGHTER" if _mode == Mode.FIGHTER else "GERWALK"
 
 
+## Where the nose points, in world axes. The visual yaw follows this vector, so a
+## radar marker built from it shows where the ship is pointing rather than where
+## the current carries it.
+func nose_direction() -> Vector3:
+	return _aim_direction
+
+
 ## The burner is a tank, not a cooldown: it drains while it is being used and
 ## fills back whenever it is not. It only burns when the ship is actually
 ## thrusting, so the reserve measures ground covered instead of button time.

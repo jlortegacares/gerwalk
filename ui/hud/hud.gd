@@ -1,5 +1,7 @@
 extends CanvasLayer
-## Stateless projection of gameplay state. Reads only from the event bus.
+## Stateless projection of gameplay state. The bars and labels read only from the
+## event bus; `Radar` polls the enemy group for the one thing that is not an event,
+## a contact's bearing.
 
 @onready var _health_bar: Control = %HealthBar
 @onready var _turbo_bar: Control = %TurboBar
