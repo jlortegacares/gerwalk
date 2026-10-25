@@ -144,6 +144,13 @@ func setup(
 
 
 func _build_visual(size: Vector3, color: Color) -> void:
+	# The missile builds its own node tree, so it is answered before the shared
+	# mesh is allocated: an unused MeshInstance3D here would never be parented and
+	# would leak one node per shot.
+	if _style == Style.MISSILE:
+		_build_missile(size, color)
+		return
+
 	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
 	if _style == Style.ORB:
 		var sphere: SphereMesh = SphereMesh.new()
@@ -153,9 +160,6 @@ func _build_visual(size: Vector3, color: Color) -> void:
 		sphere.rings = 6
 		mesh_instance.mesh = sphere
 		mesh_instance.material_override = _flat_material(color, 1.6)
-	elif _style == Style.MISSILE:
-		_build_missile(size, color)
-		return
 	else:
 		var box: BoxMesh = BoxMesh.new()
 		box.size = size

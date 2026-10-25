@@ -1372,6 +1372,7 @@ func _test_missile_load(weapons: WeaponSystem) -> void:
 	_check(float(launched.get("_turn_rate")) > 0.0, "the missile is guided")
 	await _test_missile_style(launched)
 	await _test_missile_trail(launched)
+	await _test_missile_orphans()
 	_clear_projectiles()
 
 
@@ -1726,6 +1727,24 @@ func _test_missile_trail(missile: Projectile) -> void:
 		if not is_instance_valid(sample):
 			break
 	_check(not is_instance_valid(sample), "the puffs fade out and free themselves")
+
+
+## The missile model is built on its own path, and that path used to allocate a
+## MeshInstance3D it never parented: one orphan node per shot, which surfaces at
+## exit as a leaked RID. The orphan counter is the cheap proof, and it has to stay
+## flat across the spawn.
+func _test_missile_orphans() -> void:
+	var before: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	var missile: Projectile = _spawn_enemy_missile(Vector3(0.0, 0.0, 30.0), _player)
+	await get_tree().physics_frame
+	var after: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	_check(
+		after == before,
+		"building a missile model leaves no orphan node (before %d, after %d)"
+		% [before, after]
+	)
+	missile.queue_free()
+	await get_tree().physics_frame
 
 
 func _mesh_parts(node: Node) -> int:
