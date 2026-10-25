@@ -53,6 +53,14 @@ const CANOPY_BONES: Array[String] = ["Bone.GLASScanopy", "Bone.CanopyCover"]
 const CANOPY_MESH: String = "vf_1s-fast_canopy"
 const CANOPY_TINT: Color = Color(0.31, 0.70, 0.95)
 
+## The livery lives in two of the file's 59 materials: the hull sheets
+## ("Aircraft BASE color") and the stripe that runs across them ("Pilot COLOR").
+## Everything else -- trim, nozzles, gear, markings -- keeps what the file shipped,
+## because repainting those would flatten the airframe into one colour. The names
+## carry a suffix per mesh, so the match is on the prefix.
+const HULL_MATERIAL: String = "Aircraft BASE color"
+const TRIM_MATERIAL: String = "Pilot COLOR"
+
 ## The bind pose is not the fighter. The armature was exported neutral, and the
 ## fast pack, the rudders and the gear doors only land where the fighter wants
 ## them once the clip that ships with the file is applied: the bare import shows
@@ -109,6 +117,15 @@ var sweep_degrees: float = 0.0
 ## throttle skips touching the skeleton at all.
 var _last_gerwalk: float = -1.0
 var _last_sweep: float = 0.0
+
+## Livery colours. Alpha zero means "leave the file's own paint alone", so a model
+## built without one is the ship the asset ships, which is what the tools want.
+var livery_hull: Color = Color(0.0, 0.0, 0.0, 0.0)
+var livery_trim: Color = Color(0.0, 0.0, 0.0, 0.0)
+## Every painted material, kept so a colour change after `build()` is a write
+## instead of a rebuild: the options preview repaints the same airframe.
+var _hull_materials: Array[StandardMaterial3D] = []
+var _trim_materials: Array[StandardMaterial3D] = []
 
 
 ## Builds the airframe and returns false when the model is missing, so the caller
@@ -171,6 +188,57 @@ func _prepare_meshes(model: Node3D) -> void:
 				mesh.visible = false
 				break
 	_tint_canopy(model)
+	_paint_livery(model)
+
+
+## Repaints the airframe with the player's livery. Safe to call before `build()`
+## (the paint pass picks the colours up) and after it (the kept materials are
+## rewritten), which is what lets the options preview change colour live.
+func set_livery(hull: Color, trim: Color) -> void:
+	livery_hull = hull
+	livery_trim = trim
+	_apply_livery()
+
+
+func _apply_livery() -> void:
+	if livery_hull.a > 0.0:
+		for material in _hull_materials:
+			material.albedo_color = livery_hull
+	if livery_trim.a > 0.0:
+		for material in _trim_materials:
+			material.albedo_color = livery_trim
+
+
+## Duplicates the two livery materials per surface instead of editing the imported
+## ones in place: the GLB is shared by every instance, so writing into it would
+## repaint the enemy previews and every later ship too.
+func _paint_livery(model: Node3D) -> void:
+	for node in model.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		for surface in mesh.mesh.get_surface_count():
+			var source: StandardMaterial3D = (
+				mesh.get_active_material(surface) as StandardMaterial3D
+			)
+			if source == null:
+				continue
+			var material_name: String = String(source.resource_name)
+			var painted_into: Array[StandardMaterial3D]
+			var color: Color
+			if material_name.begins_with(HULL_MATERIAL):
+				painted_into = _hull_materials
+				color = livery_hull
+			elif material_name.begins_with(TRIM_MATERIAL):
+				painted_into = _trim_materials
+				color = livery_trim
+			else:
+				continue
+			if color.a <= 0.0:
+				continue
+
+			var painted: StandardMaterial3D = source.duplicate() as StandardMaterial3D
+			painted.albedo_color = color
+			mesh.set_surface_override_material(surface, painted)
+			painted_into.append(painted)
 
 
 ## Repaints the canopy panels. The frame and the rib keep the materials the file

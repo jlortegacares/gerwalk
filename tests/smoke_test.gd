@@ -4,6 +4,9 @@ extends Node
 ## Exits with code 1 if any assertion fails.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
+## Every settings round trip uses this file, never the real `user://settings.cfg`:
+## a test must not overwrite the choices of whoever runs it.
+const TEST_SETTINGS: String = "user://test-settings.cfg"
 
 var _failures: Array[String] = []
 var _arena: Arena = null
@@ -26,6 +29,7 @@ func _ready() -> void:
 
 	_test_player_is_centered()
 	await _test_main_menu()
+	await _test_livery_paint()
 	await _test_movement()
 	await _test_firing()
 	await _test_enemy_patterns()
@@ -69,7 +73,16 @@ func _test_main_menu() -> void:
 	if scene == null:
 		return
 
+	# The menu writes every setting it edits, so it is handed a scratch file before
+	# it enters the tree: a swatch click must never touch the real settings.
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SETTINGS))
+	# A saved livery has to come back selected, not merely applied.
+	GameSettings.save_livery(
+		MainMenu.PALETTE[3], MainMenu.PALETTE[5], TEST_SETTINGS
+	)
+
 	var menu: MainMenu = scene.instantiate() as MainMenu
+	menu.settings_path = TEST_SETTINGS
 	add_child(menu)
 	await get_tree().process_frame
 
@@ -77,6 +90,9 @@ func _test_main_menu() -> void:
 	var options_button: Button = menu.get_node("%OptionsButton") as Button
 	var options: Control = menu.get_node("%Options") as Control
 	var back_button: Button = menu.get_node("%BackButton") as Button
+	var hull_row: HBoxContainer = menu.get_node("%HullRow") as HBoxContainer
+	var trim_row: HBoxContainer = menu.get_node("%TrimRow") as HBoxContainer
+	var preview: LiveryPreview = menu.get_node("%Preview") as LiveryPreview
 	_check(start_button != null, "the menu offers a start button")
 	_check(options_button != null, "the menu offers an options button")
 	_check(options != null, "the menu carries an options panel")
@@ -89,6 +105,7 @@ func _test_main_menu() -> void:
 		return
 
 	_check(not options.visible, "the options panel starts hidden")
+	_check(preview != null, "the panel carries a live livery preview")
 
 	options_button.pressed.emit()
 	await get_tree().process_frame
@@ -97,7 +114,7 @@ func _test_main_menu() -> void:
 	# The controls reference is the second half of the panel, so a row has to be
 	# there and it has to name a control the build really has.
 	var grid: GridContainer = options.get_node(
-		"Center/Panel/Margin/Body/Grid"
+		"Center/Panel/Margin/Body/Columns/Right/Grid"
 	) as GridContainer
 	_check(grid != null, "the options panel lists the controls")
 	if grid != null:
@@ -111,25 +128,172 @@ func _test_main_menu() -> void:
 			"the controls reference names the decoy"
 		)
 
+	_check(hull_row != null and trim_row != null, "the panel carries the colour rows")
+	if hull_row != null and trim_row != null:
+		_check(
+			hull_row.get_child_count() == MainMenu.PALETTE.size(),
+			"the hull row offers the whole palette (%d swatches)"
+			% hull_row.get_child_count()
+		)
+		_check(
+			trim_row.get_child_count() == MainMenu.PALETTE.size(),
+			"the stripe row offers the whole palette"
+		)
+		_check(
+			_pressed_swatch(hull_row) == hull_row.get_child(3),
+			"the saved hull comes back selected"
+		)
+		_check(
+			_pressed_swatch(trim_row) == trim_row.get_child(5),
+			"the saved stripe comes back selected"
+		)
+		var hull_button: Button = hull_row.get_child(0) as Button
+		_check(
+			hull_button != null and hull_button.button_group != null,
+			"a colour row is one exclusive choice, not a pile of toggles"
+		)
+
+		# A click has to reach the file, because that is what the next launch and
+		# the ship in the arena both read.
+		(hull_row.get_child(2) as Button).pressed.emit()
+		_check(
+			GameSettings.load_hull(TEST_SETTINGS).is_equal_approx(
+				MainMenu.PALETTE[2]
+			),
+			"picking a hull swatch is saved"
+		)
+		(trim_row.get_child(4) as Button).pressed.emit()
+		_check(
+			GameSettings.load_trim(TEST_SETTINGS).is_equal_approx(
+				MainMenu.PALETTE[4]
+			),
+			"picking a stripe swatch is saved"
+		)
+
 	back_button.pressed.emit()
 	await get_tree().process_frame
 	_check(not options.visible, "the back button closes the panel")
 
-	# The fullscreen choice is the only setting, so it is the only one that has to
-	# survive a restart. The round trip uses a scratch file, never the real one.
-	var path: String = "user://test-settings.cfg"
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
-	GameSettings.save_fullscreen(true, path)
-	_check(GameSettings.load_fullscreen(path), "the fullscreen choice is remembered")
-	GameSettings.save_fullscreen(false, path)
+	# Both settings share one file, so neither save may erase the other.
+	GameSettings.save_fullscreen(true, TEST_SETTINGS)
+	GameSettings.save_livery(
+		MainMenu.PALETTE[2], MainMenu.PALETTE[4], TEST_SETTINGS
+	)
 	_check(
-		not GameSettings.load_fullscreen(path),
+		GameSettings.load_fullscreen(TEST_SETTINGS),
+		"the fullscreen choice is remembered"
+	)
+	_check(
+		GameSettings.load_hull(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[2]),
+		"and saving it keeps the hull"
+	)
+	_check(
+		GameSettings.load_trim(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[4]),
+		"and the stripe"
+	)
+	GameSettings.save_fullscreen(false, TEST_SETTINGS)
+	_check(
+		not GameSettings.load_fullscreen(TEST_SETTINGS),
 		"and the choice can be turned back off"
 	)
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	_check(
+		GameSettings.load_trim(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[4]),
+		"turning it off keeps the livery"
+	)
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SETTINGS))
+	_check(
+		GameSettings.load_hull(TEST_SETTINGS).is_equal_approx(
+			GameSettings.DEFAULT_HULL
+		),
+		"a missing file falls back to the factory hull"
+	)
+	_check(
+		GameSettings.load_trim(TEST_SETTINGS).is_equal_approx(
+			GameSettings.DEFAULT_TRIM
+		),
+		"a missing file falls back to the factory stripe"
+	)
 
 	menu.queue_free()
 	await get_tree().process_frame
+
+
+## The livery has to land on the right surfaces and nowhere else: the hull is one
+## family of materials, the stripe another, and the other fifty-seven surfaces are
+## what makes the airframe look like an aircraft instead of a painted brick.
+func _test_livery_paint() -> void:
+	var hull: Color = Color(0.85, 0.12, 0.10)
+	var trim: Color = Color(0.10, 0.75, 0.35)
+
+	var model: PlayerModel = PlayerModel.new()
+	add_child(model)
+	model.set_livery(hull, trim)
+	_check(model.build(), "the airframe builds wearing a livery")
+
+	var hulls: Array[Color] = _material_colors(model, PlayerModel.HULL_MATERIAL)
+	var trims: Array[Color] = _material_colors(model, PlayerModel.TRIM_MATERIAL)
+	_check(hulls.size() > 0, "the hull sheets are painted (%d surfaces)" % hulls.size())
+	_check(trims.size() > 0, "the stripe is painted (%d surfaces)" % trims.size())
+	_check(_all_colors_are(hulls, hull), "every hull surface takes the hull colour")
+	_check(_all_colors_are(trims, trim), "every stripe surface takes the stripe colour")
+
+	# A live repaint is what the options preview does on every click, so it has to
+	# reach surfaces that are already overridden.
+	var recoloured: Color = Color(0.20, 0.40, 0.90)
+	model.set_livery(recoloured, trim)
+	var after: Array[Color] = _material_colors(model, PlayerModel.HULL_MATERIAL)
+	_check(after.size() == hulls.size(), "repainting keeps every hull surface")
+	_check(_all_colors_are(after, recoloured), "a live repaint reaches the hull")
+
+	# The GLB is shared by every ship and by the preview, so the paint lives in
+	# duplicated materials: a repainted file would recolour the next ship too.
+	var pristine: Node3D = (
+		(load(PlayerModel.MODEL_PATH) as PackedScene).instantiate() as Node3D
+	)
+	add_child(pristine)
+	var factory: Array[Color] = _material_colors(pristine, PlayerModel.HULL_MATERIAL)
+	_check(factory.size() > 0, "the file still carries its own hull material")
+	_check(
+		_all_colors_are(factory, GameSettings.DEFAULT_HULL),
+		"painting a ship leaves the shared model untouched"
+	)
+	pristine.queue_free()
+
+	model.queue_free()
+
+
+func _pressed_swatch(row: HBoxContainer) -> Button:
+	for child in row.get_children():
+		var button: Button = child as Button
+		if button != null and button.button_pressed:
+			return button
+	return null
+
+
+## Every surface colour under `root` whose material carries the name prefix. The
+## file suffixes the name per mesh ("Aircraft BASE color.014"), so the match is on
+## the prefix, the same rule the paint pass uses.
+func _material_colors(root: Node, prefix: String) -> Array[Color]:
+	var colors: Array[Color] = []
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		for surface in mesh.mesh.get_surface_count():
+			var material: StandardMaterial3D = (
+				mesh.get_active_material(surface) as StandardMaterial3D
+			)
+			if material == null:
+				continue
+			if String(material.resource_name).begins_with(prefix):
+				colors.append(material.albedo_color)
+	return colors
+
+
+func _all_colors_are(colors: Array[Color], expected: Color) -> bool:
+	for color in colors:
+		if not color.is_equal_approx(expected):
+			return false
+	return true
 
 
 func _has_label_text(parent: Node, text: String) -> bool:

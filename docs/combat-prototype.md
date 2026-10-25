@@ -13,9 +13,10 @@ decision D-03.
 ```
 
 Opens `ui/menu/main_menu.tscn`, the boot menu: **START** loads the arena,
-**OPTIONS** opens the fullscreen toggle and the controls reference. Engine pinned to
-**Godot 4.7.2 stable, Forward+**. `./run.sh --editor` opens the editor instead;
-`./run.sh --headless` runs without a window and is what CI uses.
+**OPTIONS** opens the fullscreen toggle, the livery picker and the controls
+reference. Engine pinned to **Godot 4.7.2 stable, Forward+**.
+`./run.sh --editor` opens the editor instead; `./run.sh --headless` runs without a
+window and is what CI uses.
 
 ## Controls
 
@@ -427,6 +428,36 @@ they belong to. It culls on the airframe's own render layer, so the planet, the
 stars and the enemies keep the single-sun look they were tuned with, and it is
 cooler than the sun because it stands in for sky bounce rather than a second key.
 
+### The livery
+
+The ship the player flies is the ship the options panel shows. The livery lives in
+two of the file's material families: `Aircraft BASE color*` is the hull, and
+`Pilot COLOR*` is the stripe that runs across it. Everything else — trim,
+nozzles, gear, markings — keeps the paint the file shipped, because repainting
+those would flatten the airframe into one colour and lose the panel lines that
+make it read as an aircraft. (The canopy is the one deliberate exception, and it
+has its own tint pass described above.)
+
+Two details make that safe:
+
+- **The paint is duplicated per surface.** The GLB is one shared resource, so
+  writing into its materials would repaint every later ship and the preview along
+  with it. `_paint_livery()` clones the two families and installs them as surface
+  overrides, which also means a colour change is a write to the clones instead of
+  a rebuild of the model — that is what the preview does on every click.
+- **The options panel is a palette, not a colour wheel.** Eight swatches, offered
+  twice: one row for the hull and one for the stripe. The first two are the
+  factory white and blue, so coming back to the shipped livery is a swatch and not
+  a hidden reset. A `ButtonGroup` makes each row one exclusive choice, and the
+  group refuses to unpress, so the ship always has both colours.
+
+The preview is not a picture: `LiveryPreview` builds the same `PlayerModel` the
+game builds and paints it through the same `set_livery()`, so it cannot drift from
+the ship. It is built the first time the panel opens, because the menu starts with
+the panel hidden and the airframe is the most expensive thing in the menu. The
+choice lives in `user://settings.cfg` next to the display setting, and the arena
+reads it once when the player is built.
+
 The pose is driven by `_mode_blend`. The blend follows the mode the switch is
 *committing to*, so the shape finishes changing exactly when the flight rules flip
 rather than one switch later.
@@ -618,6 +649,9 @@ All values are named constants at the top of each script.
 | Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows speed from zero in `_update_smoke()` |
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
+| Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first two swatches are the factory hull and stripe |
+| Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL` (name prefixes); every other material keeps the file's paint |
+| Livery preview | `ui/menu/livery_preview.gd` | `TURN_SPEED`, `CAMERA_POSITION`, `CAMERA_TARGET` |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |
 | Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter\|game`, `--fighter 1`, `--size`, `--nosun 1`, `--sunrot`, `--out` (orthographic turntable for silhouette and lighting checks) |
@@ -653,7 +687,8 @@ entities/player/weapon_system.gd  primaries, missiles, the bomb and the decoy, s
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
 ui/hud/                         event-fed bars; the radar polls the enemy group for bearings
-ui/menu/                        boot menu: start, and the display option plus controls reference
+ui/menu/                        boot menu: start, the display and livery settings, the controls reference
+ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
 ```
 
