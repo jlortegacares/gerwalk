@@ -107,6 +107,12 @@ const FIGHTER_TRIM_DEGREES: float = 8.0
 const FIGHTER_YAW_TRIM: float = 60.0
 const FIGHTER_ROLL_TIME: float = 0.20
 const FIGHTER_ROLL_SPEED: float = 55.0
+## The jink and the roll are two clocks. 0.20 s is the rule: the sideways step and
+## the i-frames it buys. The airframe's turn-over is presentation, and at 0.20 s it
+## was twelve frames of blur that read as a teleport. 0.45 s is the same 360
+## degrees at 2.25x the time, long enough to see the wings come over, and it
+## changes nothing about the distance covered or how long the dodge protects.
+const FIGHTER_ROLL_ANIM_TIME: float = 0.45
 const FIGHTER_NOSE_PITCH: float = -5.0
 const TRANSFORM_TIME: float = 0.28
 const SHOCKWAVE_LENGTH: float = 7.0
@@ -180,7 +186,11 @@ var _transform_time: float = 0.0
 var _transform_target: Mode = Mode.GERWALK
 var _mode_blend: float = 0.0
 var _heading: Vector3 = Vector3.RIGHT
+## The side the last roll went to, kept between rolls. A neutral stick repeats it
+## instead of snapping to the right, so the dodge is a direction the player
+## remembers rather than one the stick has to re-state every time.
 var _roll_side: float = 1.0
+var _roll_anim_time: float = 0.0
 ## The lateral push the barrel roll added last frame. It is not airspeed, so the
 ## flight model subtracts it before reading the air: otherwise every jink tops up
 ## the previous one and a 55 u/s roll ends up at 390.
@@ -576,10 +586,14 @@ func _start_dash() -> void:
 ## sideways without changing where it points, and the airframe spins around its own
 ## nose. The capsule never spins, so it is a jink with i-frames, not a free turn.
 func _start_barrel_roll() -> void:
-	_roll_side = signf(Input.get_axis(&"aim_left", &"aim_right"))
-	if is_zero_approx(_roll_side):
-		_roll_side = 1.0
+	# Only a stick that actually points somewhere re-aims the roll. A centred
+	# stick repeats the last side, which is what makes the dodge a direction the
+	# player keeps instead of a guess that always defaults right.
+	var side: float = signf(Input.get_axis(&"aim_left", &"aim_right"))
+	if not is_zero_approx(side):
+		_roll_side = side
 	_dash_time = FIGHTER_ROLL_TIME
+	_roll_anim_time = FIGHTER_ROLL_ANIM_TIME
 	_dash_cooldown = DASH_COOLDOWN
 	_thrust_kick = 1.0
 	_spawn_impact()
@@ -607,9 +621,13 @@ func _update_bank(delta: float) -> void:
 		)
 	_visual_yaw_prev = _visual_yaw
 
-	# The barrel roll owns the roll axis for its 0.2 s; the bank would fight it.
-	if _mode == Mode.FIGHTER and _dash_time > 0.0:
-		_visual.rotation.x = (1.0 - _dash_time / FIGHTER_ROLL_TIME) * TAU
+	# The barrel roll owns the roll axis for its own 0.45 s, which outlives the
+	# 0.20 s jink: the ship has already stepped aside before the airframe has
+	# finished coming over, and the bank must not fight it. The sign follows the
+	# side, so a left dodge rolls left and the animation agrees with the step.
+	if _roll_anim_time > 0.0:
+		var spun: float = 1.0 - _roll_anim_time / FIGHTER_ROLL_ANIM_TIME
+		_visual.rotation.x = _roll_side * spun * TAU
 		_bank = 0.0
 		return
 
@@ -743,6 +761,9 @@ func _wing_hardpoints() -> Array[Vector3]:
 func _tick_timers(delta: float) -> void:
 	_dash_cooldown = maxf(_dash_cooldown - delta, 0.0)
 	_dash_time = maxf(_dash_time - delta, 0.0)
+	# The spin keeps counting even through a transform: cutting it when the
+	# airframe changes would snap the hull back from a half turn to level.
+	_roll_anim_time = maxf(_roll_anim_time - delta, 0.0)
 
 	if _transform_time > 0.0:
 		_transform_time = maxf(_transform_time - delta, 0.0)

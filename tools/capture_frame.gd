@@ -22,6 +22,10 @@ extends Node
 ## captures right after the salvo leaves, which is how the wing hardpoints are
 ## reviewed. Add `--close` to hang the camera nearer the ship, since the game
 ## camera sits high enough that a missile is only a few pixels long.
+## `--roll N` (with `--fighter 1`) starts a left barrel roll and captures N frames
+## into it, which is how the slower turn-over and the roll's own side are
+## reviewed. Add `--close` to read the hull coming over at the game camera's
+## distance.
 ## `--out PATH` overrides the output file.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
@@ -37,6 +41,7 @@ func _ready() -> void:
 	var drop_bomb: bool = _argument("bomb", "0") == "1"
 	var fighter_frames: int = int(_argument("fighter", "0"))
 	var missile_frames: int = int(_argument("missile", "0"))
+	var roll_frames: int = int(_argument("roll", "0"))
 	var close: bool = _argument("close", "0") == "1"
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
 
@@ -70,6 +75,20 @@ func _ready() -> void:
 			# A missile capture needs the contact to stay in the radar, and a
 			# fighter at speed would pass it before the rack loads.
 			Input.action_release(&"move_right")
+		elif roll_frames > 0:
+			# The side is read from the stick when the roll starts, so it is held
+			# first; the latch problem is the transform's, so the method is called
+			# directly instead of pressing `dash`.
+			Input.action_release(&"move_right")
+			# A stream of bullets would cross the hull mid-roll.
+			Input.action_release(&"fire")
+			Input.action_press(&"aim_left")
+			for _i in 2:
+				await get_tree().physics_frame
+			player.call("_start_dash")
+			Input.action_release(&"aim_left")
+			for _i in roll_frames:
+				await get_tree().physics_frame
 		elif boost_frames > 0:
 			Input.action_press(&"boost")
 			for _i in boost_frames:
@@ -106,6 +125,23 @@ func _ready() -> void:
 		for _i in 6:
 			await get_tree().physics_frame
 
+	# Presentation-only setup for the capture: `--close` hangs the camera nearer the
+	# hull, and the hull is forced visible because an i-frame blink hides it on half
+	# the frames. Both go through the nodes the game actually reads, so a close
+	# capture is framed the same way every run.
+	var ship: Player = arena.get_node("%Player") as Player
+	if close:
+		# The camera rig is reset every frame from its captured base, so the new
+		# stand-off goes through `_base` instead of the node alone.
+		var rig: Node3D = ship.get_node("CameraRig") as Node3D
+		var cam: Camera3D = ship.get_node("CameraRig/Camera") as Camera3D
+		rig.position = Vector3(0.0, 16.0, 4.3)
+		cam.set("_base", rig.position)
+	ship.set("_invulnerable", 0.0)
+	var visual: Node3D = ship.get("_visual") as Node3D
+	if visual != null:
+		visual.visible = true
+
 	# A salvo needs a contact: the rack only loads against the radar. The turret is
 	# dropped right before the hold so it sits inside the cone. The gun is silenced
 	# for the shot, otherwise its stream of bullets hides the missiles leaving the
@@ -117,14 +153,6 @@ func _ready() -> void:
 		Input.action_release(&"aim_right")
 		for _i in 60:
 			await get_tree().physics_frame
-		var ship: Player = arena.get_node("%Player") as Player
-		if close:
-			# The camera rig is reset every frame from its captured base, so the
-			# new stand-off goes through `_base` instead of the node alone.
-			var rig: Node3D = ship.get_node("CameraRig") as Node3D
-			var cam: Camera3D = ship.get_node("CameraRig/Camera") as Camera3D
-			rig.position = Vector3(0.0, 16.0, 4.3)
-			cam.set("_base", rig.position)
 		var aim: Vector3 = ship.get("_aim_direction")
 		var turret_scene: PackedScene = load("res://entities/enemy/turret.tscn")
 		var turret: Node3D = turret_scene.instantiate() as Node3D
@@ -142,10 +170,8 @@ func _ready() -> void:
 		Input.action_release(&"missile")
 		for _i in 4:
 			await get_tree().physics_frame
-		# The arena keeps shooting, and the i-frame blink hides the hull on half the
-		# frames. The last frame is forced visible so the ship is in the picture.
+		# The hold is a salvo long, so the blink is cleared again on the last frame.
 		ship.set("_invulnerable", 0.0)
-		var visual: Node3D = ship.get("_visual") as Node3D
 		if visual != null:
 			visual.visible = true
 

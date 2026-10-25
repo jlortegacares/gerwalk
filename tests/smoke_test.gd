@@ -383,7 +383,47 @@ func _test_transformation() -> void:
 		"the barrel roll steps left on command (%.1f units)" % lateral
 	)
 	_check(heading_after.dot(heading_before) > 0.99, "the roll leaves the nose where it was")
+
+	# The roll animation runs on its own, slower clock: when the 0.20 s jink is
+	# over the airframe is still coming over, and it is coming over to the side
+	# the step went to.
+	var spin: float = _player.get("_visual").rotation.x
+	_check(
+		spin < -1.0,
+		"the roll is still turning after the jink (%.0f deg)" % rad_to_deg(spin)
+	)
+	_check(
+		float(_player.get("_roll_side")) < 0.0,
+		"the roll remembers the side it went to"
+	)
+
+	# A centred stick repeats that side instead of defaulting to the right.
 	Input.action_release(&"aim_left")
+	_player.set("_dash_cooldown", 0.0)
+	_player.set("_heading", Vector3.RIGHT)
+	_player.velocity = Vector3.RIGHT * 30.0
+	position_before = _player.global_position
+	_player.call("_start_dash")
+	_check(
+		float(_player.get("_roll_side")) < 0.0,
+		"a neutral stick repeats the last side"
+	)
+	for _i in 12:
+		await get_tree().physics_frame
+	travelled = _player.global_position - position_before
+	lateral = travelled.dot(Vector3(-heading_before.z, 0.0, heading_before.x))
+	_check(
+		lateral < -2.0,
+		"the repeat roll still steps left (%.1f units)" % lateral
+	)
+	# And the slower spin lands back on the bank axis instead of parking a turn.
+	for _i in 20:
+		await get_tree().physics_frame
+	var settle: float = _player.get("_visual").rotation.x
+	_check(
+		absf(settle) < 0.1,
+		"the roll settles level when it ends (%.1f deg)" % rad_to_deg(settle)
+	)
 
 	# S6: the burner makes the nose a plow. Fire in the cone dies; fire behind
 	# the ship is untouched.

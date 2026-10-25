@@ -73,6 +73,13 @@ S13. Missiles leave from the wing hardpoints, alternating wings one shot at a
      wing it angles towards. User, verbatim: "quiero que los misiles salgan
      desde las alas de player intercalando uno a uno entre las alas".
 
+S14. The barrel roll reads slower than the jink and repeats the side it last went
+     to. The 0.20 s step and its i-frames stay exactly as they are; the 360 degree
+     turn-over runs on its own 0.45 s clock, and a centred stick reuses the last
+     side instead of defaulting right, with the spin following that side so the
+     animation agrees with the step. User, verbatim: "quiero que la animación de
+     evasión sea mas lenta y se ejecute en direccion de la ultimo lado ejecutado".
+
 ## Tasks
 
 | ID | Spec | Route | Status | Evidence |
@@ -90,6 +97,7 @@ S13. Missiles leave from the wing hardpoints, alternating wings one shot at a
 | T11 | S11 | inline | done | L10: both canopy panels repainted celeste through per-surface overrides; identical in FIGHTER and GERWALK; 162 PASS / 0 FAIL |
 | T12 | S12 | inline | done | L11: one GPU emitter per nozzle left in world space; density from speed via `amount_ratio`; 166 PASS / 0 FAIL; captures at cruise, boost and GERWALK |
 | T13 | S13 | inline | done | L12: `wing_anchors()` reads the span axis from `Bone.Wing.L/R`; `_launch_missile` picks the hardpoint by side plus `MISSILE_CLEARANCE`; 177 PASS / 0 FAIL; fighter capture shows one missile leaving each wing |
+| T14 | S14 | inline | done | L13: the spin moved to its own `FIGHTER_ROLL_ANIM_TIME = 0.45 s` timer, `_roll_side` survives a neutral stick and signs the spin; 182 PASS / 0 FAIL; `--roll N` captures at 6/12/20 frames |
 
 Route note: no delegation trigger fired — one understood change, one writer, no
 parallel units. Delivery: local commits on `main`, which is this repo's practice
@@ -263,3 +271,26 @@ both; the turret it needs for the radar was killing the ship, so it is spawned
 inert; and FIGHTER always moves at its minimum throttle, so the contact is spawned
 40 units out to stay inside the radar for the whole hold. With those, the fighter
 capture shows one missile leaving each wing.
+
+L13: User, verbatim: "quiero que la animación de evasión sea mas lenta y se
+ejecute en direccion de la ultimo lado ejecutado". Two separate problems hid in
+that sentence. The slow one was easy to get wrong: `_dash_time` is not just the
+animation, it is the 55 u/s step and the i-frames that step buys, so stretching
+it to 0.45 s would have doubled the distance and the protection window. The
+turn-over got its own clock (`_roll_anim_time`), and `_dash_time` stayed at 0.20 s
+so the dodge is unchanged and only what is seen changed.
+
+The side was a bug, not a tuning knob: `_start_barrel_roll` read the aim axis
+every time and fell back to `1.0`, so a centred stick always rolled right. It now
+only re-reads a non-zero stick, keeps the last side otherwise, and the spin sign
+follows `_roll_side` -- which also fixed the old spin, that turned right even when
+the ship stepped left.
+
+The test pins both: at the end of the 0.20 s jink the hull is still 160 degrees
+into the roll and on the left side, a centred stick repeats that side and steps
+left again (-7.1 units), and the spin settles back on the bank axis at 0.0 deg.
+Suite: 182 PASS / 0 FAIL. `--roll N` was added to `capture_frame.gd` (with
+`--close` now shared with the missile capture) and the 6/12/20 frame captures show
+the hull coming over, upside down, and back. The spin keeps counting through a
+transform on purpose: cutting it at the mode change snapped the hull from a half
+turn back to level.

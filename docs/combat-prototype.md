@@ -318,7 +318,7 @@ games rather than two gears of the same one.
 | Wind | none: the hover holds station | a constant 7 u/s world vector |
 | Aim | mouse or right stick, instantly | the nose, and only the nose |
 | Hull turn | 1800 °/s, presentation only | 400 °/s, and it is the turn rate the game reads |
-| Dash | 3.17x burst, 0.12 s, i-frames | barrel roll, 55 u/s sideways over 0.20 s, heading kept |
+| Dash | 3.17x burst, 0.12 s, i-frames | barrel roll, 55 u/s sideways over 0.20 s with a 0.45 s turn-over, heading kept, last side repeated |
 | Afterburner | 42 u/s | 60 u/s plus the shockwave cone |
 | Gun | free aim, 16° vulcan fan, base range | 0°, 4° fan, 1.35x muzzle speed, 1.4x range, no plasma lock |
 
@@ -420,6 +420,15 @@ air is read, so the jink is a scripted 55 u/s step and never airspeed. Without
 that subtraction the roll is additive: a measured 393 u/s sideways against an
 intended 55, and the step grows from 7 units to 46 until the grip can shed it.
 
+**The roll and the jink run on separate clocks.** 0.20 s is the rule: the 55 u/s
+step and the i-frames it buys. The airframe's turn-over is presentation, and at
+0.20 s it was twelve frames of blur that read as a teleport;
+`FIGHTER_ROLL_ANIM_TIME` takes the same 360 degrees over 0.45 s, so the wings come
+over where they can be seen while the distance covered and the protection window
+stay exactly as they were. The side is remembered too: a centred stick repeats the
+last roll instead of defaulting right, and the spin follows that side, so a left
+dodge rolls left and the animation agrees with the step.
+
 **The switch costs 0.28 s and buys nothing.** Weapons are locked, the ship takes
 no thrust, and it grants no invulnerability. A free dodge on the same button that
 changes the whole airframe would make the dash and the bomb optional. Momentum is
@@ -518,7 +527,7 @@ All values are named constants at the top of each script.
 | Mode split | `entities/player/player.gd` | `FIGHTER_SPEED`, `FIGHTER_BOOST_SPEED`, `FIGHTER_ACCELERATION`, `FIGHTER_TURN_RATE` |
 | Fighter flight model | `entities/player/player.gd` | `FIGHTER_STALL_SPEED` (glide floor), `FIGHTER_DRAG` (cruise to stall), `FIGHTER_GRIP` (course lag), `WIND` |
 | Transformation | `entities/player/player.gd` | `TRANSFORM_TIME`, `FIGHTER_NOSE_PITCH` |
-| Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED` |
+| Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED`, `FIGHTER_ROLL_ANIM_TIME` |
 | Supersonic burst | `entities/player/player.gd` | `SHOCKWAVE_LENGTH`, `SHOCKWAVE_HALF_ANGLE` |
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
