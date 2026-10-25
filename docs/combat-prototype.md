@@ -448,19 +448,31 @@ the frame belongs to the lines.
 
 The nose is not a mesh of its own. The exporter merged the cone, the panel lines
 across it, the nose gear and the cockpit housing into the forward fuselage mesh
-(`__VF_1S-AIRFRAME_018`), so `NOSE_MESH` matches that mesh by name and only its
-hull-family surfaces take the nose colour. The lines that cross the cone still
-take the line colour, and the gear and housing keep their own families — the nose
-is the one place where the hull family splits, and it splits by surface, not by
-mesh.
+(`__VF_1S-AIRFRAME_018`), and the cone also shares one hull sheet with the section
+under the cockpit. `NOSE_MESH` matches that mesh by name, and `_split_nose_cone()`
+cuts the sheet at the canopy's leading edge before the paint runs: the half in
+front of the cockpit is renamed to `NOSE_MATERIAL` and takes the nose colour, the
+half behind keeps the hull family and takes the hull colour. The lines that cross
+the nose still take the line colour, and the gear and housing keep their own
+families.
+
+The cut is measured, not assumed — the canopy panels are projected into the mesh's
+own space and their forward-most vertex is the plane — so a re-export moves the
+boundary with the cockpit. Both sit on the fighter frame when the paint runs, and
+the canopy is frozen there, so the same plane holds in GERWALK.
 
 Two details make that safe:
 
+- **The split is a rebuild, not a second mesh.** The file's vertices are not
+  welded, so connectivity cannot tell the cone from the fuselage under it, and a
+  second `MeshInstance3D` over the same triangles would z-fight. Each triangle goes
+  whole to the side its centroid falls on, so nothing is dropped or duplicated and
+  the silhouette does not change.
 - **The paint is duplicated per surface.** The GLB is one shared resource, so
   writing into its materials would repaint every later ship and the preview along
-  with it. `_paint_livery()` clones the three families and installs them as
-  surface overrides, which also means a colour change is a write to the clones
-  instead of a rebuild of the model — that is what the preview does on every click.
+  with it. `_paint_livery()` clones the families and installs them as surface
+  overrides, which also means a colour change is a write to the clones instead of a
+  rebuild of the model — that is what the preview does on every click.
 - **The options panel is a palette, not a colour wheel.** Nine swatches, offered
   five times: one row each for the hull, the nose, the stripe, the canopy and the
   lines. The first four are the factory colours, so coming back to the shipped
@@ -668,7 +680,7 @@ All values are named constants at the top of each script.
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |
-| Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH` for the cone; every other material keeps the file's paint |
+| Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH`/`NOSE_MATERIAL` for the cone cut out of the forward fuselage; every other material keeps the file's paint |
 | Livery preview | `ui/menu/livery_preview.gd` | `TURN_SPEED`, `CAMERA_POSITION`, `CAMERA_TARGET` |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |

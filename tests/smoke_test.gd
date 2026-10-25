@@ -352,12 +352,36 @@ func _test_livery_paint() -> void:
 		"the hull pass does not paint the canopy cover"
 	)
 
-	# The nose is hull geometry with a colour of its own, so the hull pass has to
-	# leave it alone too -- but only its hull surfaces: the lines that cross the
-	# cone are still lines.
+	# The cone shares one hull sheet with the fuselage under the cockpit, so the
+	# sheet is cut at the canopy: the front half takes the nose colour and the
+	# section behind it stays hull. The lines that cross the nose are still lines.
 	_check(
 		_all_colors_are(cones, nose) and not _all_colors_are(cones, hull),
 		"the hull pass does not paint the nose"
+	)
+	var under_canopy: Array[Color] = _nose_hull_colors(model)
+	_check(
+		under_canopy.size() > 0,
+		"the fuselage under the canopy is still hull (%d surfaces)" % under_canopy.size()
+	)
+	_check(
+		_all_colors_are(under_canopy, hull),
+		"the section behind the nose takes the hull colour"
+	)
+	var cut: float = _canopy_front(model)
+	var cone_span: Vector2 = _nose_surface_span(model, PlayerModel.NOSE_MATERIAL)
+	var aft_span: Vector2 = _nose_surface_span(model, PlayerModel.HULL_MATERIAL)
+	_check(
+		cone_span.x >= cut - 0.01,
+		"the nose paint starts at the canopy's leading edge (%.2f vs %.2f)" % [cone_span.x, cut]
+	)
+	_check(
+		aft_span.y <= cut + 0.01,
+		"and stops there too (%.2f)" % aft_span.y
+	)
+	_check(
+		cone_span.y > aft_span.y,
+		"the nose half carries the tip (%.2f vs %.2f)" % [cone_span.y, aft_span.y]
 	)
 	var nose_lines: Array[Color] = _nose_line_colors(model)
 	_check(nose_lines.size() > 0, "the nose keeps its panel lines (%d surfaces)" % nose_lines.size())
@@ -407,8 +431,8 @@ func _test_livery_paint() -> void:
 		"painting a ship leaves the shared model untouched"
 	)
 	_check(
-		_all_colors_are(_nose_colors(pristine), GameSettings.DEFAULT_NOSE),
-		"and leaves the file's own nose untouched"
+		_nose_colors(pristine).is_empty(),
+		"and the split leaves the shared model with its single hull sheet"
 	)
 	_check(
 		_all_colors_match_rgb(
@@ -432,16 +456,14 @@ func _pressed_swatch(row: HBoxContainer) -> Button:
 ## Every surface colour under `root` whose material carries the name prefix. The
 ## file suffixes the name per mesh ("Aircraft BASE color.014"), so the match is on
 ## the prefix, the same rule the paint pass uses. The canopy panels are skipped:
-## the cover wears a hull-family material and belongs to the canopy pass. The nose
-## hull surfaces are skipped too: they are the one hull surface that takes the nose
-## colour, so the list is what the hull pass actually paints.
+## the cover wears a hull-family material and belongs to the canopy pass. The
+## section of the forward fuselage behind the nose keeps the hull family, so it
+## counts here as hull.
 func _material_colors(root: Node, prefix: String) -> Array[Color]:
 	var colors: Array[Color] = []
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = node as MeshInstance3D
 		if _is_canopy_panel(mesh):
-			continue
-		if prefix == PlayerModel.HULL_MATERIAL and _is_nose_mesh(mesh):
 			continue
 		for surface in mesh.mesh.get_surface_count():
 			var material: StandardMaterial3D = (
@@ -495,9 +517,19 @@ func _is_canopy_panel(mesh: MeshInstance3D) -> bool:
 	return lower.contains(PlayerModel.CANOPY_MESH) and not lower.contains("rib")
 
 
-## The hull surfaces of the forward fuselage mesh, which are the ones the nose
-## colour owns.
+## The cone half of the forward fuselage sheet, which the split renames to the
+## nose material. The section under the canopy keeps the hull name.
 func _nose_colors(root: Node) -> Array[Color]:
+	return _nose_family_colors(root, PlayerModel.NOSE_MATERIAL)
+
+
+## The half of the forward fuselage sheet that stays hull: the section behind the
+## canopy, which the nose colour must not swallow.
+func _nose_hull_colors(root: Node) -> Array[Color]:
+	return _nose_family_colors(root, PlayerModel.HULL_MATERIAL)
+
+
+func _nose_family_colors(root: Node, prefix: String) -> Array[Color]:
 	var colors: Array[Color] = []
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = node as MeshInstance3D
@@ -509,9 +541,68 @@ func _nose_colors(root: Node) -> Array[Color]:
 			)
 			if material == null:
 				continue
-			if String(material.resource_name).begins_with(PlayerModel.HULL_MATERIAL):
+			if String(material.resource_name).begins_with(prefix):
 				colors.append(material.albedo_color)
 	return colors
+
+
+## The forward-most triangle centroid of the nose surfaces wearing `material_name`,
+## in the mesh's own space, and the furthest back one. The split is a cut along the
+## fuselage, so the two halves must not overlap on that axis.
+func _nose_surface_span(root: Node, material_name: String) -> Vector2:
+	var low: float = INF
+	var high: float = -INF
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		if not _is_nose_mesh(mesh):
+			continue
+		for surface in mesh.mesh.get_surface_count():
+			var material: StandardMaterial3D = (
+				mesh.get_active_material(surface) as StandardMaterial3D
+			)
+			if material == null:
+				continue
+			if not String(material.resource_name).begins_with(material_name):
+				continue
+			var arrays: Array = mesh.mesh.surface_get_arrays(surface)
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			for corner in range(0, indices.size(), 3):
+				var centroid: Vector3 = (
+					vertices[indices[corner]]
+					+ vertices[indices[corner + 1]]
+					+ vertices[indices[corner + 2]]
+				) / 3.0
+				low = minf(low, centroid.z)
+				high = maxf(high, centroid.z)
+	return Vector2(low, high)
+
+
+## The canopy's leading edge in the forward fuselage's space, measured from the
+## panels rather than assumed, so the test checks the rule the paint pass follows.
+func _canopy_front(root: Node) -> float:
+	var nose: MeshInstance3D = null
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh: MeshInstance3D = node as MeshInstance3D
+		if _is_nose_mesh(mesh):
+			nose = mesh
+			break
+	if nose == null:
+		return INF
+	var to_mesh: Transform3D = nose.global_transform.affine_inverse()
+	var front: float = -INF
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var panel: MeshInstance3D = node as MeshInstance3D
+		if not _is_canopy_panel(panel):
+			continue
+		var local: Transform3D = to_mesh * panel.global_transform
+		for surface in panel.mesh.get_surface_count():
+			var vertices: PackedVector3Array = (
+				panel.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]
+			)
+			for point in vertices:
+				front = maxf(front, (local * point).z)
+	return front
 
 
 ## The lines that cross the nose: they share the mesh with the cone, so they are

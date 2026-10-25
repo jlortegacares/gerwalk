@@ -58,10 +58,15 @@ const CANOPY_MESH: String = "vf_1s-fast_canopy"
 
 ## The nose is not a mesh of its own: the exporter merged the cone, the panel
 ## lines across it, the nose gear and the cockpit housing into the forward
-## fuselage mesh. It is found by name because the file gives no other handle, and
-## only its hull-family surfaces take the nose colour -- the trim, the gear and
-## the housing keep their own families.
+## fuselage mesh. It is found by name because the file gives no other handle.
+##
+## The cone also shares one hull sheet with the section under the cockpit, so that
+## sheet is split at the canopy's leading edge and only the half in front of it is
+## painted as nose. The half is renamed to NOSE_MATERIAL, which is how the paint
+## pass tells the two apart; the trim, the gear and the housing keep their own
+## families either way.
 const NOSE_MESH: String = "vf_1s-airframe_018"
+const NOSE_MATERIAL: String = "Player Nose"
 
 ## The livery lives in three of the file's 59 materials: the hull sheets
 ## ("Aircraft BASE color"), the stripe that runs across them ("Pilot COLOR"), and
@@ -188,6 +193,12 @@ func build() -> bool:
 
 	_cache_wing_axes()
 	pose_mode(0.0, 0.0)
+
+	# The paint runs on the posed fighter frame. Splitting the nose needs the
+	# canopy's position, and the canopy is only placed once the skeleton is in the
+	# tree, so the two passes cannot happen while the model is still detached.
+	_paint_livery(model)
+	_paint_canopy(model)
 	return true
 
 
@@ -207,8 +218,6 @@ func _prepare_meshes(model: Node3D) -> void:
 			if lower.begins_with(prefix):
 				mesh.visible = false
 				break
-	_paint_livery(model)
-	_paint_canopy(model)
 
 
 ## Repaints the airframe with the player's livery. Safe to call before `build()`
@@ -248,15 +257,17 @@ func _apply_livery() -> void:
 ## wears a hull-family material, so leaving it in this pass would paint the cockpit
 ## with the hull colour.
 ##
-## The nose is the one place where the hull family splits: its hull surfaces take
-## the nose colour and everything else on that mesh keeps its own family, so the
-## panel lines and the nose gear still read as themselves.
+## The forward fuselage is the one mesh whose hull family splits: the cone sheet is
+## cut at the canopy before this pass runs, so its front half arrives named
+## NOSE_MATERIAL and the section under the cockpit stays hull. The panel lines and
+## the nose gear on that mesh still read as themselves.
 func _paint_livery(model: Node3D) -> void:
 	for node in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh: MeshInstance3D = node as MeshInstance3D
 		if _is_canopy_panel(mesh):
 			continue
-		var nose_mesh: bool = _is_nose_mesh(mesh)
+		if _is_nose_mesh(mesh):
+			_split_nose_cone(model, mesh)
 		for surface in mesh.mesh.get_surface_count():
 			var source: StandardMaterial3D = (
 				mesh.get_active_material(surface) as StandardMaterial3D
@@ -266,13 +277,12 @@ func _paint_livery(model: Node3D) -> void:
 			var material_name: String = String(source.resource_name)
 			var painted_into: Array[StandardMaterial3D]
 			var color: Color
-			if material_name.begins_with(HULL_MATERIAL):
-				if nose_mesh:
-					painted_into = _nose_materials
-					color = livery_nose
-				else:
-					painted_into = _hull_materials
-					color = livery_hull
+			if material_name.begins_with(NOSE_MATERIAL):
+				painted_into = _nose_materials
+				color = livery_nose
+			elif material_name.begins_with(HULL_MATERIAL):
+				painted_into = _hull_materials
+				color = livery_hull
 			elif material_name.begins_with(TRIM_MATERIAL):
 				painted_into = _trim_materials
 				color = livery_trim
@@ -288,6 +298,115 @@ func _paint_livery(model: Node3D) -> void:
 			painted.albedo_color = color
 			mesh.set_surface_override_material(surface, painted)
 			painted_into.append(painted)
+
+
+## Splits the hull sheet of the forward fuselage at the canopy's leading edge, so
+## the nose livery stops where the cockpit starts instead of running under it.
+##
+## The halves become surfaces of a rebuilt mesh rather than two nodes: the file's
+## vertices are not welded, so connectivity cannot tell the cone from the section
+## under the cockpit, and a second mesh over the same triangles would z-fight. Each
+## triangle goes whole to the side its centroid falls on, so nothing is dropped or
+## duplicated and the silhouette does not change.
+##
+## The cone half wears a copy of the hull material renamed to NOSE_MATERIAL. The
+## file's own material is never touched, and the section behind keeps it, which is
+## what the hull livery paints.
+func _split_nose_cone(model: Node3D, mesh: MeshInstance3D) -> void:
+	var cut: float = _canopy_front(model, mesh)
+	var source: Mesh = mesh.mesh
+	var rebuilt: ArrayMesh = ArrayMesh.new()
+	for surface in source.get_surface_count():
+		var arrays: Array = source.surface_get_arrays(surface)
+		var material: StandardMaterial3D = (
+			mesh.get_active_material(surface) as StandardMaterial3D
+		)
+		if material == null or not String(material.resource_name).begins_with(HULL_MATERIAL):
+			_add_surface(rebuilt, source, surface, arrays, material)
+			continue
+		var halves: Dictionary = _split_triangles(arrays, cut)
+		var cone: StandardMaterial3D = material.duplicate() as StandardMaterial3D
+		cone.resource_name = NOSE_MATERIAL
+		_add_half(rebuilt, source, surface, arrays, halves["cone"], cone)
+		_add_half(rebuilt, source, surface, arrays, halves["aft"], material)
+	mesh.mesh = rebuilt
+
+
+## The leading edge of the canopy, in the forward fuselage mesh's own space: the
+## canopy is measured, not assumed, so the cut follows the asset if it is ever
+## re-exported. Both sit on the fighter frame when this runs, and the canopy is
+## frozen there, so the plane holds in GERWALK too.
+##
+## No canopy to measure against means no nose paint: the whole sheet stays hull
+## rather than the nose colour swallowing the cockpit.
+func _canopy_front(model: Node3D, mesh: MeshInstance3D) -> float:
+	var to_mesh: Transform3D = mesh.global_transform.affine_inverse()
+	var front: float = -INF
+	for node in model.find_children("*", "MeshInstance3D", true, false):
+		var panel: MeshInstance3D = node as MeshInstance3D
+		if not _is_canopy_panel(panel):
+			continue
+		var local: Transform3D = to_mesh * panel.global_transform
+		for surface in panel.mesh.get_surface_count():
+			var vertices: PackedVector3Array = (
+				panel.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]
+			)
+			for point in vertices:
+				front = maxf(front, (local * point).z)
+	if front == -INF:
+		return INF
+	return front
+
+
+## Walks the index buffer in triangles and sends each one to the side of the cut
+## its centroid falls on. Packed arrays are values in GDScript, so the two lists
+## are appended to directly instead of through a shared handle.
+func _split_triangles(arrays: Array, cut: float) -> Dictionary:
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var cone: PackedInt32Array = PackedInt32Array()
+	var aft: PackedInt32Array = PackedInt32Array()
+	for corner in range(0, indices.size(), 3):
+		var a: Vector3 = vertices[indices[corner]]
+		var b: Vector3 = vertices[indices[corner + 1]]
+		var c: Vector3 = vertices[indices[corner + 2]]
+		if (a + b + c).z / 3.0 >= cut:
+			cone.append(indices[corner])
+			cone.append(indices[corner + 1])
+			cone.append(indices[corner + 2])
+		else:
+			aft.append(indices[corner])
+			aft.append(indices[corner + 1])
+			aft.append(indices[corner + 2])
+	return {"cone": cone, "aft": aft}
+
+
+## Adds one half of a split surface. An empty half is skipped instead of being
+## added as a surface with no triangles, which the array mesh rejects.
+func _add_half(
+	rebuilt: ArrayMesh,
+	source: Mesh,
+	surface: int,
+	arrays: Array,
+	indices: PackedInt32Array,
+	material: Material
+) -> void:
+	if indices.is_empty():
+		return
+	var half: Array = arrays.duplicate()
+	half[Mesh.ARRAY_INDEX] = indices
+	_add_surface(rebuilt, source, surface, half, material)
+
+
+## Copies one surface into the rebuilt mesh, keeping its primitive type and its
+## material: the surfaces this pass does not split have to render exactly as the
+## file shipped them.
+func _add_surface(
+	rebuilt: ArrayMesh, source: Mesh, surface: int, arrays: Array, material: Material
+) -> void:
+	rebuilt.add_surface_from_arrays(source.surface_get_primitive_type(surface), arrays)
+	if material != null:
+		rebuilt.surface_set_material(rebuilt.get_surface_count() - 1, material)
 
 
 ## Repaints the canopy glass. The rib is not a panel, so it keeps the line colour
