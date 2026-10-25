@@ -25,7 +25,10 @@ extends Node
 ## `--roll N` (with `--fighter 1`) starts a left barrel roll and captures N frames
 ## into it, which is how the slower turn-over and the roll's own side are
 ## reviewed. Add `--close` to read the hull coming over at the game camera's
-## distance.
+## distance. `--zoom F` scales the close stand-off, so `--close 1 --zoom 0.4` fills
+## the frame with the hull for a lighting or material check. `--nosmoke 1` hides
+## the wake and `--noshadow 1` turns the sun's shadow map off, which is how a dark
+## patch on the hull is told apart from the trail and from a cast shadow.
 ## `--out PATH` overrides the output file.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
@@ -43,6 +46,9 @@ func _ready() -> void:
 	var missile_frames: int = int(_argument("missile", "0"))
 	var roll_frames: int = int(_argument("roll", "0"))
 	var close: bool = _argument("close", "0") == "1"
+	var zoom: float = float(_argument("zoom", "1.0"))
+	var no_smoke: bool = _argument("nosmoke", "0") == "1"
+	var no_shadow: bool = _argument("noshadow", "0") == "1"
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
 
 	var arena: Node = load(ARENA_SCENE).instantiate()
@@ -130,12 +136,43 @@ func _ready() -> void:
 	# the frames. Both go through the nodes the game actually reads, so a close
 	# capture is framed the same way every run.
 	var ship: Player = arena.get_node("%Player") as Player
+	# Lighting diagnostics: `--nosmoke` hides the wake, `--noshadow` turns the sun's
+	# shadow map off. Between them, a dark patch on the hull can be pinned on the
+	# trail, on a cast shadow, or on neither.
+	if no_smoke:
+		for smoke in ship.get("_smoke") as Array:
+			var puff: GPUParticles3D = smoke as GPUParticles3D
+			puff.emitting = false
+			puff.visible = false
+	if no_shadow:
+		for child in arena.get_children():
+			if child is DirectionalLight3D:
+				(child as DirectionalLight3D).shadow_enabled = false
+	# `--sunrot DEG` swings the sun around the vertical axis, which is how a shading
+	# asymmetry is told apart from a livery one: if the dark side swaps with it, the
+	# light is the cause; if it stays put, the mesh is.
+	var sun_yaw: String = _argument("sunrot", "")
+	if not sun_yaw.is_empty():
+		for child in arena.get_children():
+			if child is DirectionalLight3D:
+				var light: DirectionalLight3D = child as DirectionalLight3D
+				light.rotation_degrees = Vector3(
+					light.rotation_degrees.x, float(sun_yaw), light.rotation_degrees.z
+				)
+	# `--fillenergy E` retunes the airframe fill without a code edit, which is how
+	# its level is picked against the arena's sun.
+	var fill_energy: String = _argument("fillenergy", "")
+	if not fill_energy.is_empty():
+		var fill: DirectionalLight3D = ship.get_node_or_null("CameraRig/FillLight") as DirectionalLight3D
+		if fill != null:
+			fill.light_energy = float(fill_energy)
 	if close:
 		# The camera rig is reset every frame from its captured base, so the new
-		# stand-off goes through `_base` instead of the node alone.
+		# stand-off goes through `_base` instead of the node alone. `--zoom` scales
+		# that stand-off without changing the 75 degree angle.
 		var rig: Node3D = ship.get_node("CameraRig") as Node3D
 		var cam: Camera3D = ship.get_node("CameraRig/Camera") as Camera3D
-		rig.position = Vector3(0.0, 16.0, 4.3)
+		rig.position = Vector3(0.0, 16.0, 4.3) * zoom
 		cam.set("_base", rig.position)
 	ship.set("_invulnerable", 0.0)
 	var visual: Node3D = ship.get("_visual") as Node3D

@@ -7,7 +7,7 @@ extends Node
 ##   ./run.sh tools/model_view.tscn -- --view side --out /tmp/side.png
 ##   ./run.sh tools/model_view.tscn -- --view quarter --fighter 1 --out /tmp/f.png
 ##
-## `--view front|side|top|quarter` (default quarter) picks the camera.
+## `--view front|side|top|quarter|game` (default quarter) picks the camera.
 ## `--fighter 1` poses FIGHTER instead of GERWALK.
 ## `--size 900` sets the square render size.
 ## `--out PATH` overrides the output file.
@@ -24,6 +24,9 @@ const VIEWS: Dictionary = {
 	"side": Vector3(0.0, 0.0, 7.0),
 	"top": Vector3(0.0, 7.0, 0.0),
 	"quarter": Vector3(5.0, 3.4, 5.0),
+	# The game camera sits 15 degrees off vertical (50 up, 13.4 back), so this is
+	# the angle the model is actually judged from in play.
+	"game": Vector3(0.0, 7.0, 1.88),
 }
 
 var _viewport: SubViewport
@@ -83,8 +86,13 @@ func _build_stage(size: int, view: String) -> void:
 	add_child(world)
 
 	var key: DirectionalLight3D = DirectionalLight3D.new()
-	key.rotation_degrees = Vector3(-48.0, -38.0, 0.0)
+	key.rotation_degrees = Vector3(-48.0, float(_argument("sunrot", "-38.0")), 0.0)
 	key.light_energy = 1.15
+	# `--nosun 1` leaves only the ambient term, which is how a livery or normal
+	# problem is told apart from a lighting one: ambient is uniform, so anything
+	# still dark on one side is in the mesh or its material.
+	if _argument("nosun", "0") == "1":
+		key.light_energy = 0.0
 	add_child(key)
 
 
@@ -102,6 +110,17 @@ func _build_model(fighter: bool) -> void:
 		(flame as MeshInstance3D).visible = false
 	for core in player.get("_thruster_cores") as Array:
 		(core as MeshInstance3D).visible = false
+	# The wake is world-space and stays where it was born, so in a still it sits
+	# on top of the hull it is supposed to trail behind.
+	for smoke in player.get("_smoke") as Array:
+		var puff: GPUParticles3D = smoke as GPUParticles3D
+		puff.emitting = false
+		puff.visible = false
+	# The ship's counter-light would otherwise make `--nosun` a lie: with it on, the
+	# frame still carries a directional term and the ambient-only check reads wrong.
+	var fill: DirectionalLight3D = player.get_node_or_null("CameraRig/FillLight") as DirectionalLight3D
+	if fill != null:
+		fill.light_energy = 0.0
 	var beam: MeshInstance3D = player.get("_aim_beam") as MeshInstance3D
 	if beam != null:
 		beam.visible = false
