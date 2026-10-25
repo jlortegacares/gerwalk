@@ -41,6 +41,15 @@ const DASH_SPEED: float = 85.0
 const DASH_DURATION: float = 0.12
 const DASH_COOLDOWN: float = 0.85
 
+## Double tap: a tap is the movement vector leaving the deadzone, so the gesture
+## is two rising edges and needs no extra action or keyboard-only path. 0.28 s is
+## a deliberate double tap; a longer window starts reading a direction change as
+## one.
+const DOUBLE_TAP_WINDOW: float = 0.28
+## Both taps must point the same way, or a left-then-up flick would dash left
+## instead of turning. 0.5 is a 60 degree cone, the width of a stick flick.
+const DOUBLE_TAP_SIMILARITY: float = 0.5
+
 ## Angular game feel. Aim is instant, so the shot never lags the stick; the model
 ## turns at this rate so a flick reads as a snap roll instead of a teleport. At
 ## 1800 deg/s a 180 turn takes six frames.
@@ -185,6 +194,12 @@ var _invulnerable: float = 0.0
 var _dash_time: float = 0.0
 var _dash_cooldown: float = 0.0
 var _dash_direction: Vector3 = Vector3.RIGHT
+## Time left in the double-tap window and the direction of the tap that opened
+## it. `_move_engaged` is the previous frame's stick state, which is what turns
+## the polled vector into an edge.
+var _tap_timer: float = 0.0
+var _tap_direction: Vector2 = Vector2.ZERO
+var _move_engaged: bool = false
 var _alive: bool = true
 
 var _visual_yaw: float = 0.0
@@ -258,6 +273,8 @@ func _physics_process(delta: float) -> void:
 
 	if Input.is_action_just_pressed(&"transform") and _transform_time <= 0.0:
 		_start_transform()
+
+	_tick_double_tap(delta)
 
 	if Input.is_action_just_pressed(&"dash") and _dash_cooldown <= 0.0:
 		_start_dash()
@@ -584,14 +601,56 @@ func _layout_flames(flames: Array[MeshInstance3D], length: float) -> void:
 		flame.position = Vector3(anchor.x - length * 0.5, anchor.y, anchor.z)
 
 
-func _start_dash() -> void:
+## The dash gesture. A tap is the movement vector leaving the deadzone, so two
+## rising edges inside the window are a double tap and the second one points
+## where the dash goes. Reading the polled vector instead of `just_pressed` keeps
+## the gesture analog: on a stick a tap is a short deflection, not a click.
+func _tick_double_tap(delta: float) -> void:
+	_tap_timer = maxf(_tap_timer - delta, 0.0)
+	var stick: Vector2 = Input.get_vector(
+		&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
+	)
+	var engaged: bool = stick.length_squared() > 0.0
+	if engaged and not _move_engaged:
+		var direction: Vector2 = stick.normalized()
+		if _tap_timer > 0.0 and direction.dot(_tap_direction) >= DOUBLE_TAP_SIMILARITY:
+			# The gesture is spent either way: a tap that lands on cooldown is a
+			# dash the player already used, not one to queue.
+			_tap_timer = 0.0
+			_tap_dash(direction)
+		else:
+			_tap_timer = DOUBLE_TAP_WINDOW
+			_tap_direction = direction
+	_move_engaged = engaged
+
+
+func _tap_dash(direction: Vector2) -> void:
+	if _dash_cooldown > 0.0:
+		return
+	if _mode == Mode.FIGHTER:
+		# The vertical axis is the throttle here, so a double tap straight up or
+		# down is a throttle gesture and must not spend the jink. A lateral one
+		# rolls to the side that was tapped.
+		if is_zero_approx(direction.x):
+			return
+		_start_barrel_roll(signf(direction.x))
+		return
+	_start_dash(direction)
+
+
+## `direction` is the stick that asked for the dash, already deadzoned. It is
+## empty when the button fired on a centred stick, which is the "dash down the
+## nose" case.
+func _start_dash(direction: Vector2 = Vector2.ZERO) -> void:
 	if _mode == Mode.FIGHTER:
 		_start_barrel_roll()
 		return
 
-	var input_direction: Vector2 = Input.get_vector(
-		&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
-	)
+	var input_direction: Vector2 = direction
+	if input_direction.length_squared() <= 0.0:
+		input_direction = Input.get_vector(
+			&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
+		)
 	var flat: Vector3 = Vector3(input_direction.x, 0.0, input_direction.y)
 	_dash_direction = flat.normalized() if flat.length_squared() > 0.0 else _aim_direction
 	_dash_time = DASH_DURATION
@@ -604,11 +663,15 @@ func _start_dash() -> void:
 ## In Fighter the dash is the roll the spec puts on the right stick: the ship steps
 ## sideways without changing where it points, and the airframe spins around its own
 ## nose. The capsule never spins, so it is a jink with i-frames, not a free turn.
-func _start_barrel_roll() -> void:
-	# Only a stick that actually points somewhere re-aims the roll. A centred
-	# stick repeats the last side, which is what makes the dodge a direction the
-	# player keeps instead of a guess that always defaults right.
-	var side: float = signf(Input.get_axis(&"aim_left", &"aim_right"))
+##
+## `tapped_side` is the side the movement stick asked for when the gesture was a
+## double tap. It wins over the aim axis; only a centred tap repeats the last
+## side, which is what makes the dodge a direction the player keeps instead of a
+## guess that always defaults right.
+func _start_barrel_roll(tapped_side: float = 0.0) -> void:
+	var side: float = signf(tapped_side)
+	if is_zero_approx(side):
+		side = signf(Input.get_axis(&"aim_left", &"aim_right"))
 	if not is_zero_approx(side):
 		_roll_side = side
 	_dash_time = FIGHTER_ROLL_TIME

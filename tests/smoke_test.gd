@@ -47,6 +47,7 @@ func _ready() -> void:
 	await get_tree().physics_frame
 
 	await _test_maneuverability()
+	await _test_double_tap_dash()
 	await _test_transformation()
 	await _test_gerwalk_silhouette()
 
@@ -220,6 +221,95 @@ func _test_maneuverability() -> void:
 		"the camera settles the ship back to centre at rest (%.2f px)"
 		% projected.distance_to(centre)
 	)
+
+
+## The dash gesture: a double tap on the movement stick dashes the way it was
+## tapped, one tap and two taps in different directions spend nothing, and in
+## FIGHTER the lateral double tap is the roll while the vertical one is the
+## throttle. The Space / L3 button stays as the alternative.
+func _test_double_tap_dash() -> void:
+	await _reset_dash_gesture()
+	Input.action_press(&"move_right")
+	await get_tree().physics_frame
+	Input.action_release(&"move_right")
+	await get_tree().physics_frame
+	Input.action_press(&"move_right")
+	await get_tree().physics_frame
+	var tap_speed: float = _flat_speed()
+	_check(
+		float(_player.get("_dash_time")) > 0.0
+		and tap_speed >= Player.MAX_SPEED * 3.0
+		and _player.velocity.x > 0.0,
+		"a double tap dashes the way it was tapped (%.1f u/s)" % tap_speed
+	)
+	Input.action_release(&"move_right")
+
+	# One tap is a nudge, not a dash: the second tap is the whole gesture.
+	await _reset_dash_gesture()
+	Input.action_press(&"move_up")
+	await get_tree().physics_frame
+	Input.action_release(&"move_up")
+	await get_tree().physics_frame
+	_check(
+		float(_player.get("_dash_time")) <= 0.0,
+		"one tap moves the ship without spending the dash"
+	)
+
+	# Two taps that disagree are a direction change, not a dash. Left then up is
+	# 90 degrees apart, well outside the cone.
+	await _reset_dash_gesture()
+	Input.action_press(&"move_left")
+	await get_tree().physics_frame
+	Input.action_release(&"move_left")
+	await get_tree().physics_frame
+	Input.action_press(&"move_up")
+	await get_tree().physics_frame
+	_check(
+		float(_player.get("_dash_time")) <= 0.0,
+		"two taps in different directions do not dash"
+	)
+	Input.action_release(&"move_up")
+
+	# FIGHTER: the lateral double tap rolls to the tapped side ...
+	await _reset_dash_gesture()
+	_player.call("_start_transform")
+	for _i in 20:
+		await get_tree().physics_frame
+	_check(_player.is_fighter(), "the double-tap check starts in FIGHTER")
+	await _reset_dash_gesture()
+	Input.action_press(&"move_left")
+	await get_tree().physics_frame
+	Input.action_release(&"move_left")
+	await get_tree().physics_frame
+	Input.action_press(&"move_left")
+	await get_tree().physics_frame
+	var roll_side: float = float(_player.get("_roll_side"))
+	_check(
+		float(_player.get("_dash_time")) > 0.0 and roll_side < 0.0,
+		"a lateral double tap rolls to the side that was tapped (%.0f)" % roll_side
+	)
+	Input.action_release(&"move_left")
+
+	# ... and the vertical one is the throttle, so it must not spend the jink.
+	await _reset_dash_gesture()
+	Input.action_press(&"move_up")
+	await get_tree().physics_frame
+	Input.action_release(&"move_up")
+	await get_tree().physics_frame
+	Input.action_press(&"move_up")
+	await get_tree().physics_frame
+	_check(
+		float(_player.get("_dash_time")) <= 0.0,
+		"a vertical double tap in FIGHTER is throttle, not a roll"
+	)
+	Input.action_release(&"move_up")
+
+	# Leave the ship in GERWALK: the rest of the suite starts from the hover.
+	await _reset_dash_gesture()
+	_player.call("_start_transform")
+	for _i in 20:
+		await get_tree().physics_frame
+	_check(not _player.is_fighter(), "the double-tap check restores GERWALK")
 
 
 ## The transformation contract: two real modes, a switch that costs commitment,
@@ -632,6 +722,18 @@ func _release_all_input() -> void:
 		&"fire", &"boost", &"dash",
 	]:
 		Input.action_release(action)
+
+
+## Puts the dash gesture back to a known state: no cooldown, no armed tap, and a
+## released stick, so the next press is a rising edge.
+func _reset_dash_gesture() -> void:
+	_release_all_input()
+	_player.velocity = Vector3.ZERO
+	_player.set("_dash_cooldown", 0.0)
+	_player.set("_dash_time", 0.0)
+	_player.set("_tap_timer", 0.0)
+	_player.set("_move_engaged", false)
+	await get_tree().physics_frame
 
 
 func _test_firing() -> void:

@@ -27,7 +27,7 @@ window and is what CI uses.
 | Select weapon | 1 / 2 / 3 | D-pad left / right (cycle) |
 | Bomb | E | Y |
 | Afterburner (hold) | Shift | Right trigger |
-| Dash | Space | Left stick click |
+| Dash | Double tap WASD, or Space | Double tap left stick, or left stick click |
 | Transform | Q | Left bumper |
 | Restart | R (on the game-over screen) | Start |
 
@@ -253,6 +253,7 @@ the player needs, and the genre forgives neither. The split this build uses is
 | Hull direction | 1800 deg/s, so a 180 flip lands in six frames | `VISUAL_TURN_RATE = 1800` |
 | Bank | up to 32 deg in GERWALK from lateral drift plus turn rate; a fighter rolls 50 deg into a full-rate turn | `MAX_BANK`, `YAW_BANK`, `FIGHTER_BANK`, `BANK_RATE` |
 | Dash | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one | `DASH_SPEED`, `DASH_DURATION` |
+| Dash trigger | double tap the movement stick the way you want to go; Space / L3 click still works | `DOUBLE_TAP_WINDOW = 0.28`, `DOUBLE_TAP_SIMILARITY = 0.5` |
 | Camera lead | `velocity * 0.02`, about 8 px at cruise and 12 under the burner, saturating at 0.6 units | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX` |
 
 **Acceleration is quantised, so it has to fit in whole frames.** At 60 physics
@@ -298,6 +299,18 @@ gone on the first frame and the speed profile is flat. The direction is the stic
 when it is deflected past the movement deadzone and the nose when it is not, which
 means "dash where I am going" and "dash where I am looking" never need a modifier.
 
+**The dash is a double tap, and the second tap is the direction.** A tap is the
+movement vector leaving the deadzone, so the gesture is two rising edges inside
+`DOUBLE_TAP_WINDOW` (0.28 s) whose directions agree inside a 60 degree cone
+(`DOUBLE_TAP_SIMILARITY = 0.5`). Reading the polled vector instead of
+`just_pressed` is what keeps it analog: on a stick a tap is a short deflection,
+not a click, and the gesture is the same on keyboard, pad and any remap. Two taps
+that disagree are a direction change and spend nothing, which is what keeps a
+quick left-then-up flick a turn instead of an accidental dash. Space and L3 stay
+as the alternative for a player who would rather press once. In FIGHTER the
+vertical axis is the throttle, so only a lateral double tap rolls: straight up or
+down is a throttle gesture and is ignored.
+
 **Thrust cues fire on change, not on speed.** Plumes follow the forward component
 of velocity at a steady state. The burst is a separate term (`_thrust_kick`) set
 by acceleration and by the dash and decaying in about a third of a second, so a
@@ -318,7 +331,7 @@ games rather than two gears of the same one.
 | Wind | none: the hover holds station | a constant 7 u/s world vector |
 | Aim | mouse or right stick, instantly | the nose, and only the nose |
 | Hull turn | 1800 °/s, presentation only | 400 °/s, and it is the turn rate the game reads |
-| Dash | 3.17x burst, 0.12 s, i-frames | barrel roll, 55 u/s sideways over 0.20 s with a 0.45 s turn-over, heading kept, last side repeated |
+| Dash | 3.17x burst, 0.12 s, i-frames, on a double tap of the direction | barrel roll, 55 u/s sideways over 0.20 s with a 0.45 s turn-over, heading kept, last side repeated, on a lateral double tap |
 | Afterburner | 42 u/s | 60 u/s plus the shockwave cone |
 | Gun | free aim, 16° vulcan fan, base range | 0°, 4° fan, 1.35x muzzle speed, 1.4x range, no plasma lock |
 
@@ -501,7 +514,9 @@ terrain, not through the ship sliding off centre.
    - **Ring** — 14 slow bullets. Dodge through the gaps. Tests reading space.
    - **Fan** — 5 fast aimed bullets. Dash or sidestep. Tests reaction.
 4. **Is the dash a decision or a reflex?** 0.12 s burst at 3.17x cruise, 0.85 s
-   cooldown, and it grants invulnerability, so it doubles as an escape.
+   cooldown, and it grants invulnerability, so it doubles as an escape. The
+   gesture is a double tap on the direction you want, so the way out and the way
+   you asked for it are the same input.
 5. **Can speed itself be a resource?** The afterburner is a tank, not a cooldown:
    holding it tops out at 42 instead of 26.8 and drains the reserve in about
    2.2 s, and the reserve only fills back while the burner is off (about 4.2 s
