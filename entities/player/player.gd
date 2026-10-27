@@ -190,13 +190,18 @@ const SMOKE_DENSITY_HIGH: float = 0.95
 ## construction: two vertices per sample, no gaps to tune away.
 const WINGTIP_COLOR: Color = Color(0.52, 0.86, 1.0, 0.9)
 const WINGTIP_WIDTH: float = 0.18
-## Where the vapour starts, as a fraction of the mode's cruise. It cannot wait for
-## the burner any more: from the middle of the throttle up the tips are already
-## saying the ship is moving, and the burner is just the top of that range.
+## Where the FIGHTER vapour starts, as a fraction of cruise. It cannot wait for the
+## burner any more: from the middle of the throttle up the tips are already saying
+## the ship is moving, and the burner is just the top of that range. GERWALK does
+## not use this: it reads the climb instead, so the hover is clean at a steady speed.
 const WINGTIP_SPEED_FLOOR: float = 0.55
 ## Longer-lived than the exhaust wake on purpose: the two lines have to outlast the
 ## grey rope the nozzles drop, or they end inside it and there is nothing to see.
 const WINGTIP_LIFETIME: float = 0.65
+## How long a GERWALK burst keeps laying vapour after the airspeed stops climbing.
+## The hover reaches cruise in about four frames, so the climb on its own would be a
+## stub too short to draw a strip through.
+const WINGTIP_BURST_HOLD: float = 0.25
 ## Distance between samples. Below this the head is just moved instead of a new
 ## vertex being added, so a slow ship does not pile up points on one spot.
 const WINGTIP_SPACING: float = 0.30
@@ -232,6 +237,14 @@ var _visual_yaw: float = 0.0
 var _visual_yaw_prev: float = 0.0
 var _bank: float = 0.0
 var _forward_speed: float = 0.0
+## Air velocity the tips were measured at on the previous frame. The GERWALK vapour
+## reads the climb off it, and it is kept fresh in both modes so a mode switch never
+## measures a stale frame as a jump.
+var _air_velocity: Vector3 = Vector3.ZERO
+## Seconds left in a GERWALK burst. The hover reaches cruise in about four frames,
+## so the climb alone would leave a stub too short to draw; the hold pays out a few
+## units of line at cruise, which is the tips' version of the exhaust's short smear.
+var _vapour_hold: float = 0.0
 var _thrust_kick: float = 0.0
 ## Wing angle the pose was last built with. The wings travel to their target at a
 ## fixed rate instead of following the throttle frame by frame: the fighter reaches
@@ -939,6 +952,8 @@ func take_damage(amount: int, source_position: Vector3 = Vector3.ZERO) -> void:
 func _die() -> void:
 	_alive = false
 	velocity = Vector3.ZERO
+	_air_velocity = Vector3.ZERO
+	_vapour_hold = 0.0
 	_visual.visible = false
 	_aim_beam.visible = false
 	_clear_wingtip_trails()
@@ -1229,7 +1244,7 @@ func _build_wingtip_trails() -> void:
 func _update_wingtip_trails(delta: float) -> void:
 	if _model == null:
 		return
-	var vapour: float = _wingtip_vapour()
+	var vapour: float = _wingtip_vapour(delta)
 	var tips: Array[Vector3] = _model.wing_tips()
 	for index in _wingtip_trails.size():
 		var trail: WingtipTrail = _wingtip_trails[index]
@@ -1238,10 +1253,12 @@ func _update_wingtip_trails(delta: float) -> void:
 		_advance_wingtip_trail(trail, tip, vapour if has_tip else 0.0, delta)
 
 
-## How hard the tips are trailing, 0..1. It answers airspeed, not the burner: the
-## vapour is the cue that the ship is moving, so it starts at the middle of the
-## throttle and reaches full strength at cruise. The burner is simply the top of
-## that range, which is also where the burst rule applies.
+## How hard the tips are trailing, 0..1.
+##
+## In FIGHTER it answers airspeed, not the burner: the vapour is the cue that the
+## ship is moving, so it starts at the middle of the throttle and reaches full
+## strength at cruise. The burner is simply the top of that range, which is also
+## where the burst rule applies.
 ##
 ## It is the speed through the air, not the component along the nose. In a turn the
 ## nose outruns the course -- that lag is the skid -- so the forward component
@@ -1249,14 +1266,35 @@ func _update_wingtip_trails(delta: float) -> void:
 ## went quiet exactly when the airframe was loaded. The jink is subtracted for the
 ## same reason the flight model subtracts it: it is a step the hull takes, not air
 ## it flies through.
-func _wingtip_vapour() -> float:
+##
+## GERWALK is a hover, not a wing. It flies sideways and backwards as happily as
+## forwards, so a trail at cruise says nothing about anything. There the vapour
+## marks the throttle instead, the same rule the exhaust follows: the tips only
+## smoke while the ship is gaining speed, and the ribbon dissolves once it settles.
+func _wingtip_vapour(delta: float) -> float:
 	if not _alive:
 		return 0.0
-	var cruise: float = FIGHTER_SPEED if _mode == Mode.FIGHTER else MAX_SPEED
-	var airspeed: float = (velocity - _roll_velocity).length()
-	var floor_speed: float = cruise * WINGTIP_SPEED_FLOOR
+	var air: Vector3 = velocity - _roll_velocity
+	var airspeed: float = air.length()
+	if _mode == Mode.GERWALK:
+		# The climb is the part of the velocity change that runs along the old
+		# course. Projecting onto the current one would call a swerve a climb: the
+		# hover interpolates its velocity through a chord, so a turn's own geometry
+		# shortens the magnitude for a few frames while the throttle never moved.
+		var previous: float = _air_velocity.length()
+		var climb: float = airspeed
+		if previous > 0.01:
+			climb = (air - _air_velocity).dot(_air_velocity / previous)
+		_air_velocity = air
+		if climb / maxf(delta, 0.0001) > ACCELERATION * 0.5:
+			_vapour_hold = WINGTIP_BURST_HOLD
+		else:
+			_vapour_hold = maxf(_vapour_hold - delta, 0.0)
+		return 1.0 if _vapour_hold > 0.0 else 0.0
+	_air_velocity = air
+	var floor_speed: float = FIGHTER_SPEED * WINGTIP_SPEED_FLOOR
 	return clampf(
-		(airspeed - floor_speed) / maxf(cruise - floor_speed, 0.001), 0.0, 1.0
+		(airspeed - floor_speed) / maxf(FIGHTER_SPEED - floor_speed, 0.001), 0.0, 1.0
 	)
 
 

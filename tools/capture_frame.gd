@@ -30,6 +30,8 @@ extends Node
 ## the wake and `--noshadow 1` turns the sun's shadow map off, which is how a dark
 ## patch on the hull is told apart from the trail and from a cast shadow.
 ## `--out PATH` overrides the output file.
+## `--settle N` waits N physics frames with the stick released before the capture,
+## which is how a burst is told apart from a permanent trail.
 ## `--death 1` kills the ship right before the capture, which is how the death
 ## screen and its countdown are reviewed without waiting for a turret to land the
 ## last hit. `--death-delay N` waits N physics frames after the kill before
@@ -127,6 +129,13 @@ func _ready() -> void:
 		Input.action_release(&"move_right")
 		for _i in 4:
 			await get_tree().physics_frame
+
+	# `--settle N` waits N physics frames with the stick released, which is how a
+	# burst is told apart from a permanent trail: at 60 fps the GERWALK vapour holds
+	# for 15 frames and then clears itself.
+	var settle_frames: int = int(_argument("settle", "0"))
+	for _i in settle_frames:
+		await get_tree().physics_frame
 
 	# The wave only lives for a fraction of a second, so it is dropped right before
 	# the capture instead of at the start of the warmup.
