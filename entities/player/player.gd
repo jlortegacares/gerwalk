@@ -123,8 +123,6 @@ const FIGHTER_ROLL_SPEED: float = 55.0
 const FIGHTER_ROLL_ANIM_TIME: float = 0.45
 const FIGHTER_NOSE_PITCH: float = -5.0
 const TRANSFORM_TIME: float = 0.28
-const SHOCKWAVE_LENGTH: float = 7.0
-const SHOCKWAVE_HALF_ANGLE: float = 30.0
 
 ## The nose is long, so the muzzle and the aim beam start past its tip.
 const MUZZLE_DISTANCE: float = 3.05
@@ -335,7 +333,6 @@ func _physics_process(delta: float) -> void:
 	_update_weapons(delta)
 	_update_afterburner_visual(delta)
 	_update_wingtip_trails(delta)
-	_update_shockwave()
 
 
 func _move_gerwalk(delta: float) -> void:
@@ -597,29 +594,6 @@ func _update_afterburner_visual(delta: float) -> void:
 		return
 	var target_fov: float = _base_fov + (FOV_BOOST_KICK if _boosting else 0.0)
 	camera.fov = move_toward(camera.fov, target_fov, FOV_RATE * delta)
-
-
-## The supersonic burst: a cone in front of the nose that shreds enemy fire while
-## the burner is lit. It is a rule, not an aura: the cone used to be drawn as a
-## translucent wedge, and the wedge read as a stray triangle hanging off the nose.
-## Nothing is drawn for it now; the wingtip vapour is what tells the player the
-## burner is on, which is exactly when the rule applies.
-func _update_shockwave() -> void:
-	if not (_alive and _mode == Mode.FIGHTER and _boosting):
-		return
-
-	for node in get_tree().get_nodes_in_group(&"enemy_bullet"):
-		var bullet: Node3D = node as Node3D
-		if bullet == null or bullet.is_queued_for_deletion():
-			continue
-		var offset: Vector3 = bullet.global_position - global_position
-		offset.y = 0.0
-		var distance: float = offset.length()
-		if distance < 0.01 or distance > SHOCKWAVE_LENGTH:
-			continue
-		if rad_to_deg(offset.angle_to(_heading)) <= SHOCKWAVE_HALF_ANGLE:
-			bullet.queue_free()
-			GlobalEventBus.camera_shake_requested.emit(0.1)
 
 
 ## The cone's tip trails behind the nozzle, so growing it must move it back by the

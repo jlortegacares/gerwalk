@@ -568,13 +568,13 @@ aim: it bends the requested bearing by up to 8° and nudges the course at 60 °/
 while coasting, and the dash becomes a barrel roll that steps the ship in the
 tapped direction without turning the nose.
 
-**The shockwave is a rule, not an aura.** While the burner is lit in FIGHTER, any
-enemy projectile inside a 7-unit cone of ±30° off the nose is destroyed in the
-same frame. Every current enemy shot counts as weak: the filter is geometry, not a
-damage threshold. A head-on run through a ring pattern is what the mode is for.
-The cone used to be drawn as a translucent wedge and the wedge read as a stray
-triangle hanging off the nose, so nothing is drawn for it now: the wingtip vapour
-is what says the ship is at speed, and the burner is the top of that range.
+**The burner is speed, not a shield.** It used to carry a frontal cone that
+destroyed enemy fire — 7 units, ±30° off the nose — and the cone outlived its own
+mesh: after the wedge was removed as a stray triangle, the rule kept deleting
+projectiles the player could not see a reason for. It is gone now. The burner's
+tell is the wingtip vapour, and what keeps the ship alive in FIGHTER is the
+airframe — 48.2 u/s, a 400 °/s nose and a barrel roll with i-frames — not a
+hitbox nobody can read.
 
 **The tips leave a vapour trail from the middle of the throttle up.** Each wingtip
 draws a ribbon: a triangle strip rebuilt every frame through the positions the tip
@@ -768,7 +768,6 @@ All values are named constants at the top of each script.
 | Fighter flight model | `entities/player/player.gd` | `FIGHTER_STALL_SPEED` (glide floor), `FIGHTER_DRAG` (cruise to stall), `FIGHTER_GRIP` (course lag) |
 | Transformation | `entities/player/player.gd` | `TRANSFORM_TIME`, `FIGHTER_NOSE_PITCH` |
 | Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED`, `FIGHTER_ROLL_ANIM_TIME` |
-| Supersonic burst | `entities/player/player.gd` | `SHOCKWAVE_LENGTH`, `SHOCKWAVE_HALF_ANGLE` |
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load interval, max salvo, salvo cooldown, damage, turn rate, range, launch angle) |

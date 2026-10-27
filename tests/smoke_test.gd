@@ -1161,20 +1161,17 @@ func _test_transformation() -> void:
 		"the roll settles level when it ends (%.1f deg)" % rad_to_deg(settle)
 	)
 
-	# S6: the burner makes the nose a plow. Fire in the cone dies; fire behind
-	# the ship is untouched.
+	# S6 was withdrawn: the burner no longer clears the sky in front of the nose.
+	# The cone outlived its own mesh for a while, deleting projectiles nobody could
+	# see a reason for, so this pins the absence instead of the rule.
 	_player.set("_heading", Vector3.RIGHT)
 	var front: Projectile = _spawn_enemy_bullet(_player.global_position + Vector3.RIGHT * 4.0)
-	var behind: Projectile = _spawn_enemy_bullet(_player.global_position - Vector3.RIGHT * 4.0)
 	_player.set("_boosting", true)
-	_player.call("_update_shockwave")
+	for _i in 2:
+		await get_tree().physics_frame
 	_check(
-		front == null or front.is_queued_for_deletion(),
-		"the shockwave shreds enemy fire in front of the nose"
-	)
-	_check(
-		behind != null and not behind.is_queued_for_deletion(),
-		"enemy fire behind the ship survives the burst"
+		front != null and is_instance_valid(front) and not front.is_queued_for_deletion(),
+		"the burner no longer shreds enemy fire in front of the nose"
 	)
 	_player.set("_boosting", false)
 	_clear_projectiles()

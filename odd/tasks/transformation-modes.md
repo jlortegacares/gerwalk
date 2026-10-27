@@ -38,9 +38,11 @@ dash button becomes a barrel roll: 0.20 s, lateral displacement of 55 u/s,
 heading preserved, i-frames as today. The roll is presentation only; the capsule
 stays flat on y = 0.
 
-S6. **Supersonic burst.** While boosting in FIGHTER, a frontal shockwave destroys
-enemy projectiles inside a 7-unit cone of +/-30 deg off the nose, and draws that
-cone. Enemy shots outside the cone still hit. GERWALK boosting does not do this.
+S6. **Supersonic burst: withdrawn.** It shipped as a drawn cone that destroyed
+enemy fire in front of the nose while boosting; the mesh went first, as a stray
+triangle, and the invisible rule that outlived it went too. Boosting in FIGHTER no
+longer touches enemy projectiles. The burner is speed, and the ship's defence is
+the airframe.
 
 S7. **The silhouette changes.** FIGHTER sweeps both wings fully aft, pitches the
 nose down 6 deg and sits lower; GERWALK holds the wings forward and the hover
@@ -97,3 +99,11 @@ fighter speed read as 21 px and broke FR-15's 16 px promise; 0.6 lands at 13.4 p
 and leaves the hover's 0.54 unsaturated. Cancelling the trim during the barrel
 roll was the other correction: the trim was bending the course the jink was
 supposed to escape.
+
+L7 (decision, 2026-10-27): S6 is withdrawn. The wedge mesh was removed earlier
+because it read as a stray triangle hanging off the nose, but the cone rule stayed
+behind and kept deleting enemy projectiles with nothing on screen to explain it.
+User, verbatim: "descartala". `_update_shockwave`, `SHOCKWAVE_LENGTH` and
+`SHOCKWAVE_HALF_ANGLE` are gone; the transformation check now pins the absence —
+a shot in front of a boosting fighter survives. Nothing else about the burner
+changed: `BOOST_SPEED`, the tank and the wingtip vapour are untouched.
