@@ -586,12 +586,14 @@ is and a turn bends the line rather than snapping it. The head is bright and the
 tail fades, and it is additive unlike the grey wake: the tips are read against the
 sky, and a bright line is what makes the speed legible from the game camera.
 
-The emission point is the outermost vertex of the airframe, measured off the mesh
-and carried in each wing bone's own frame. The aileron bone sits at 81% of the
-span, so a trail read from it left the wing visibly inboard of its edge; the
-measured tips sit past it, and keeping them in the bone frame is what makes them
-ride the sweep. The values are per side because the rig's wings are not the same
-length, and one fraction of the span would trail one of them short.
+The emission point is the outer edge of the wing, measured off the mesh and carried
+in each wing bone's own frame. The wingtip is a chord rather than a point, and
+which corner of it is outermost depends on the sweep: measured at rest the leading
+corner sticks out furthest, and a point calibrated there floats outside the
+silhouette once the wing folds back. So the measurement is taken at cruise — the
+pose the vapour actually lives in — where the outer edge is the trailing corner.
+Keeping the point in the bone frame is what makes it ride the sweep, and the values
+are per side because the rig's wings are not the same length.
 
 The vapour answers airspeed in FIGHTER, not the burner. It fades in from 55% of
 cruise and is at full strength by cruise, so the tips are already trailing at

@@ -1413,10 +1413,10 @@ func _test_gerwalk_silhouette() -> void:
 
 	# The speed cue is a ribbon off each tip. The wedge that used to draw the burst
 	# is gone; the rule still eats enemy fire (S6), but nothing is painted in front
-	# of the nose any more. The pose is reset to the unswept fighter first: the
-	# sweep is what the geometry is measured against, and the previous check left
-	# the wings near the stop.
-	model.pose_mode(0.0, 0.0)
+	# of the nose any more. The pose is pinned to cruise first: the wingtip is a
+	# chord and which corner is outermost depends on the sweep, so the point is
+	# calibrated -- and checked -- in the pose the vapour actually lives in.
+	model.pose_mode(0.0, Player.WING_SWEEP_CRUISE)
 	var tips: Array[Vector3] = model.wing_tips()
 	var hardpoints: Array[Vector3] = model.wing_anchors()
 	_check(tips.size() == 2, "the airframe carries two wingtips")
@@ -1425,11 +1425,12 @@ func _test_gerwalk_silhouette() -> void:
 			tips[0].length() > hardpoints[0].length() + 0.2,
 			"the vapour leaves from the tip, past the hardpoint"
 		)
-		# Measured off the mesh, not off a bone: the aileron sits at 81% of the
-		# span, so a trail from it read inboard of the wing the player sees.
+		# The point sits on the wing, not past it: the outer edge at cruise is where
+		# the silhouette ends, and a corner measured at rest floats outside it.
 		_check(
-			tips[0].z < -2.05 and tips[1].z > 2.05,
-			"the vapour leaves from the outer edge (z %.2f / %.2f)" % [tips[0].z, tips[1].z]
+			tips[0].z < -1.6 and tips[1].z > 1.6,
+			"the vapour leaves from the outer edge at cruise (z %.2f / %.2f)"
+			% [tips[0].z, tips[1].z]
 		)
 	var trails: Array = _player.get("_wingtip_trails")
 	_check(trails.size() == 2, "the fighter carries a ribbon on each tip")

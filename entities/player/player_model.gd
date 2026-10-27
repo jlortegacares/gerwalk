@@ -114,15 +114,15 @@ const BONE_WING_R: String = "Bone.Wing.R"
 ## a swept wing launches from where the wing actually is.
 const WING_HARDPOINT: float = 0.55
 ## The two wingtips, measured off the airframe and expressed in each wing bone's own
-## rest frame: the outermost vertex of the mesh, which sits well past the aileron
-## bone (that one is at 81% of the span, so a trail from it read inboard). Keeping
+## frame. The wingtip is a chord, not a point: which corner is outermost depends on
+## the sweep, so the measurement is taken at cruise -- the pose the vapour actually
+## lives in -- instead of at rest, where the leading corner sticks out and a point
+## calibrated there floats outside the silhouette once the wing sweeps back. Keeping
 ## the points in the bone frame is what makes them ride the sweep, and per-side
-## values keep them honest -- the rig's wings are not the same length, so one
-## fraction of the span would trail one of them short. The reference is the rest
-## frame on purpose: in the fighter pose the bones sit at rest, so the offset lands
-## exactly on the vertex the player sees, and any other pose carries it along.
-const WING_TIP_L: Vector3 = Vector3(-4.556, 7.338, 0.622)
-const WING_TIP_R: Vector3 = Vector3(2.444, 7.850, 0.451)
+## values keep them honest: the rig's wings are not the same length, so one fraction
+## of the span would trail one of them short.
+const WING_TIP_L: Vector3 = Vector3(-2.275, 7.555, 0.426)
+const WING_TIP_R: Vector3 = Vector3(0.732, 7.536, 0.287)
 const BONE_NOZZLE_L: String = "Exhaust.UPPERx.L"
 const BONE_NOZZLE_R: String = "Exhaust.UPPER.R"
 ## The wrist, not "Hand.R": that name belongs to the link the gunner clip turns,
