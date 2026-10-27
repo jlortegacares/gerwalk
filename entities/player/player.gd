@@ -1242,14 +1242,21 @@ func _update_wingtip_trails(delta: float) -> void:
 ## vapour is the cue that the ship is moving, so it starts at the middle of the
 ## throttle and reaches full strength at cruise. The burner is simply the top of
 ## that range, which is also where the burst rule applies.
+##
+## It is the speed through the air, not the component along the nose. In a turn the
+## nose outruns the course -- that lag is the skid -- so the forward component
+## collapses while the wing is still moving through the air at cruise, and the tips
+## went quiet exactly when the airframe was loaded. The jink is subtracted for the
+## same reason the flight model subtracts it: it is a step the hull takes, not air
+## it flies through.
 func _wingtip_vapour() -> float:
 	if not _alive:
 		return 0.0
 	var cruise: float = FIGHTER_SPEED if _mode == Mode.FIGHTER else MAX_SPEED
-	var forward_speed: float = maxf(velocity.dot(_aim_direction), 0.0)
+	var airspeed: float = (velocity - _roll_velocity).length()
 	var floor_speed: float = cruise * WINGTIP_SPEED_FLOOR
 	return clampf(
-		(forward_speed - floor_speed) / maxf(cruise - floor_speed, 0.001), 0.0, 1.0
+		(airspeed - floor_speed) / maxf(cruise - floor_speed, 0.001), 0.0, 1.0
 	)
 
 

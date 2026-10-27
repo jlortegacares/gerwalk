@@ -1411,6 +1411,17 @@ func _test_gerwalk_silhouette() -> void:
 			"the tips vapour at cruise"
 		)
 
+		# A turn is the case the forward component got wrong: the nose outruns the
+		# course, so the velocity points well off the nose while the wing is still
+		# moving through the air at cruise. Reading the projection made the vapour
+		# die at about 70 deg of skid, which is a hard turn, not a slow ship.
+		_player.velocity = aim.rotated(Vector3.UP, deg_to_rad(70.0)) * Player.FIGHTER_SPEED
+		_check(
+			float(_player.call("_wingtip_vapour")) > 0.9,
+			"the tips still trail through a turn's skid"
+		)
+
+		_player.velocity = aim * Player.FIGHTER_SPEED
 		_player.call("_update_wingtip_trails", 1.0 / 60.0)
 		var visual: Node3D = _player.get("_visual") as Node3D
 		var tip: Vector3 = visual.global_transform * tips[0]
