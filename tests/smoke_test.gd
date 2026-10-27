@@ -1383,9 +1383,9 @@ func _test_gerwalk_silhouette() -> void:
 	)
 	_player.velocity = Vector3.ZERO
 
-	# The burner's tell is a ribbon off each tip. The wedge that used to draw the
-	# burst is gone; the rule still eats enemy fire (S6), but nothing is painted in
-	# front of the nose any more.
+	# The speed cue is a ribbon off each tip. The wedge that used to draw the burst
+	# is gone; the rule still eats enemy fire (S6), but nothing is painted in front
+	# of the nose any more.
 	var tips: Array[Vector3] = model.wing_tips()
 	var hardpoints: Array[Vector3] = model.wing_anchors()
 	_check(tips.size() == 2, "the airframe carries two wingtips")
@@ -1397,7 +1397,20 @@ func _test_gerwalk_silhouette() -> void:
 	var trails: Array = _player.get("_wingtip_trails")
 	_check(trails.size() == 2, "the fighter carries a ribbon on each tip")
 	if trails.size() == 2 and tips.size() == 2:
-		_player.set("_boosting", true)
+		# The tips answer airspeed now, not the burner: the vapour is the cue that
+		# the ship is moving, so it starts at the middle of the throttle.
+		_player.call("_clear_wingtip_trails")
+		_player.velocity = aim * Player.FIGHTER_SPEED * 0.5
+		_check(
+			is_zero_approx(float(_player.call("_wingtip_vapour"))),
+			"the tips are clean at half throttle"
+		)
+		_player.velocity = aim * Player.FIGHTER_SPEED
+		_check(
+			float(_player.call("_wingtip_vapour")) > 0.9,
+			"the tips vapour at cruise"
+		)
+
 		_player.call("_update_wingtip_trails", 1.0 / 60.0)
 		var visual: Node3D = _player.get("_visual") as Node3D
 		var tip: Vector3 = visual.global_transform * tips[0]
@@ -1414,7 +1427,7 @@ func _test_gerwalk_silhouette() -> void:
 		var head: Vector3 = tip
 		for _i in 6:
 			head += Vector3(0.0, 0.0, 1.0)
-			_player.call("_advance_wingtip_trail", trails[0], head, true, 1.0 / 60.0)
+			_player.call("_advance_wingtip_trail", trails[0], head, 1.0, 1.0 / 60.0)
 		var strip: ImmediateMesh = trails[0].get("mesh") as ImmediateMesh
 		_check(
 			strip != null and strip.get_surface_count() == 1,
@@ -1427,14 +1440,14 @@ func _test_gerwalk_silhouette() -> void:
 			"the ribbon ends on the wingtip (%d samples)" % samples.size()
 		)
 
-		# Off the burner the head stops moving and the tail is retired by age.
-		_player.set("_boosting", false)
+		# Slowing down stops the head and retires the tail by age.
 		for _i in 40:
-			_player.call("_advance_wingtip_trail", trails[0], head, false, 1.0 / 30.0)
+			_player.call("_advance_wingtip_trail", trails[0], head, 0.0, 1.0 / 30.0)
 		_check(
 			(trails[0].get("points") as Array).is_empty(),
-			"the ribbon dissolves once the burner is out"
+			"the ribbon dissolves once the ship slows"
 		)
+		_player.velocity = Vector3.ZERO
 
 	_player.call("_start_transform")
 	for _i in 20:
@@ -1602,8 +1615,9 @@ func _test_missile_enemy() -> void:
 ## run: burn, coast, burn out, release and re-arm. Those four states are the
 ## mechanic; checking a single one of them would miss the transitions.
 ## The wake is a visual, but it is wired to the flight model: two emitters, one per
-## nozzle, and the density has to answer the speed rather than a clock. The puffs
-## are left in world space, which is what turns a point emitter into a trail.
+## nozzle, and the density has to answer a change in speed rather than a clock or
+## the speed itself. The puffs are left in world space, which is what turns a point
+## emitter into a trail.
 func _test_exhaust_trail() -> void:
 	var smoke: Array = _player.get("_smoke")
 	_check(smoke.size() == 2, "the airframe carries one exhaust emitter per nozzle")
@@ -1616,21 +1630,20 @@ func _test_exhaust_trail() -> void:
 		"the trail casts no shadow on the hull"
 	)
 
-	# A puff born at the nozzle stays there until the ship outruns it, so the floor
-	# is zero. With a floor the standing ship wore its own plume: from the game
-	# camera the near leg sat behind it, and a grey veil over a white leg reads as
-	# a shadow the other leg does not have.
-	_player.call("_update_smoke", 0.0, 0.0)
-	var idle: float = first.amount_ratio
-	_player.call("_update_smoke", Player.FIGHTER_BOOST_SPEED * 0.25, 0.0)
-	var cruise: float = first.amount_ratio
-	_player.call("_update_smoke", Player.FIGHTER_BOOST_SPEED, 0.0)
-	var flat_out: float = first.amount_ratio
-	_check(is_zero_approx(idle), "a standing ship leaves no trail on its hull")
+	# The wake marks a change in speed, not the speed itself. A steady throttle
+	# leaves the nozzles clean; a puff is born at the nozzle and stays there, so a
+	# standing ship would otherwise wear its own trail.
+	_player.call("_update_smoke", 0.0)
+	var steady: float = first.amount_ratio
+	_player.call("_update_smoke", Player.FIGHTER_ACCELERATION)
+	var climbing: float = first.amount_ratio
+	_player.call("_update_smoke", -Player.FIGHTER_ACCELERATION)
+	var coasting: float = first.amount_ratio
+	_check(is_zero_approx(steady), "a steady throttle leaves the nozzles clean")
 	_check(
-		cruise > idle and flat_out > cruise,
-		"the trail thickens with speed (%.2f at rest, %.2f cruising, %.2f flat out)"
-		% [idle, cruise, flat_out]
+		climbing > steady and is_zero_approx(coasting),
+		"the wake marks the climb, not the speed (%.2f climbing, %.2f coasting)"
+		% [climbing, coasting]
 	)
 
 	var model: PlayerModel = _player.get("_model") as PlayerModel

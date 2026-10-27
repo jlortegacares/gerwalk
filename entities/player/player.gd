@@ -167,21 +167,22 @@ const GUNPOD_BARREL: float = 0.46
 ## speed on its own. Only the density needs a knob: `amount_ratio` drops puffs
 ## without reallocating the buffer or restarting the emission.
 ##
-## The density starts at zero and rises with forward speed. That is not a taste
-## call. A puff is born at the nozzle and stays there until the ship outruns it,
-## so a ship standing on its legs wears its own trail: from the game camera the
-## near leg sat behind the plume, and a grey veil over a white leg reads as a
-## shadow the other leg does not have. Standing still, the nozzles have nothing
-## to leave behind, and that is exactly what the wake should say.
+## The density answers a change in speed, not the speed itself. A steady throttle
+## leaves the nozzles clean, and what the wake marks is the ship climbing: a puff
+## is born at the nozzle and stays there, so a burst during the climb leaves a
+## short smear behind the hull and then nothing. That also keeps a standing ship
+## from wearing its own trail -- from the game camera the near leg sat behind the
+## plume, and a grey veil over a white leg reads as a shadow the other leg does
+## not have.
 const SMOKE_COLOR: Color = Color(0.74, 0.79, 0.85, 1.0)
 const SMOKE_AMOUNT: int = 450
 const SMOKE_LIFETIME: float = 0.50
 const SMOKE_PUFF: float = 0.80
 const SMOKE_DENSITY_HIGH: float = 0.95
 
-## Wingtip vapour, the burner's tell. The cone that used to point the way is gone;
-## a pair of trails off the tips says "this is the fast one" without painting a
-## shape over the arena.
+## Wingtip vapour, the speed cue. The cone that used to point the way is gone; a
+## pair of trails off the tips says "this is moving" without painting a shape over
+## the arena.
 ##
 ## The trail is a ribbon, not a particle wake. Puffs can only ever be as dense as
 ## the rate they spawn at, and at 60 u/s that leaves visible gaps, so the tips read
@@ -189,6 +190,10 @@ const SMOKE_DENSITY_HIGH: float = 0.95
 ## construction: two vertices per sample, no gaps to tune away.
 const WINGTIP_COLOR: Color = Color(0.52, 0.86, 1.0, 0.9)
 const WINGTIP_WIDTH: float = 0.18
+## Where the vapour starts, as a fraction of the mode's cruise. It cannot wait for
+## the burner any more: from the middle of the throttle up the tips are already
+## saying the ship is moving, and the burner is just the top of that range.
+const WINGTIP_SPEED_FLOOR: float = 0.55
 ## Longer-lived than the exhaust wake on purpose: the two lines have to outlast the
 ## grey rope the nozzles drop, or they end inside it and there is nothing to see.
 const WINGTIP_LIFETIME: float = 0.65
@@ -575,7 +580,7 @@ func _update_afterburner_visual(delta: float) -> void:
 	_nozzle_anchors = _model.nozzle_anchors() if _model != null else []
 	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65 + kick * 1.10)
 	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00 + kick * 0.70)
-	_update_smoke(forward_speed, kick)
+	_update_smoke(accel)
 
 	_thruster_plumes_material.albedo_color = Color(
 		lerpf(0.22, 0.5, heat),
@@ -1173,15 +1178,13 @@ func _build_smoke() -> void:
 		_smoke.append(smoke)
 
 
-## Density follows speed; the length of the trail is that same speed applied to a
-## fixed lifetime, because the puffs stay where they were dropped. Nothing here
-## has to rescale the emitters as the ship accelerates, and `amount_ratio` changes
-## without restarting the emission. At a standstill the ratio is zero, so the hull
-## is never behind its own plume.
-func _update_smoke(forward_speed: float, kick: float) -> void:
-	var speed_t: float = clampf(forward_speed / FIGHTER_BOOST_SPEED, 0.0, 1.0)
-	var density: float = speed_t * SMOKE_DENSITY_HIGH
-	density = clampf(density + kick * 0.05, 0.0, 1.0)
+## Density follows the climb, not the speed: a steady throttle leaves the nozzles
+## clean, and what leaves a trail is the ship gaining speed. The puffs keep their
+## own lifetime, so the burst outlives the acceleration by half a second and then
+## clears itself. Nothing here has to rescale the emitters, and `amount_ratio`
+## changes without restarting the emission.
+func _update_smoke(accel: float) -> void:
+	var density: float = clampf(accel / ACCELERATION, 0.0, 1.0) * SMOKE_DENSITY_HIGH
 	for smoke in _smoke:
 		var nozzle: int = int(smoke.get_meta("nozzle", 0))
 		if nozzle < _nozzle_anchors.size():
@@ -1200,6 +1203,10 @@ class WingtipTrail:
 	## The trail's own clock at which each sample was laid down.
 	var born: Array[float] = []
 	var age: float = 0.0
+	## How hard this tip is trailing right now, 0..1. It scales the strip's alpha,
+	## so the vapour fades in as the ship picks up speed instead of popping on at
+	## a threshold.
+	var vapour: float = 0.0
 
 
 ## Two ribbons, one per tip. They are children of the hull but `top_level`, because
@@ -1222,26 +1229,44 @@ func _build_wingtip_trails() -> void:
 func _update_wingtip_trails(delta: float) -> void:
 	if _model == null:
 		return
+	var vapour: float = _wingtip_vapour()
 	var tips: Array[Vector3] = _model.wing_tips()
 	for index in _wingtip_trails.size():
 		var trail: WingtipTrail = _wingtip_trails[index]
 		var has_tip: bool = index < tips.size()
 		var tip: Vector3 = _visual.global_transform * tips[index] if has_tip else Vector3.ZERO
-		_advance_wingtip_trail(trail, tip, has_tip and _boosting, delta)
+		_advance_wingtip_trail(trail, tip, vapour if has_tip else 0.0, delta)
 
 
-## Lays down one frame of vapour and redraws the strip. While the burner is lit the
-## head tracks the tip; when it goes out the head stays where it was and the tail
-## is retired by age, so the line dissolves from its far end instead of vanishing.
+## How hard the tips are trailing, 0..1. It answers airspeed, not the burner: the
+## vapour is the cue that the ship is moving, so it starts at the middle of the
+## throttle and reaches full strength at cruise. The burner is simply the top of
+## that range, which is also where the burst rule applies.
+func _wingtip_vapour() -> float:
+	if not _alive:
+		return 0.0
+	var cruise: float = FIGHTER_SPEED if _mode == Mode.FIGHTER else MAX_SPEED
+	var forward_speed: float = maxf(velocity.dot(_aim_direction), 0.0)
+	var floor_speed: float = cruise * WINGTIP_SPEED_FLOOR
+	return clampf(
+		(forward_speed - floor_speed) / maxf(cruise - floor_speed, 0.001), 0.0, 1.0
+	)
+
+
+## Lays down one frame of vapour and redraws the strip. While the tips are trailing
+## the head tracks the tip; when the ship slows the head stays where it was and the
+## tail is retired by age, so the line dissolves from its far end instead of
+## vanishing.
 func _advance_wingtip_trail(
-	trail: WingtipTrail, tip: Vector3, emitting: bool, delta: float
+	trail: WingtipTrail, tip: Vector3, vapour: float, delta: float
 ) -> void:
+	trail.vapour = vapour
 	trail.age += delta
 	while not trail.born.is_empty() and trail.age - trail.born[0] > WINGTIP_LIFETIME:
 		trail.born.pop_front()
 		trail.points.pop_front()
 
-	if emitting:
+	if vapour > 0.0:
 		if trail.points.is_empty():
 			trail.points.append(tip)
 			trail.born.append(trail.age)
@@ -1298,7 +1323,10 @@ func _rebuild_wingtip_ribbon(trail: WingtipTrail) -> void:
 
 		var fade: float = float(index) / float(count - 1)
 		var color: Color = Color(
-			WINGTIP_COLOR.r, WINGTIP_COLOR.g, WINGTIP_COLOR.b, WINGTIP_COLOR.a * fade * fade
+			WINGTIP_COLOR.r,
+			WINGTIP_COLOR.g,
+			WINGTIP_COLOR.b,
+			WINGTIP_COLOR.a * fade * fade * trail.vapour
 		)
 		trail.mesh.surface_set_color(color)
 		trail.mesh.surface_add_vertex(point - side)

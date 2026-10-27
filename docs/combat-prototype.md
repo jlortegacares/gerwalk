@@ -365,7 +365,7 @@ games rather than two gears of the same one.
 | Aim | mouse or right stick, instantly | the nose, and only the nose |
 | Hull turn | 1800 °/s, presentation only | 400 °/s, and it is the turn rate the game reads |
 | Dash | 3.17x burst, 0.12 s, i-frames, on a double tap of the direction | barrel roll, 55 u/s in the tapped direction over 0.20 s with a 0.45 s turn-over, heading kept; the button still repeats the last side |
-| Afterburner | 42 u/s | 60 u/s, the burst that eats incoming fire, and vapour off both tips |
+| Afterburner | 42 u/s | 60 u/s and the burst that eats incoming fire |
 | Gun | free aim, 16° vulcan fan, base range | 0°, 4° fan, 1.35x muzzle speed, 1.4x range, no plasma lock |
 
 ### The GERWALK airframe
@@ -576,33 +576,43 @@ The cone used to be drawn as a translucent wedge and the wedge read as a stray
 triangle hanging off the nose, so nothing is drawn for it now: the wingtip vapour
 is what says the burner is on, which is exactly when the rule applies.
 
-**The tips leave a vapour trail at full burn.** Each wingtip draws a ribbon: a
-triangle strip rebuilt every frame through the positions the tip has visited, so
-the line is continuous by construction. A particle wake could only ever be as
-dense as the rate it spawns at, and at 60 u/s that leaves visible gaps, which is
-why the tips read as a dotted trail instead. The strip is built in world space
-from the posed aileron bone, so a swept wing trails from where the tip actually is
-and a turn bends the line rather than snapping it. The head is bright and the tail
-fades, and it is additive unlike the grey wake: the tips are read against the sky,
-and a bright line is what makes the speed legible from the game camera.
+**The tips leave a vapour trail from the middle of the throttle up.** Each wingtip
+draws a ribbon: a triangle strip rebuilt every frame through the positions the tip
+has visited, so the line is continuous by construction. A particle wake could only
+ever be as dense as the rate it spawns at, and at 60 u/s that leaves visible gaps,
+which is why the tips read as a dotted trail instead. The strip is built in world
+space from the posed aileron bone, so a swept wing trails from where the tip
+actually is and a turn bends the line rather than snapping it. The head is bright
+and the tail fades, and it is additive unlike the grey wake: the tips are read
+against the sky, and a bright line is what makes the speed legible from the game
+camera.
 
-**The exhaust leaves a trail that grows with speed.** Each nozzle carries a GPU
+The vapour answers airspeed, not the burner. It fades in from 55% of the mode's
+cruise and is at full strength by cruise, so the tips are already trailing at
+medium throttle and the afterburner is simply the top of that range — which is
+also where the burst rule applies. The trail outlives the grey exhaust on purpose:
+the two lines have to survive past the nozzle rope, or they end inside it and
+there is nothing to see.
+
+**The exhaust answers a change in speed, not the speed.** Each nozzle carries a GPU
 emitter that drops soft puffs and leaves them where they were born, so the gap
-between consecutive puffs — and with it the length of the wake — is the speed
-itself: about 24 units at fighter cruise and past 30 at full burn. Density is the
-only knob that needs turning, and `amount_ratio` changes it without restarting the
-emission. This is deliberately a different mechanism from the missile trail: a
-missile needs puffs that outlive the shot and curve with it, which means nodes in
-the scene, while the ship needs a continuous ribbon at a cadence no node budget
-would enjoy. In GERWALK the two emitters sit on the feet, so the wake reads as a
-twin trail converging behind the stance.
+between consecutive puffs — and with it the length of the wake — is whatever
+distance the ship covered while they lived. Density is the only knob that needs
+turning, and `amount_ratio` changes it without restarting the emission. This is
+deliberately a different mechanism from the missile trail: a missile needs puffs
+that outlive the shot and curve with it, which means nodes in the scene, while the
+ship needs a continuous ribbon at a cadence no node budget would enjoy. In GERWALK
+the two emitters sit on the feet, so the wake reads as a twin trail converging
+behind the stance.
 
-At a standstill the ratio is zero, and that is the fix for a bug the eye finds
-before the profiler does: the puffs are born at the nozzle and stay there until the
-ship outruns them, so a ship standing on its legs wore its own plume. From the game
-camera the near leg sat behind it, and a grey veil over a white leg reads as a
-shadow the other leg does not have. With no airflow there is nothing to leave
-behind, so the wake is empty at rest and fills in as soon as the ship moves.
+The density is fed by the measured acceleration, not by the airspeed: a steady
+throttle leaves the nozzles clean, and the puffs only appear while the ship is
+climbing. The burst then outlives the acceleration by the puffs' own lifetime and
+clears itself, so what the player sees is a short smear behind the hull each time
+the speed goes up. That also fixes a bug the eye finds before the profiler does:
+the puffs are born at the nozzle and stay there until the ship outruns them, so a
+ship standing on its legs wore its own plume, and from the game camera a grey veil
+over a white leg reads as a shadow the other leg does not have.
 
 **The camera lead saturates.** FR-15 promises the ship never leads the frame by
 more than 16 px. At 180% speed and then 60 u/s the proportional lead would reach
@@ -724,8 +734,8 @@ All values are named constants at the top of each script.
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
-| Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows speed from zero in `_update_smoke()` |
-| Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`; on the burner only, a ribbon rebuilt each frame from `wing_tips()`, which reads the posed aileron bone |
+| Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows the measured acceleration in `_update_smoke()`, so the nozzles are clean at a steady throttle |
+| Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`, `WINGTIP_SPEED_FLOOR`; a ribbon rebuilt each frame from `wing_tips()`, which reads the posed aileron bone, faded in by `_wingtip_vapour()` |
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |
