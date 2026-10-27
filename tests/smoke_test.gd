@@ -35,6 +35,7 @@ func _ready() -> void:
 	await _test_enemy_patterns()
 	await _test_enemies_roam_the_planet()
 	await _test_missile_enemy()
+	await _test_fighter_enemy()
 	await _test_afterburner()
 	await _test_exhaust_trail()
 	_test_airframe_lighting()
@@ -1660,6 +1661,93 @@ func _test_missile_enemy() -> void:
 	await get_tree().physics_frame
 
 
+## The interceptor is a new flight model, not a new identity: it has to be an
+## `Enemy` so the radar, the bomb and the player's missiles still see it, and it
+## has to fly like the player's own fighter without ever becoming one. That is what
+## this checks -- the airframe, the ceiling, the fact that it never poses into
+## GERWALK, and a guided salvo that leaves the wings.
+func _test_fighter_enemy() -> void:
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	_player.global_position = Vector3.ZERO
+	_player.velocity = Vector3.ZERO
+
+	var enemy: FighterEnemy = _spawn_fighter_enemy(Vector3(55.0, 0.0, 0.0))
+	_check(enemy != null, "the interceptor spawns")
+	if enemy == null:
+		return
+	_check(enemy.is_in_group(&"enemy"), "the interceptor is a target like any other")
+	_check(
+		enemy.current_hp() == FighterEnemy.FIGHTER_HP,
+		"the interceptor carries its own hull (%d hp)" % enemy.current_hp()
+	)
+
+	var model: PlayerModel = enemy.get("_model") as PlayerModel
+	_check(model != null, "the interceptor flies the player's airframe")
+
+	# It accelerates into its ceiling and holds it. The ceiling is the brief's
+	# medium speed, so this is also the check that it cannot reach the burner.
+	var top: float = 0.0
+	for _i in 120:
+		await get_tree().physics_frame
+		if not is_instance_valid(enemy):
+			break
+		top = maxf(top, enemy.velocity.length())
+	_check(
+		top > FighterEnemy.FLOOR_SPEED + 1.0,
+		"the interceptor accelerates off the patrol floor (%.1f u/s)" % top
+	)
+	_check(
+		top <= FighterEnemy.TOP_SPEED + 0.5,
+		"the interceptor never passes the medium ceiling (%.1f u/s)" % top
+	)
+	if model != null:
+		_check(
+			is_zero_approx(float(model.get("_last_gerwalk"))),
+			"the interceptor never poses into GERWALK"
+		)
+
+	# The attack is the salvo, so wait for the state machine to commit instead of
+	# calling the fire function behind its back.
+	var missile: Projectile = null
+	for _i in 360:
+		await get_tree().physics_frame
+		for child in get_children():
+			var shot: Projectile = child as Projectile
+			if shot == null or shot.is_queued_for_deletion():
+				continue
+			if int(shot.get("_team")) != Projectile.Team.ENEMY:
+				continue
+			if int(shot.get("_style")) != Projectile.Style.MISSILE:
+				continue
+			missile = shot
+			break
+		if missile != null:
+			break
+
+	_check(missile != null, "the interceptor launches a missile")
+	if missile != null:
+		_check(bool(missile.call("is_homing")), "the interceptor's missile is guided")
+		_check(
+			missile.get("_target") == _player,
+			"the interceptor's missile chases the ship"
+		)
+		_check(
+			int(missile.get("_damage")) == FighterEnemy.MISSILE_DAMAGE,
+			"the interceptor's missile carries its own warhead"
+		)
+
+	# Break the chase before it lands: this check is about the attack, not about
+	# how much health the player has left at this point in the suite.
+	_player.global_position = Vector3(0.0, 0.0, 160.0)
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+
+
 ## The burner is a tank, not a cooldown, so this drives the whole cycle in one
 ## run: burn, coast, burn out, release and re-arm. Those four states are the
 ## mechanic; checking a single one of them would miss the transitions.
@@ -2746,6 +2834,16 @@ func _spawn_missile_enemy(position: Vector3) -> MissileEnemy:
 	var enemy: MissileEnemy = scene.instantiate() as MissileEnemy
 	_arena.add_child(enemy)
 	enemy.global_position = position
+	return enemy
+
+
+func _spawn_fighter_enemy(position: Vector3) -> FighterEnemy:
+	var scene: PackedScene = load("res://entities/enemy/fighter_enemy.tscn")
+	if scene == null:
+		return null
+	var enemy: FighterEnemy = scene.instantiate() as FighterEnemy
+	_arena.add_child(enemy)
+	enemy.setup_spawn(position)
 	return enemy
 
 

@@ -638,6 +638,41 @@ the lead at 0.6 units instead of letting it scale with speed. The ship stays
 framed at fighter cruise; the camera reads the speed through the FOV kick and the
 terrain, not through the ship sliding off centre.
 
+## The interceptor
+
+The third contact is a mirror. It flies the player's own airframe and the player's
+own nose-first flight model — a heading requested by the nose, a capped turn, an
+airspeed with a floor — and it never transforms: the wings stay folded, the gun
+stays bolted to the airframe, and the missile rack is the only weapon. The paint is
+what keeps friend and foe apart, since the silhouette is deliberately the same one.
+
+The ceiling is the brief's **medium speed**, 34 u/s, between the hover's cruise
+(26.8) and the burner (42). That single number is the whole encounter: GERWALK
+cannot outrun it, so running in the hover only prolongs the pass, while FIGHTER
+(48.2) and the afterburner both leave it behind. The chase is a decision about the
+mode, not about holding a direction. The floor is 15, so a disengaged patrol keeps
+flying instead of hovering in place like a turret, and the wings sweep on the same
+curve the player's fighter uses, measured against this ship's own ceiling.
+
+The turn is capped at 120 deg/s against the player's 400. That is on purpose: the
+pass has to be readable and dodgeable, and a mirror of the player's turn rate would
+turn every merge into a coin flip. It commits inside 46 units and roughly on the
+nose, hangs a 5.5-unit aim beam off the nose for 0.72 s, then fires a pair of
+guided missiles from the wing hardpoints. After the launch it extends for 2.1 s
+before it comes back, which is the window to punish the pass.
+
+The salvo is the launcher's, one step faster: 36 u/s against the launcher's 33, so
+it still closes on a hovering ship but stays under the burner. Both the decoy and
+shooting it down work exactly as they do against the launcher, because it is the
+same `Projectile` with the same enemy-missile layer.
+
+It inherits from `Enemy` for the identity rather than for the movement. Being an
+`Enemy` in the `enemy` group is what makes it a first-class target: the arena
+counts and despawns it, the radar paints it, the bomb damages it and the player's
+own missiles lock it. The turret's roam/orbit state machine, its hull and its
+bullet patterns are all replaced; what survives from the base is the hit flash,
+the damage bookkeeping and the `killed` signal.
+
 ## Death and the next run
 
 Death is a five-second question, not a game over: **SIGNAL LOST** takes the
@@ -774,6 +809,9 @@ All values are named constants at the top of each script.
 | Enemy engagement | `entities/enemy/turret.gd` | `AGGRO_RADIUS`, `LEASH_RADIUS`, `ORBIT_RADIUS`, `PURSUIT_SPEED`, `STRAFE_SPEED` |
 | Missile launcher | `entities/enemy/missile_enemy.gd` | `LAUNCHER_HP`, `SALVO_MISSILES`, `MISSILE_SPEED`, `MISSILE_TURN_RATE`, `MISSILE_DAMAGE`, `MISSILE_LIFETIME`, `MISSILE_SPREAD_DEGREES`, `LAUNCH_TELEGRAPH`, `LAUNCH_RECOVER` |
 | Launcher share of the population | `levels/arena/arena.gd` | `MISSILE_ENEMY_SHARE` |
+| Interceptor flight | `entities/enemy/fighter_enemy.gd` | `FIGHTER_HP`, `TOP_SPEED` (34), `FLOOR_SPEED`, `ACCELERATION`, `TURN_RATE`, `CHASE_RADIUS`, `BREAK_OFF_RADIUS`, `ATTACK_RANGE`, `MIN_LAUNCH_RANGE`, `AIM_TOLERANCE_DEGREES` |
+| Interceptor salvo | `entities/enemy/fighter_enemy.gd` | `SALVO`, `MISSILE_SPEED`, `MISSILE_TURN_RATE`, `MISSILE_DAMAGE`, `MISSILE_SPREAD_DEGREES`, `WARNING_TIME`, `EXTEND_TIME`, `RELOAD_TIME` |
+| Interceptor share of the population | `levels/arena/arena.gd` | `FIGHTER_ENEMY_SHARE` |
 | Enemy roaming | `entities/enemy/turret.gd` | `ROAM_SPEED`, `ROAM_LEG_MIN`, `ROAM_LEG_MAX`, `ROAM_LEG_TIME` |
 | Encounter streaming | `levels/arena/arena.gd` | `MAX_ENEMIES`, `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE` |
 
@@ -792,6 +830,7 @@ entities/player/                CharacterBody3D, camera rig, aim, dash, afterbur
 entities/player/weapon_system.gd  primaries, missiles, the bomb and the decoy, spawned per ship
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
+entities/enemy/fighter_enemy.gd interceptor: the player's airframe and flight model, a missile pass and a break
 ui/hud/                         event-fed bars; the radar polls the enemy group for bearings
 ui/menu/                        boot menu: start, the display and livery settings, the controls reference
 ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
@@ -895,6 +934,14 @@ read as a contact that was not on the scope.
     -- --fighter 26 --out /tmp/gerwalk_fighter.png
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --fighter 2 --boost 26 --out /tmp/gerwalk_burst.png
+
+# Review the interceptor: it is spawned ahead of the ship and flown for N frames.
+# A short hold catches it on the way in; 200 frames catches the aim beam and the
+# salvo, because the approach, the warning and the reload take about three seconds.
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --interceptor 20 --out /tmp/gerwalk_interceptor.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --interceptor 200 --out /tmp/gerwalk_interceptor_salvo.png
 
 # Review a hull detail close up, and split a dark patch into its three causes:
 # `--nosmoke` removes the wake, `--noshadow` the sun's shadow map, `--sunrot`

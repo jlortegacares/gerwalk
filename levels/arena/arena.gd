@@ -56,9 +56,14 @@ const SPAWN_SEED: int = 20261022
 
 const ENEMY_SCENE: PackedScene = preload("res://entities/enemy/turret.tscn")
 const MISSILE_ENEMY_SCENE: PackedScene = preload("res://entities/enemy/missile_enemy.tscn")
+const FIGHTER_ENEMY_SCENE: PackedScene = preload("res://entities/enemy/fighter_enemy.tscn")
 ## One launcher in three. It is a priority target, not the baseline pressure: a ring
 ## of them would turn every encounter into a missile-only fight.
 const MISSILE_ENEMY_SHARE: float = 0.34
+## And one interceptor in five. It is the only contact that chases the ship across
+## the surface, so it stays a minority: a sky of them would make every fight the
+## same chase, and the planet would stop being a place to explore.
+const FIGHTER_ENEMY_SHARE: float = 0.20
 
 const STAR_COUNT: int = 700
 const STAR_MIN_DISTANCE: float = 320.0
@@ -88,9 +93,11 @@ func _ready() -> void:
 	_last_player_position = _player.global_position
 	_rng.seed = SPAWN_SEED
 	# One turret within engagement range so the prototype starts with a fight;
-	# the streaming spawner brings the rest once the ship starts exploring.
+	# the streaming spawner brings the rest once the ship starts exploring. It is
+	# forced to a turret on purpose: the opening contact is the one the player
+	# learns the game on, and a chase or a launcher is not the first lesson.
 	_spawn_timer = SPAWN_INTERVAL
-	_spawn_enemy(FIRST_SPAWN_DISTANCE, FIRST_SPAWN_ANGLE)
+	_spawn_enemy(FIRST_SPAWN_DISTANCE, FIRST_SPAWN_ANGLE, ENEMY_SCENE)
 
 
 func _physics_process(delta: float) -> void:
@@ -251,10 +258,11 @@ func _spawn_angle() -> float:
 	return base + _rng.randf_range(-SPAWN_HEADING_SPREAD, SPAWN_HEADING_SPREAD)
 
 
-func _spawn_enemy(distance: float, angle: float) -> void:
-	var scene: PackedScene = ENEMY_SCENE
-	if _rng.randf() < MISSILE_ENEMY_SHARE:
-		scene = MISSILE_ENEMY_SCENE
+func _spawn_enemy(
+	distance: float, angle: float, scene: PackedScene = null
+) -> void:
+	if scene == null:
+		scene = _pick_enemy_scene()
 
 	var enemy: Enemy = scene.instantiate()
 	_enemies.add_child(enemy)
@@ -262,6 +270,17 @@ func _spawn_enemy(distance: float, angle: float) -> void:
 	var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * distance
 	enemy.setup_spawn(_player.global_position + offset)
 	enemy.killed.connect(_on_enemy_killed)
+
+
+## One roll, three buckets: the share of the launcher and the interceptor are read
+## against the same number so the two cannot drift out of tune with each other.
+func _pick_enemy_scene() -> PackedScene:
+	var roll: float = _rng.randf()
+	if roll < MISSILE_ENEMY_SHARE:
+		return MISSILE_ENEMY_SCENE
+	if roll < MISSILE_ENEMY_SHARE + FIGHTER_ENEMY_SHARE:
+		return FIGHTER_ENEMY_SCENE
+	return ENEMY_SCENE
 
 
 func _on_enemy_killed() -> void:

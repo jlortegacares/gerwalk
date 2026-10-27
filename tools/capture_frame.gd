@@ -227,6 +227,38 @@ func _ready() -> void:
 		if visual != null:
 			visual.visible = true
 
+	# The interceptor is a moving subject, so it is spawned and flown for a fixed
+	# number of frames instead of being placed: `--interceptor N` is the clock. A
+	# short hold catches it on the way in; a long one catches the launch, because
+	# the reload, the warning and the salvo together take about three seconds.
+	var interceptor_frames: int = int(_argument("interceptor", "0"))
+	if interceptor_frames > 0:
+		Input.action_release(&"fire")
+		Input.action_release(&"aim_right")
+		for _i in 20:
+			await get_tree().physics_frame
+		# One subject per capture: the streamer would otherwise drop a turret into
+		# the same frame.
+		var enemies: Node3D = arena.get_node("%Enemies") as Node3D
+		for child in enemies.get_children():
+			child.queue_free()
+		arena.set("_spawn_timer", 9999.0)
+		for _i in 2:
+			await get_tree().physics_frame
+		var forward: Vector3 = ship.get("_heading") as Vector3
+		var interceptor_scene: PackedScene = load(
+			"res://entities/enemy/fighter_enemy.tscn"
+		)
+		var interceptor: FighterEnemy = interceptor_scene.instantiate() as FighterEnemy
+		enemies.add_child(interceptor)
+		interceptor.setup_spawn(ship.global_position + forward * 24.0)
+		for _i in interceptor_frames:
+			await get_tree().physics_frame
+		# A missile that lands mid-hold would blink the hull out of the frame.
+		ship.set("_invulnerable", 0.0)
+		if visual != null:
+			visual.visible = true
+
 	# The death screen is a UI state, so the ship is killed outright here and the
 	# countdown is captured on its first frame, where it still reads the full five.
 	if death:
