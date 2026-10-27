@@ -316,9 +316,9 @@ is normalised against the rate that mode can turn at: a fighter noses round at
 ring would leave the fighter banking a quarter of what the turn asks for. A
 full-rate turn rolls `FIGHTER_BANK` (50 deg) into the inside of the arc, so the
 wing drops on the side the nose is going. Reading the drift term there as well
-would have been worse than ignoring it, because in that mode the drift is mostly
-the crosswind: it left the fighter leaning a constant 8 deg at headings it was
-flying straight. Both rules settle back to level in about a fifth of a second.
+would have been worse than ignoring it, because in that mode the drift is the
+skid — the course trailing the nose — so the two terms would bank twice for one
+turn. Both rules settle back to level in about a fifth of a second.
 
 **The dash is an injection, not an acceleration.** The dash branch overwrites
 `velocity` with `_dash_direction * DASH_SPEED` for 0.12 s, so the old inertia is
@@ -509,8 +509,8 @@ before you need it. Pushing the stick the other way does not flip the nose: the
 ship banks through the arc and arrives pointing backwards. Anyone who wants to
 snap around on the spot has the hover, one button away.
 
-**Three forces, one model: the air, not the ground.** Everything in the table
-above is *airspeed*, which is the ground velocity minus `WIND`. Airspeed is
+**Two rules, one model: the air, not the ground.** Everything in the table
+above is *airspeed*, which is the ground velocity minus the jink. Airspeed is
 tracked as a course plus a magnitude, and that split is the whole model.
 
 - **Stall speed.** Releasing the stick does not stop the ship. The coasting target
@@ -528,12 +528,13 @@ tracked as a course plus a magnitude, and that split is the whole model.
   the ship slows, which is what a wing does. It is deliberately *not* two
   independent axes with their own targets: that model manufactures airspeed out
   of a turn, and a twelve-frame test of it reached 390 u/s sideways.
-- **Wind.** `WIND = (7, 0, 0)` u/s: 15% of cruise and well below stall. It enters
-  as the frame the airspeed is measured in, not as a nudge added to the position,
-  so it is not a free constant push. Downwind the same glide covers 26.3 u/s over
-  ground and upwind 12.3, which is what "frontal resistance" means in practice.
-  GERWALK ignores it: the hover holds station, and that is its reason to exist
-  next to the fighter.
+- **No wind.** The model is deliberately free of a world-space breeze. A constant
+  wind of `(7, 0, 0)` u/s made the same run 15% faster downwind than upwind, and
+  because the wing sweep and the plumes read the speed along the nose, the wings
+  swept on one heading at cruise and stayed straight on the other three. That is a
+  bug the eye finds immediately, so every heading now flies the same speed.
+  GERWALK never answered to it either: the hover holds station, and that is its
+  reason to exist next to the fighter.
 
 **The barrel roll is outside the model.** `_roll_velocity` is subtracted before the
 air is read, so the jink is a scripted 55 u/s step and never airspeed. Without
@@ -677,7 +678,7 @@ All values are named constants at the top of each script.
 | Hull turn and bank | `entities/player/player.gd` | `VISUAL_TURN_RATE`, `MAX_BANK`, `YAW_BANK`, `FIGHTER_BANK`, `BANK_RATE` |
 | Camera spring and lead cap | `entities/player/player_camera.gd` | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX`, `MAX_OFFSET`, `DECAY_PER_SECOND` |
 | Mode split | `entities/player/player.gd` | `FIGHTER_SPEED`, `FIGHTER_BOOST_SPEED`, `FIGHTER_ACCELERATION`, `FIGHTER_TURN_RATE` |
-| Fighter flight model | `entities/player/player.gd` | `FIGHTER_STALL_SPEED` (glide floor), `FIGHTER_DRAG` (cruise to stall), `FIGHTER_GRIP` (course lag), `WIND` |
+| Fighter flight model | `entities/player/player.gd` | `FIGHTER_STALL_SPEED` (glide floor), `FIGHTER_DRAG` (cruise to stall), `FIGHTER_GRIP` (course lag) |
 | Transformation | `entities/player/player.gd` | `TRANSFORM_TIME`, `FIGHTER_NOSE_PITCH` |
 | Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED`, `FIGHTER_ROLL_ANIM_TIME` |
 | Supersonic burst | `entities/player/player.gd` | `SHOCKWAVE_LENGTH`, `SHOCKWAVE_HALF_ANGLE` |
@@ -703,7 +704,7 @@ All values are named constants at the top of each script.
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |
 | Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH`/`NOSE_MATERIAL`/`NOSE_GAP` for the cone cut out of the forward fuselage; every other material keeps the file's paint |
 | Livery preview | `ui/menu/livery_preview.gd` | `TURN_SPEED`, `CAMERA_POSITION`, `CAMERA_TARGET` |
-| Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
+| Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_CRUISE`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |
 | Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter\|game`, `--fighter 1`, `--size`, `--nosun 1`, `--sunrot`, `--out` (orthographic turntable for silhouette and lighting checks) |
 | Muzzle clears the nose | `entities/player/player.gd` | `MUZZLE_DISTANCE`, `BEAM_START` |
@@ -756,9 +757,11 @@ build by hand — fuselage stations, wing outlines, tail surfaces, canopy, limbs
 ships inside the model, and the loft and extrude helpers went with it.
 
 The swing wings are bones too: `Bone.Wing.L/R` rotate about the model's vertical
-axis, and the sweep follows speed rather than the mode — the wings fly extended at
-cruise and only sweep past `FIGHTER_SPEED` (`MAX_SPEED` in GERWALK), which is where
-the burner lives. The thresholds come from the mode the switch is committing to,
+axis, and the sweep follows speed rather than the mode — the wings stay nearly
+straight at the glide floor, contract `WING_SWEEP_CRUISE` (7 deg) as the ship
+reaches `FIGHTER_SPEED` (`MAX_SPEED` in GERWALK), and sweep the rest of the way to
+`WING_SWEEP_BACK` past it, which is where the burner lives. The thresholds come
+from the mode the switch is committing to,
 so a transformation never makes them flap on the way. The afterburner cones are anchored to the exhaust
 bones rather than to a fixed tail offset, so they stay on the engines when the
 stance swings the nacelles forward. The muzzle distance still clears the nose, so
@@ -928,9 +931,6 @@ actions, so it exercises the same path a player does.
   with two degenerate poles, which the roll crosses constantly.
 - **Cities have no suburbs.** A district is a hard-edged square of asphalt that
   stops at the coastline, and nothing else on the surface is built up.
-- **The wind has no readout.** Nothing on the HUD says which way it blows or how
-  hard; the player reads it from the terrain sliding under the ship, and the
-  enemies ignore it. A one-arrow indicator is the obvious next step.
 - **The skid has no airspeed cue.** During a hard turn the nose and the ground
   track diverge, and the divergence is only visible as the terrain drifting
   sideways. Nothing draws the velocity vector, so the drift is felt before it is

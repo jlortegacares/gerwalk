@@ -104,11 +104,10 @@ const FIGHTER_DRAG: float = (FIGHTER_SPEED - FIGHTER_STALL_SPEED) / FIGHTER_STOP
 ## 226 deg/s against a 400 deg/s nose, so a hard reversal opens a real skid, and
 ## at stall speed the same grip turns the course faster than the nose can.
 const FIGHTER_GRIP: float = 190.0
-## Constant world wind, in units/s, blowing towards +X (screen right). Below the
-## stall speed, so even a coast straight into it still moves forwards, and 15% of
-## cruise, so it is felt without taking the ship for a ride. Only FIGHTER answers
-## to it: GERWALK is a ground-effect hover holding station, not an aircraft.
-const WIND: Vector3 = Vector3(7.0, 0.0, 0.0)
+## The airframe has no constant wind. A world-space breeze made one heading
+## cruise 15% faster than its opposite and swept the wings on that heading alone,
+## which reads as a bug in the flight model rather than as weather.
+##
 ## The transformation bleeds momentum at the old fighter drag, so the 0.28 s
 ## switch feels exactly as it did before the flight model grew a stall speed.
 const TRANSFORM_DRAG: float = FIGHTER_SPEED / FIGHTER_STOP_TIME
@@ -132,10 +131,11 @@ const MUZZLE_DISTANCE: float = 3.05
 const BEAM_START: float = 2.60
 const BEAM_LENGTH: float = 2.0
 
-## Wing sweep in degrees: nearly straight at rest, swept back when the burner is
-## lit. The wing already carries about 27 degrees of leading-edge sweep, so the
-## tip ends up near 59 degrees at full burn.
+## Wing sweep in degrees: nearly straight at rest, a slight contraction at cruise,
+## and swept back when the burner is lit. The wing already carries about 27 degrees
+## of leading-edge sweep, so the tip ends up near 59 degrees at full burn.
 const WING_SWEEP_FORWARD: float = 0.0
+const WING_SWEEP_CRUISE: float = 7.0
 const WING_SWEEP_BACK: float = 32.0
 
 ## Desert airframe from the reference sheet: the gunpod is the only piece still
@@ -330,11 +330,15 @@ func _move_gerwalk(delta: float) -> void:
 ## a capped rate, so a reversal is a 0.45 s bank instead of a snap turn.
 ##
 ## The air, not the ground, is what the airframe answers to. Airspeed is the
-## velocity minus the wind, and it has two properties: where it points and how
+## velocity minus the jink, and it has two properties: where it points and how
 ## fast it goes. The throttle owns the speed and the airframe owns how quickly the
 ## course may follow the nose, which is the whole flight model in one line. Drive
 ## the two axes independently instead and a turn manufactures airspeed out of
 ## nothing.
+##
+## Every heading flies the same speed. The model is deliberately free of a
+## world-space wind: one made a tailwind run 15% faster than the same run upwind,
+## and the visual read that as wings swept on one side of the screen only.
 ##
 ## Releasing the stick is not a stop: the speed settles at the stall speed, so the
 ## ship keeps gliding wherever its nose happens to point.
@@ -370,10 +374,11 @@ func _move_fighter(delta: float) -> void:
 	_heading = Vector3(cos(yaw), 0.0, -sin(yaw))
 	var right: Vector3 = Vector3(-_heading.z, 0.0, _heading.x)
 
-	# Airspeed is the velocity through the air: the ground velocity minus the wind.
-	# Tracking it as a course plus a magnitude is what lets wind slow a head-on run
-	# and push a downwind one without ever being confused with thrust.
-	var air: Vector3 = velocity - WIND - _roll_velocity
+	# Airspeed is the velocity through the air: the ground velocity minus the jink,
+	# which is a step the airframe takes rather than air it flies through. Tracking
+	# it as a course plus a magnitude is what keeps the turn's own geometry from
+	# being mistaken for thrust.
+	var air: Vector3 = velocity - _roll_velocity
 	var airspeed: float = air.length()
 	var course: float = atan2(-air.z, air.x) if airspeed > 0.001 else yaw
 
@@ -406,7 +411,7 @@ func _move_fighter(delta: float) -> void:
 		var step: float = sin(progress * PI) * FIGHTER_ROLL_SPEED
 		push = (_heading * _roll_local.x + right * _roll_local.y) * step
 
-	velocity = Vector3(cos(course), 0.0, -sin(course)) * airspeed + push + WIND
+	velocity = Vector3(cos(course), 0.0, -sin(course)) * airspeed + push
 	velocity.y = 0.0
 	_roll_velocity = push
 	move_and_slide()
@@ -508,15 +513,23 @@ func _update_afterburner_visual(delta: float) -> void:
 	_mode_blend = move_toward(_mode_blend, target_blend, delta / TRANSFORM_TIME)
 	_visual.rotation.z = deg_to_rad(FIGHTER_NOSE_PITCH) * _mode_blend
 
-	# The wings answer speed, not the mode: they fly extended at cruise and only
-	# sweep once the ship is pushed past it, which is where the burner lives. The
-	# thresholds come from the mode being committed to, not from the blend, so a
-	# transformation never makes the wings flap back and forth on the way.
+	# The wings answer speed, not the mode: they contract a little as the ship
+	# reaches cruise and sweep the rest of the way once it is pushed past it, which
+	# is where the burner lives. The thresholds come from the mode being committed
+	# to, not from the blend, so a transformation never makes the wings flap back
+	# and forth on the way.
 	var fighter: bool = visual_mode == Mode.FIGHTER
 	var cruise: float = FIGHTER_SPEED if fighter else MAX_SPEED
 	var ceiling: float = FIGHTER_BOOST_SPEED if fighter else BOOST_SPEED
-	var sweep_t: float = clampf((forward_speed - cruise) / maxf(ceiling - cruise, 0.001), 0.0, 1.0)
-	var sweep: float = lerpf(WING_SWEEP_FORWARD, WING_SWEEP_BACK, sweep_t)
+	var sweep: float
+	if forward_speed <= cruise:
+		var approach: float = clampf(forward_speed / maxf(cruise, 0.001), 0.0, 1.0)
+		sweep = lerpf(WING_SWEEP_FORWARD, WING_SWEEP_CRUISE, approach)
+	else:
+		var past: float = clampf(
+			(forward_speed - cruise) / maxf(ceiling - cruise, 0.001), 0.0, 1.0
+		)
+		sweep = lerpf(WING_SWEEP_CRUISE, WING_SWEEP_BACK, past)
 	_update_mode_pose(sweep)
 
 	# The flames hang off the nozzles, and the nozzles are the feet: the stance
@@ -730,9 +743,9 @@ func _update_bank(delta: float) -> void:
 		return
 
 	# A fighter leans into the turn with the whole wing, because in this mode the
-	# entire bank comes from the turn: there is no lateral drift to read. Reading
-	# it anyway is worse than not reading it — the drift term would pick up the
-	# crosswind and leave the ship leaning at headings it was not turning through.
+	# entire bank comes from the turn: the drift term would pick up the skid, which
+	# is the course trailing the nose rather than the ship leaning, and bank twice
+	# for one turn.
 	var target: float
 	if fighter:
 		target = -deg_to_rad(FIGHTER_BANK) * yaw_rate

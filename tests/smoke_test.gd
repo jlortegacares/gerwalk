@@ -958,7 +958,7 @@ func _test_double_tap_dash() -> void:
 
 ## The transformation contract: two real modes, a switch that costs commitment,
 ## a fighter that flies at 180% on a stall-speed floor, a course that lags the
-## nose into a skid, a constant wind that moves it, a gun welded to the airframe,
+## nose into a skid, the same speed in every heading, a gun welded to the airframe,
 ## and a burner that shreds what it flies through.
 func _test_transformation() -> void:
 	_release_all_input()
@@ -976,15 +976,14 @@ func _test_transformation() -> void:
 		await get_tree().physics_frame
 	_check(_player.is_fighter(), "the ship reaches FIGHTER after 0.28 s")
 
-	# S3: 180% of the hover cruise, measured in airspeed. The ship is flying
-	# downwind here, so the ground speed is the airspeed plus the wind and is not
-	# the spec number.
+	# S3: 180% of the hover cruise, measured in airspeed, and the same whichever
+	# way the ship is pointed.
 	_player.set("_heading", Vector3.RIGHT)
 	_player.velocity = Vector3.RIGHT * 20.0
 	Input.action_press(&"move_right")
 	for _i in 20:
 		await get_tree().physics_frame
-	var fighter_speed: float = (_player.velocity - Player.WIND).length()
+	var fighter_speed: float = _player.velocity.length()
 	_check(
 		absf(fighter_speed / Player.MAX_SPEED - 1.8) < 0.05,
 		"fighter cruise is %.0f%% of the hover's (%.1f u/s airspeed)"
@@ -1181,11 +1180,11 @@ func _test_transformation() -> void:
 	await get_tree().physics_frame
 
 	# S3: the fighter bleeds from cruise down to its stall speed in the old 0.35 s
-	# and then keeps flying: drag, not a brake. The airspeed is set to cruise, so
-	# the ground velocity is that plus the wind.
+	# and then keeps flying: drag, not a brake. The velocity is set to cruise along
+	# the nose, so the airspeed starts at the spec number.
 	_player.set("_heading", Vector3.RIGHT)
-	_player.velocity = Vector3.RIGHT * Player.FIGHTER_SPEED + Player.WIND
-	var glide_speed: float = Player.FIGHTER_STALL_SPEED + Player.WIND.length()
+	_player.velocity = Vector3.RIGHT * Player.FIGHTER_SPEED
+	var glide_speed: float = Player.FIGHTER_STALL_SPEED
 	var stall_frames: int = 0
 	while stall_frames < 40 and _flat_speed() > glide_speed + 0.6:
 		await get_tree().physics_frame
@@ -1212,7 +1211,7 @@ func _test_transformation() -> void:
 	# S3: the nose turns faster than the air does. Asking for a reversal, the ship
 	# keeps travelling the old way while the nose already points the new one.
 	_player.set("_heading", Vector3.RIGHT)
-	_player.velocity = Vector3.RIGHT * Player.FIGHTER_SPEED + Player.WIND
+	_player.velocity = Vector3.RIGHT * Player.FIGHTER_SPEED
 	Input.action_press(&"move_left")
 	for _i in 12:
 		await get_tree().physics_frame
@@ -1227,25 +1226,24 @@ func _test_transformation() -> void:
 		"the skid bleeds out once the nose settles (%.1f u/s)" % skid
 	)
 
-	# S3: wind is a world vector. The same coast rides it downwind and fights it
-	# upwind, so ground speed is not airspeed.
-	_player.set("_heading", Vector3.RIGHT)
-	_player.velocity = Vector3.ZERO
-	for _i in 90:
-		await get_tree().physics_frame
-	var downwind: float = _player.velocity.x
+	# S3: every heading flies the same speed. A world-space wind used to make the
+	# same run 15% faster downwind than upwind, and the wing sweep read that as
+	# wings swept on one side of the screen only.
+	var coast: Array[float] = []
+	for heading in [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK]:
+		_player.set("_heading", heading)
+		_player.velocity = Vector3.ZERO
+		for _i in 90:
+			await get_tree().physics_frame
+		coast.append(_flat_speed())
 	_check(
-		absf(downwind - (Player.FIGHTER_STALL_SPEED + Player.WIND.x)) < 1.0,
-		"downwind the glide rides the wind (%.1f u/s over ground)" % downwind
+		absf(coast[0] - Player.FIGHTER_STALL_SPEED) < 1.0,
+		"the glide holds the stall floor (%.1f u/s)" % coast[0]
 	)
-	_player.set("_heading", Vector3.LEFT)
-	_player.velocity = Vector3.ZERO
-	for _i in 90:
-		await get_tree().physics_frame
-	var upwind: float = _player.velocity.x
+	var spread: float = coast.max() - coast.min()
 	_check(
-		absf(upwind + (Player.FIGHTER_STALL_SPEED - Player.WIND.x)) < 1.0,
-		"upwind the same glide is slower over ground (%.1f u/s)" % upwind
+		spread < 0.5,
+		"the glide is the same in every heading (spread %.2f u/s)" % spread
 	)
 
 	# S1: back to the hover, and the gun is free the moment it lands.
@@ -1254,14 +1252,14 @@ func _test_transformation() -> void:
 		await get_tree().physics_frame
 	_check(not _player.is_fighter(), "the ship returns to GERWALK")
 
-	# S3: the hover does not answer to the wind. Holding station is its whole
-	# reason to exist next to the fighter.
-	_player.velocity = Player.WIND * 3.0
+	# S3: the hover holds station. A push that the fighter would ride is killed by
+	# the hover's friction, which is its whole reason to exist next to the fighter.
+	_player.velocity = Vector3(21.0, 0.0, 0.0)
 	for _i in 20:
 		await get_tree().physics_frame
 	_check(
 		_flat_speed() < 0.2,
-		"the wind does not carry the hover (%.2f u/s)" % _flat_speed()
+		"the hover holds station after a push (%.2f u/s)" % _flat_speed()
 	)
 
 	Input.action_press(&"aim_up")
@@ -1331,15 +1329,22 @@ func _test_gerwalk_silhouette() -> void:
 	_check(absf(stowed.z) < 0.15, "FIGHTER stows the gunpod on the centreline (z %.2f)" % stowed.z)
 	_check(stowed.y < -0.2, "the stowed gunpod rides under the belly (y %.2f)" % stowed.y)
 
-	# The wings answer speed, not the mode: extended at cruise, swept only once the
-	# ship is pushed past it. Driving the visual directly keeps the check out of the
-	# flight model's hands.
+	# The wings answer speed, not the mode: nearly straight at the glide floor, a
+	# slight contraction at cruise, and the rest of the sweep once the ship is
+	# pushed past it. Driving the visual directly keeps the check out of the flight
+	# model's hands.
 	var aim: Vector3 = _player.get("_aim_direction")
+	_player.velocity = aim * Player.FIGHTER_STALL_SPEED
+	_player.call("_update_afterburner_visual", 0.0)
+	_check(
+		model.sweep_degrees < 4.0,
+		"the wings stay nearly straight at the glide floor (%.1f deg)" % model.sweep_degrees
+	)
 	_player.velocity = aim * (Player.FIGHTER_SPEED - 1.0)
 	_player.call("_update_afterburner_visual", 0.0)
 	_check(
-		model.sweep_degrees < 2.0,
-		"the wings stay extended at cruise (%.1f deg)" % model.sweep_degrees
+		model.sweep_degrees > 4.0 and model.sweep_degrees < 12.0,
+		"the wings contract a little at cruise (%.1f deg)" % model.sweep_degrees
 	)
 	_player.velocity = aim * (Player.FIGHTER_BOOST_SPEED - 2.0)
 	_player.call("_update_afterburner_visual", 0.0)
@@ -2744,7 +2749,7 @@ func _flat_speed() -> float:
 func _sideways_airspeed() -> float:
 	var heading: Vector3 = _player.get("_heading")
 	var right: Vector3 = Vector3(-heading.z, 0.0, heading.x)
-	return (_player.velocity - Player.WIND).dot(right)
+	return _player.velocity.dot(right)
 
 
 ## The fighter jink's push split on the airframe: x along the nose, y to its
