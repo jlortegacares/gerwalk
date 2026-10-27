@@ -1228,14 +1228,21 @@ func _test_transformation() -> void:
 
 	# S3: every heading flies the same speed. A world-space wind used to make the
 	# same run 15% faster downwind than upwind, and the wing sweep read that as
-	# wings swept on one side of the screen only.
+	# wings swept on one side of the screen only. The window is cleared of combat:
+	# enemies draw from the global RNG and a hit pushes the ship 11 u/s, which
+	# moved the measurement by more than the tolerance.
+	_clear_enemies()
+	_clear_projectiles()
+	_player.set("_invulnerable", 1000.0)
+	await get_tree().physics_frame
 	var coast: Array[float] = []
 	for heading in [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK]:
 		_player.set("_heading", heading)
 		_player.velocity = Vector3.ZERO
-		for _i in 90:
+		for _i in 60:
 			await get_tree().physics_frame
 		coast.append(_flat_speed())
+	_player.set("_invulnerable", 0.0)
 	_check(
 		absf(coast[0] - Player.FIGHTER_STALL_SPEED) < 1.0,
 		"the glide holds the stall floor (%.1f u/s)" % coast[0]
