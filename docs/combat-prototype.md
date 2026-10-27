@@ -704,7 +704,7 @@ All values are named constants at the top of each script.
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |
 | Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH`/`NOSE_MATERIAL`/`NOSE_GAP` for the cone cut out of the forward fuselage; every other material keeps the file's paint |
 | Livery preview | `ui/menu/livery_preview.gd` | `TURN_SPEED`, `CAMERA_POSITION`, `CAMERA_TARGET` |
-| Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD`, `WING_SWEEP_CRUISE`, `WING_SWEEP_BACK`, applied to `Bone.Wing.L/R` in `player_model.gd` |
+| Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD` (0 deg), `WING_SWEEP_CRUISE` (14 deg), `WING_SWEEP_BACK` (38 deg), `WING_SWEEP_RATE` (60 deg/s), applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |
 | Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter\|game`, `--fighter 1`, `--size`, `--nosun 1`, `--sunrot`, `--out` (orthographic turntable for silhouette and lighting checks) |
 | Muzzle clears the nose | `entities/player/player.gd` | `MUZZLE_DISTANCE`, `BEAM_START` |
@@ -758,11 +758,16 @@ ships inside the model, and the loft and extrude helpers went with it.
 
 The swing wings are bones too: `Bone.Wing.L/R` rotate about the model's vertical
 axis, and the sweep follows speed rather than the mode — the wings stay nearly
-straight at the glide floor, contract `WING_SWEEP_CRUISE` (7 deg) as the ship
+straight at the glide floor, contract `WING_SWEEP_CRUISE` (14 deg) as the ship
 reaches `FIGHTER_SPEED` (`MAX_SPEED` in GERWALK), and sweep the rest of the way to
-`WING_SWEEP_BACK` past it, which is where the burner lives. The thresholds come
-from the mode the switch is committing to,
-so a transformation never makes them flap on the way. The afterburner cones are anchored to the exhaust
+`WING_SWEEP_BACK` (38 deg) past it, which is where the burner lives. The low-speed
+leg is eased (squared, not linear) so a slow fighter keeps its span and only folds
+as it closes on cruise: at the stall floor the wings sit at about 2 deg, and
+halfway to cruise they are still under 4. The angle is animated, not derived: the
+wing travels at `WING_SWEEP_RATE` (60 deg/s), because the fighter reaches cruise in
+a handful of frames and a derived angle snapped from straight to swept between two
+of them. The thresholds come from the mode the switch is committing to, so a
+transformation never makes them flap on the way. The afterburner cones are anchored to the exhaust
 bones rather than to a fixed tail offset, so they stay on the engines when the
 stance swings the nacelles forward. The muzzle distance still clears the nose, so
 bullets leave the airframe instead of spawning inside it.

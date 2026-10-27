@@ -1330,9 +1330,9 @@ func _test_gerwalk_silhouette() -> void:
 	_check(stowed.y < -0.2, "the stowed gunpod rides under the belly (y %.2f)" % stowed.y)
 
 	# The wings answer speed, not the mode: nearly straight at the glide floor, a
-	# slight contraction at cruise, and the rest of the sweep once the ship is
+	# clear contraction at cruise, and the rest of the sweep once the ship is
 	# pushed past it. Driving the visual directly keeps the check out of the flight
-	# model's hands.
+	# model's hands, and a zero delta poses the current speed instead of animating.
 	var aim: Vector3 = _player.get("_aim_direction")
 	_player.velocity = aim * Player.FIGHTER_STALL_SPEED
 	_player.call("_update_afterburner_visual", 0.0)
@@ -1340,17 +1340,39 @@ func _test_gerwalk_silhouette() -> void:
 		model.sweep_degrees < 4.0,
 		"the wings stay nearly straight at the glide floor (%.1f deg)" % model.sweep_degrees
 	)
+	# Eased, not linear: halfway to cruise the wings are still well short of half
+	# the cruise contraction, so the sweep reads as speed rather than as throttle.
+	_player.velocity = aim * (Player.FIGHTER_SPEED * 0.5)
+	_player.call("_update_afterburner_visual", 0.0)
+	_check(
+		model.sweep_degrees < Player.WING_SWEEP_CRUISE * 0.4,
+		"the wings stay open at half cruise (%.1f deg)" % model.sweep_degrees
+	)
 	_player.velocity = aim * (Player.FIGHTER_SPEED - 1.0)
 	_player.call("_update_afterburner_visual", 0.0)
 	_check(
-		model.sweep_degrees > 4.0 and model.sweep_degrees < 12.0,
-		"the wings contract a little at cruise (%.1f deg)" % model.sweep_degrees
+		model.sweep_degrees > 10.0 and model.sweep_degrees < 18.0,
+		"the wings contract at cruise (%.1f deg)" % model.sweep_degrees
 	)
 	_player.velocity = aim * (Player.FIGHTER_BOOST_SPEED - 2.0)
 	_player.call("_update_afterburner_visual", 0.0)
 	_check(
-		model.sweep_degrees > 25.0,
+		model.sweep_degrees > 30.0,
 		"the wings sweep past cruise (%.1f deg)" % model.sweep_degrees
+	)
+
+	# The angle is a mechanism, not a readout: the throttle jumps in a couple of
+	# frames and the wing still has to travel there.
+	_player.velocity = aim * Player.FIGHTER_STALL_SPEED
+	_player.call("_update_afterburner_visual", 0.0)
+	var settled: float = model.sweep_degrees
+	_player.velocity = aim * Player.FIGHTER_BOOST_SPEED
+	_player.call("_update_afterburner_visual", 1.0 / 60.0)
+	_check(
+		model.sweep_degrees > settled
+		and model.sweep_degrees < Player.WING_SWEEP_BACK - 10.0,
+		"the wings travel to the stop instead of snapping (%.1f deg in one frame)"
+		% model.sweep_degrees
 	)
 	_player.velocity = Vector3.ZERO
 

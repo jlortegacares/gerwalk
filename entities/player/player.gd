@@ -131,12 +131,16 @@ const MUZZLE_DISTANCE: float = 3.05
 const BEAM_START: float = 2.60
 const BEAM_LENGTH: float = 2.0
 
-## Wing sweep in degrees: nearly straight at rest, a slight contraction at cruise,
+## Wing sweep in degrees: nearly straight at rest, a clear contraction at cruise,
 ## and swept back when the burner is lit. The wing already carries about 27 degrees
-## of leading-edge sweep, so the tip ends up near 59 degrees at full burn.
+## of leading-edge sweep, so the tip ends up near 65 degrees at full burn.
 const WING_SWEEP_FORWARD: float = 0.0
-const WING_SWEEP_CRUISE: float = 7.0
-const WING_SWEEP_BACK: float = 32.0
+const WING_SWEEP_CRUISE: float = 14.0
+const WING_SWEEP_BACK: float = 38.0
+## Degrees per second the wings travel between those stops. The throttle changes in
+## a couple of frames, so the wing needs its own clock to read as a mechanism
+## instead of a snap: 0 to full sweep takes a bit over half a second.
+const WING_SWEEP_RATE: float = 60.0
 
 ## Desert airframe from the reference sheet: the gunpod is the only piece still
 ## built by hand, so only its two materials survive.
@@ -207,6 +211,10 @@ var _visual_yaw_prev: float = 0.0
 var _bank: float = 0.0
 var _forward_speed: float = 0.0
 var _thrust_kick: float = 0.0
+## Wing angle the pose was last built with. The wings travel to their target at a
+## fixed rate instead of following the throttle frame by frame: the fighter reaches
+## cruise in a handful of frames, so a derived angle would snap.
+var _wing_sweep: float = 0.0
 
 var _mode: Mode = Mode.GERWALK
 var _transform_time: float = 0.0
@@ -513,24 +521,35 @@ func _update_afterburner_visual(delta: float) -> void:
 	_mode_blend = move_toward(_mode_blend, target_blend, delta / TRANSFORM_TIME)
 	_visual.rotation.z = deg_to_rad(FIGHTER_NOSE_PITCH) * _mode_blend
 
-	# The wings answer speed, not the mode: they contract a little as the ship
-	# reaches cruise and sweep the rest of the way once it is pushed past it, which
-	# is where the burner lives. The thresholds come from the mode being committed
-	# to, not from the blend, so a transformation never makes the wings flap back
-	# and forth on the way.
+	# The wings answer speed, not the mode: they contract as the ship reaches cruise
+	# and sweep the rest of the way once it is pushed past it, which is where the
+	# burner lives. The thresholds come from the mode being committed to, not from
+	# the blend, so a transformation never makes the wings flap back and forth on
+	# the way.
 	var fighter: bool = visual_mode == Mode.FIGHTER
 	var cruise: float = FIGHTER_SPEED if fighter else MAX_SPEED
 	var ceiling: float = FIGHTER_BOOST_SPEED if fighter else BOOST_SPEED
-	var sweep: float
+	var target_sweep: float
 	if forward_speed <= cruise:
 		var approach: float = clampf(forward_speed / maxf(cruise, 0.001), 0.0, 1.0)
-		sweep = lerpf(WING_SWEEP_FORWARD, WING_SWEEP_CRUISE, approach)
+		# Squared, not linear: a swing wing keeps its span while it is slow and
+		# folds only as it closes on cruise. Linear put the wings a third of the
+		# way back at a walk, which read as the sweep answering the throttle
+		# position rather than the speed.
+		target_sweep = lerpf(WING_SWEEP_FORWARD, WING_SWEEP_CRUISE, approach * approach)
 	else:
 		var past: float = clampf(
 			(forward_speed - cruise) / maxf(ceiling - cruise, 0.001), 0.0, 1.0
 		)
-		sweep = lerpf(WING_SWEEP_CRUISE, WING_SWEEP_BACK, past)
-	_update_mode_pose(sweep)
+		target_sweep = lerpf(WING_SWEEP_CRUISE, WING_SWEEP_BACK, past)
+	# The angle is a mechanism, not a readout: the wing travels to the stop at
+	# `WING_SWEEP_RATE` and the throttle is free to jump. A zero delta means "pose
+	# the current speed", which is what the tools use for a still.
+	if delta > 0.0:
+		_wing_sweep = move_toward(_wing_sweep, target_sweep, WING_SWEEP_RATE * delta)
+	else:
+		_wing_sweep = target_sweep
+	_update_mode_pose(_wing_sweep)
 
 	# The flames hang off the nozzles, and the nozzles are the feet: the stance
 	# swings them forward, so the anchors are read back after the pose.
