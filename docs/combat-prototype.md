@@ -576,12 +576,15 @@ The cone used to be drawn as a translucent wedge and the wedge read as a stray
 triangle hanging off the nose, so nothing is drawn for it now: the wingtip vapour
 is what says the burner is on, which is exactly when the rule applies.
 
-**The tips leave a vapour trail at full burn.** Two emitters sit on the wingtips
-and only run on the afterburner. Like the exhaust, the puffs are dropped in world
-space, so the trail lengthens with the speed on its own; the tips are re-posed
-every frame from the wing bone, so a swept wing trails from where the tip actually
-is. They are additive, unlike the grey wake, because the tips are read against the
-sky and a bright line is what makes the speed legible from the game camera.
+**The tips leave a vapour trail at full burn.** Each wingtip draws a ribbon: a
+triangle strip rebuilt every frame through the positions the tip has visited, so
+the line is continuous by construction. A particle wake could only ever be as
+dense as the rate it spawns at, and at 60 u/s that leaves visible gaps, which is
+why the tips read as a dotted trail instead. The strip is built in world space
+from the posed aileron bone, so a swept wing trails from where the tip actually is
+and a turn bends the line rather than snapping it. The head is bright and the tail
+fades, and it is additive unlike the grey wake: the tips are read against the sky,
+and a bright line is what makes the speed legible from the game camera.
 
 **The exhaust leaves a trail that grows with speed.** Each nozzle carries a GPU
 emitter that drops soft puffs and leaves them where they were born, so the gap
@@ -722,7 +725,7 @@ All values are named constants at the top of each script.
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
 | Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows speed from zero in `_update_smoke()` |
-| Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_AMOUNT`, `WINGTIP_LIFETIME`, `WINGTIP_PUFF`, `WINGTIP_COLOR`; on the burner only, positioned from `wing_tips()` (`WING_TIP`) |
+| Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`; on the burner only, a ribbon rebuilt each frame from `wing_tips()`, which reads the posed aileron bone |
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |

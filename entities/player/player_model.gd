@@ -113,10 +113,12 @@ const BONE_WING_R: String = "Bone.Wing.R"
 ## the point is pushed outboard along the wing's own axis, which carries the sweep:
 ## a swept wing launches from where the wing actually is.
 const WING_HARDPOINT: float = 0.55
-## The wingtip, same trick and same axis as the hardpoint, pushed out to where the
-## wing ends. It rides the sweep for free: the bone it is read from is the one the
-## sweep turns.
-const WING_TIP: float = 0.85
+## The aileron sits on the outer trailing corner, which is where the wing ends and
+## therefore where the tip vapour leaves from. Reading the bone instead of a
+## fraction of the span keeps the two sides honest: the rig's wings are not exactly
+## the same length, and a single constant would trail one of them inboard.
+const BONE_AILERON_L: String = "Bone.Aileron.L"
+const BONE_AILERON_R: String = "Bone.Aileron.R"
 const BONE_NOZZLE_L: String = "Exhaust.UPPERx.L"
 const BONE_NOZZLE_R: String = "Exhaust.UPPER.R"
 ## The wrist, not "Hand.R": that name belongs to the link the gunner clip turns,
@@ -134,6 +136,7 @@ var _gerwalk_position: Dictionary = {}
 ## wing sweep that rides on top of the sampled pose.
 var _axis_y: Dictionary = {}
 var _wing: Array[int] = []
+var _aileron: Array[int] = []
 var _nozzles: Array[int] = []
 var _hand: int = -1
 ## Wing sweep the last pose was built with, in degrees. Exposed so the wing rules
@@ -197,6 +200,7 @@ func build() -> bool:
 	_sample_poses(model)
 
 	_wing = [_bone(BONE_WING_L), _bone(BONE_WING_R)]
+	_aileron = [_bone(BONE_AILERON_L), _bone(BONE_AILERON_R)]
 	_nozzles = [_bone(BONE_NOZZLE_L), _bone(BONE_NOZZLE_R)]
 	_hand = _bone(BONE_HAND_R)
 
@@ -632,17 +636,15 @@ func wing_anchors() -> Array[Vector3]:
 	return points
 
 
-## The two wingtips, in the same frame as `wing_anchors`. Read from the posed bone,
-## so a folded wing leaves its vapour from where the tip actually is.
+## The two wingtips, in the same frame as `wing_anchors`. Read from the posed
+## aileron bone, so a swept wing leaves its vapour from where the tip actually is.
 func wing_tips() -> Array[Vector3]:
-	if _wing.size() < 2:
+	if _aileron.size() < 2:
 		return []
 	var points: Array[Vector3] = []
-	for idx in _wing:
+	for idx in _aileron:
 		if idx < 0:
 			return []
 		var pose: Transform3D = _skeleton.global_transform * _skeleton.get_bone_global_pose(idx)
-		var root: Vector3 = to_local(pose.origin)
-		var span: Vector3 = to_local(pose.origin + pose.basis.y.normalized()) - root
-		points.append(root + span.normalized() * WING_TIP)
+		points.append(to_local(pose.origin))
 	return points

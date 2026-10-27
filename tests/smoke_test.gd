@@ -1383,9 +1383,9 @@ func _test_gerwalk_silhouette() -> void:
 	)
 	_player.velocity = Vector3.ZERO
 
-	# The burner's tell is vapour off both tips. The wedge that used to draw the
-	# burst is gone; the rule still eats enemy fire (S6), but nothing is painted
-	# in front of the nose any more.
+	# The burner's tell is a ribbon off each tip. The wedge that used to draw the
+	# burst is gone; the rule still eats enemy fire (S6), but nothing is painted in
+	# front of the nose any more.
 	var tips: Array[Vector3] = model.wing_tips()
 	var hardpoints: Array[Vector3] = model.wing_anchors()
 	_check(tips.size() == 2, "the airframe carries two wingtips")
@@ -1395,22 +1395,46 @@ func _test_gerwalk_silhouette() -> void:
 			"the vapour leaves from the tip, past the hardpoint"
 		)
 	var trails: Array = _player.get("_wingtip_trails")
-	_check(trails.size() == 2, "the fighter carries a trail on each tip")
-	if trails.size() == 2:
-		_player.set("_boosting", false)
-		_player.call("_update_wingtip_trails")
-		_check(
-			not (trails[0] as GPUParticles3D).emitting,
-			"the tips are quiet off the burner"
-		)
+	_check(trails.size() == 2, "the fighter carries a ribbon on each tip")
+	if trails.size() == 2 and tips.size() == 2:
 		_player.set("_boosting", true)
-		_player.call("_update_wingtip_trails")
+		_player.call("_update_wingtip_trails", 1.0 / 60.0)
+		var visual: Node3D = _player.get("_visual") as Node3D
+		var tip: Vector3 = visual.global_transform * tips[0]
+		var samples: Array = trails[0].get("points")
+		var first: Vector3 = samples[0] if samples.size() > 0 else Vector3.ZERO
 		_check(
-			(trails[0] as GPUParticles3D).emitting
-			and (trails[1] as GPUParticles3D).emitting,
-			"both tips trail on the burner"
+			samples.size() == 1 and first.distance_to(tip) < 0.01,
+			"the ribbon starts on the wingtip"
 		)
+
+		# Walk the tip along and watch the strip build: a particle wake could only
+		# ever be as dense as its spawn rate, so what is checked is that the ribbon
+		# is one surface ending exactly where the tip is.
+		var head: Vector3 = tip
+		for _i in 6:
+			head += Vector3(0.0, 0.0, 1.0)
+			_player.call("_advance_wingtip_trail", trails[0], head, true, 1.0 / 60.0)
+		var strip: ImmediateMesh = trails[0].get("mesh") as ImmediateMesh
+		_check(
+			strip != null and strip.get_surface_count() == 1,
+			"the tip vapour is one continuous strip"
+		)
+		samples = trails[0].get("points")
+		var last: Vector3 = samples[samples.size() - 1] if samples.size() > 0 else Vector3.ZERO
+		_check(
+			samples.size() >= 7 and last.distance_to(head) < 0.01,
+			"the ribbon ends on the wingtip (%d samples)" % samples.size()
+		)
+
+		# Off the burner the head stops moving and the tail is retired by age.
 		_player.set("_boosting", false)
+		for _i in 40:
+			_player.call("_advance_wingtip_trail", trails[0], head, false, 1.0 / 30.0)
+		_check(
+			(trails[0].get("points") as Array).is_empty(),
+			"the ribbon dissolves once the burner is out"
+		)
 
 	_player.call("_start_transform")
 	for _i in 20:

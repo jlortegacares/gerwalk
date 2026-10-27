@@ -181,14 +181,20 @@ const SMOKE_DENSITY_HIGH: float = 0.95
 
 ## Wingtip vapour, the burner's tell. The cone that used to point the way is gone;
 ## a pair of trails off the tips says "this is the fast one" without painting a
-## shape over the arena. Same trick as the wake: the puffs are dropped in world
-## space, so the trail lengthens with the speed on its own.
-const WINGTIP_COLOR: Color = Color(0.52, 0.86, 1.0, 1.0)
-const WINGTIP_AMOUNT: int = 190
+## shape over the arena.
+##
+## The trail is a ribbon, not a particle wake. Puffs can only ever be as dense as
+## the rate they spawn at, and at 60 u/s that leaves visible gaps, so the tips read
+## as a dotted line. A strip rebuilt through the tip's own history is continuous by
+## construction: two vertices per sample, no gaps to tune away.
+const WINGTIP_COLOR: Color = Color(0.52, 0.86, 1.0, 0.9)
+const WINGTIP_WIDTH: float = 0.18
 ## Longer-lived than the exhaust wake on purpose: the two lines have to outlast the
 ## grey rope the nozzles drop, or they end inside it and there is nothing to see.
-const WINGTIP_LIFETIME: float = 0.85
-const WINGTIP_PUFF: float = 0.38
+const WINGTIP_LIFETIME: float = 0.65
+## Distance between samples. Below this the head is just moved instead of a new
+## vertex being added, so a slow ship does not pile up points on one spot.
+const WINGTIP_SPACING: float = 0.30
 
 ## The counter-light that keeps a mirrored airframe reading evenly. Level and tint
 ## only; where it points is `_build_fill_light`'s story. It is cool because it
@@ -266,7 +272,8 @@ var _thruster_cores_material: StandardMaterial3D
 var _thruster_plumes: Array[MeshInstance3D] = []
 var _thruster_cores: Array[MeshInstance3D] = []
 var _smoke: Array[GPUParticles3D] = []
-var _wingtip_trails: Array[GPUParticles3D] = []
+var _wingtip_trails: Array[WingtipTrail] = []
+var _wingtip_material: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -321,7 +328,7 @@ func _physics_process(delta: float) -> void:
 	_update_bank(delta)
 	_update_weapons(delta)
 	_update_afterburner_visual(delta)
-	_update_wingtip_trails()
+	_update_wingtip_trails(delta)
 	_update_shockwave()
 
 
@@ -929,6 +936,7 @@ func _die() -> void:
 	velocity = Vector3.ZERO
 	_visual.visible = false
 	_aim_beam.visible = false
+	_clear_wingtip_trails()
 	_spawn_explosion()
 	GlobalEventBus.player_died.emit()
 
@@ -1181,92 +1189,143 @@ func _update_smoke(forward_speed: float, kick: float) -> void:
 		smoke.amount_ratio = density
 
 
-## Two emitters, one per tip. They are re-posed every frame because the sweep walks
-## the tip aft, and they only emit on the burner: the vapour is the cue that the
-## ship is at top speed, which is also when the burst eats incoming fire.
+## One wingtip's ribbon: the tip positions it has visited, oldest first, plus the
+## moment each was laid down. The strip is rebuilt from this every frame, so the
+## vapour follows the wing exactly -- the sweep moves the tip and the ribbon head
+## moves with it, with no frame of lag.
+class WingtipTrail:
+	var mesh: ImmediateMesh = ImmediateMesh.new()
+	## World-space samples, oldest first. The last one is the live tip.
+	var points: Array[Vector3] = []
+	## The trail's own clock at which each sample was laid down.
+	var born: Array[float] = []
+	var age: float = 0.0
+
+
+## Two ribbons, one per tip. They are children of the hull but `top_level`, because
+## the strip is built in world space from the tip's own history: inheriting the
+## ship's yaw would swing the whole contrail around with every turn, and the roll
+## animation would whip it around the airframe.
 func _build_wingtip_trails() -> void:
+	_wingtip_material = _make_wingtip_material()
 	for _side in 2:
-		var trail: GPUParticles3D = GPUParticles3D.new()
-		trail.amount = WINGTIP_AMOUNT
-		trail.lifetime = WINGTIP_LIFETIME
-		trail.local_coords = false
-		trail.emitting = false
-		trail.fixed_fps = 0
-		trail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		trail.process_material = _make_wingtip_process()
-		trail.draw_pass_1 = _make_wingtip_puff()
-		_visual.add_child(trail)
+		var trail: WingtipTrail = WingtipTrail.new()
+		var instance: MeshInstance3D = MeshInstance3D.new()
+		instance.mesh = trail.mesh
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		instance.top_level = true
+		instance.transform = Transform3D.IDENTITY
+		add_child(instance)
 		_wingtip_trails.append(trail)
 
 
-func _update_wingtip_trails() -> void:
+func _update_wingtip_trails(delta: float) -> void:
 	if _model == null:
 		return
 	var tips: Array[Vector3] = _model.wing_tips()
 	for index in _wingtip_trails.size():
-		var trail: GPUParticles3D = _wingtip_trails[index]
-		if index < tips.size():
-			trail.position = tips[index]
-		trail.emitting = _boosting
+		var trail: WingtipTrail = _wingtip_trails[index]
+		var has_tip: bool = index < tips.size()
+		var tip: Vector3 = _visual.global_transform * tips[index] if has_tip else Vector3.ZERO
+		_advance_wingtip_trail(trail, tip, has_tip and _boosting, delta)
 
 
-func _make_wingtip_process() -> ParticleProcessMaterial:
-	var process: ParticleProcessMaterial = ParticleProcessMaterial.new()
-	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	process.emission_sphere_radius = 0.03
-	# Same convention as the wake: local -X is aft, so the vapour is left behind.
-	process.direction = Vector3(-1.0, 0.0, 0.0)
-	process.spread = 10.0
-	process.initial_velocity_min = 0.2
-	process.initial_velocity_max = 0.9
-	process.gravity = Vector3.ZERO
-	process.damping_min = 0.5
-	process.damping_max = 1.2
-	process.scale_min = 0.6
-	process.scale_max = 1.1
-	process.scale_curve = _make_wingtip_curve()
-	process.color = WINGTIP_COLOR
-	process.color_ramp = _make_wingtip_ramp()
-	return process
+## Lays down one frame of vapour and redraws the strip. While the burner is lit the
+## head tracks the tip; when it goes out the head stays where it was and the tail
+## is retired by age, so the line dissolves from its far end instead of vanishing.
+func _advance_wingtip_trail(
+	trail: WingtipTrail, tip: Vector3, emitting: bool, delta: float
+) -> void:
+	trail.age += delta
+	while not trail.born.is_empty() and trail.age - trail.born[0] > WINGTIP_LIFETIME:
+		trail.born.pop_front()
+		trail.points.pop_front()
+
+	if emitting:
+		if trail.points.is_empty():
+			trail.points.append(tip)
+			trail.born.append(trail.age)
+		else:
+			var from: Vector3 = trail.points[-1]
+			var gap: float = from.distance_to(tip)
+			if gap < WINGTIP_SPACING:
+				# Barely moved: move the head instead of stacking a vertex on it.
+				trail.points[-1] = tip
+				trail.born[-1] = trail.age
+			else:
+				# A frame at 60 u/s is a whole unit, so one vertex per frame would
+				# show a turn as a corner. Split the step into even pieces.
+				var steps: int = clampi(int(ceil(gap / WINGTIP_SPACING)), 1, 8)
+				for step in steps:
+					trail.points.append(from.lerp(tip, float(step + 1) / float(steps)))
+					trail.born.append(trail.age)
+
+	_rebuild_wingtip_ribbon(trail)
 
 
-## The puff thins as it ages instead of growing: a contrail is a line of small
-## beads, and growing them into soft discs is what makes a trail read as smoke.
-func _make_wingtip_curve() -> CurveTexture:
-	var curve: Curve = Curve.new()
-	curve.add_point(Vector2(0.0, 1.0))
-	curve.add_point(Vector2(1.0, 0.72))
-	var texture: CurveTexture = CurveTexture.new()
-	texture.curve = curve
-	return texture
+## Rebuilds the strip as a camera-facing band: each sample is split sideways along
+## the sample's own direction, so the ribbon keeps its width however the ship turns.
+## The head is bright and the tail fades to nothing, which is what reads as a
+## contrail rather than as a drawn line.
+func _rebuild_wingtip_ribbon(trail: WingtipTrail) -> void:
+	trail.mesh.clear_surfaces()
+	var count: int = trail.points.size()
+	if count < 2:
+		return
+
+	var camera: Camera3D = get_viewport().get_camera_3d()
+	trail.mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP, _wingtip_material)
+	for index in count:
+		var point: Vector3 = trail.points[index]
+		var before: Vector3 = trail.points[maxi(index - 1, 0)]
+		var after: Vector3 = trail.points[mini(index + 1, count - 1)]
+		var along: Vector3 = after - before
+		if along.length_squared() < 0.000001:
+			along = Vector3.RIGHT
+		along = along.normalized()
+
+		var view: Vector3 = Vector3.UP
+		if camera != null:
+			view = camera.global_position - point
+		if view.length_squared() < 0.000001:
+			view = Vector3.UP
+		var side: Vector3 = along.cross(view)
+		if side.length_squared() < 0.000001:
+			side = along.cross(Vector3.UP)
+		if side.length_squared() < 0.000001:
+			side = along.cross(Vector3.RIGHT)
+		side = side.normalized() * (WINGTIP_WIDTH * 0.5)
+
+		var fade: float = float(index) / float(count - 1)
+		var color: Color = Color(
+			WINGTIP_COLOR.r, WINGTIP_COLOR.g, WINGTIP_COLOR.b, WINGTIP_COLOR.a * fade * fade
+		)
+		trail.mesh.surface_set_color(color)
+		trail.mesh.surface_add_vertex(point - side)
+		trail.mesh.surface_set_color(color)
+		trail.mesh.surface_add_vertex(point + side)
+	trail.mesh.surface_end()
 
 
-func _make_wingtip_ramp() -> GradientTexture1D:
-	var gradient: Gradient = Gradient.new()
-	gradient.set_color(0, Color(1.0, 1.0, 1.0, 0.9))
-	gradient.add_point(0.5, Color(1.0, 1.0, 1.0, 0.55))
-	gradient.set_color(2, Color(1.0, 1.0, 1.0, 0.0))
-	var texture: GradientTexture1D = GradientTexture1D.new()
-	texture.gradient = gradient
-	texture.width = 64
-	return texture
+## The hull is hidden the moment the ship dies and `_physics_process` stops with
+## it, so without this the last strip would stay painted in the arena forever.
+func _clear_wingtip_trails() -> void:
+	for trail: WingtipTrail in _wingtip_trails:
+		trail.points.clear()
+		trail.born.clear()
+		trail.mesh.clear_surfaces()
 
 
 ## Additive, unlike the exhaust wake: the tips have sky behind them, and a bright
 ## line against a dark arena is what makes the speed readable from the game camera.
-func _make_wingtip_puff() -> QuadMesh:
-	var quad: QuadMesh = QuadMesh.new()
-	quad.size = Vector2(WINGTIP_PUFF, WINGTIP_PUFF)
+func _make_wingtip_material() -> StandardMaterial3D:
 	var material: StandardMaterial3D = StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	material.vertex_color_use_as_albedo = true
-	material.albedo_texture = _make_smoke_texture()
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	quad.material = material
-	return quad
+	material.vertex_color_use_as_albedo = true
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return material
 
 
 func _make_smoke_process() -> ParticleProcessMaterial:
