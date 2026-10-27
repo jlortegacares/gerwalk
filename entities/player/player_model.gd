@@ -113,6 +113,10 @@ const BONE_WING_R: String = "Bone.Wing.R"
 ## the point is pushed outboard along the wing's own axis, which carries the sweep:
 ## a swept wing launches from where the wing actually is.
 const WING_HARDPOINT: float = 0.55
+## The wingtip, same trick and same axis as the hardpoint, pushed out to where the
+## wing ends. It rides the sweep for free: the bone it is read from is the one the
+## sweep turns.
+const WING_TIP: float = 0.85
 const BONE_NOZZLE_L: String = "Exhaust.UPPERx.L"
 const BONE_NOZZLE_R: String = "Exhaust.UPPER.R"
 ## The wrist, not "Hand.R": that name belongs to the link the gunner clip turns,
@@ -625,4 +629,20 @@ func wing_anchors() -> Array[Vector3]:
 		var root: Vector3 = to_local(pose.origin)
 		var span: Vector3 = to_local(pose.origin + pose.basis.y.normalized()) - root
 		points.append(root + span.normalized() * WING_HARDPOINT)
+	return points
+
+
+## The two wingtips, in the same frame as `wing_anchors`. Read from the posed bone,
+## so a folded wing leaves its vapour from where the tip actually is.
+func wing_tips() -> Array[Vector3]:
+	if _wing.size() < 2:
+		return []
+	var points: Array[Vector3] = []
+	for idx in _wing:
+		if idx < 0:
+			return []
+		var pose: Transform3D = _skeleton.global_transform * _skeleton.get_bone_global_pose(idx)
+		var root: Vector3 = to_local(pose.origin)
+		var span: Vector3 = to_local(pose.origin + pose.basis.y.normalized()) - root
+		points.append(root + span.normalized() * WING_TIP)
 	return points

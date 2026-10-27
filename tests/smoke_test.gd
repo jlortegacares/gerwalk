@@ -1383,6 +1383,35 @@ func _test_gerwalk_silhouette() -> void:
 	)
 	_player.velocity = Vector3.ZERO
 
+	# The burner's tell is vapour off both tips. The wedge that used to draw the
+	# burst is gone; the rule still eats enemy fire (S6), but nothing is painted
+	# in front of the nose any more.
+	var tips: Array[Vector3] = model.wing_tips()
+	var hardpoints: Array[Vector3] = model.wing_anchors()
+	_check(tips.size() == 2, "the airframe carries two wingtips")
+	if tips.size() == 2 and hardpoints.size() == 2:
+		_check(
+			tips[0].length() > hardpoints[0].length() + 0.2,
+			"the vapour leaves from the tip, past the hardpoint"
+		)
+	var trails: Array = _player.get("_wingtip_trails")
+	_check(trails.size() == 2, "the fighter carries a trail on each tip")
+	if trails.size() == 2:
+		_player.set("_boosting", false)
+		_player.call("_update_wingtip_trails")
+		_check(
+			not (trails[0] as GPUParticles3D).emitting,
+			"the tips are quiet off the burner"
+		)
+		_player.set("_boosting", true)
+		_player.call("_update_wingtip_trails")
+		_check(
+			(trails[0] as GPUParticles3D).emitting
+			and (trails[1] as GPUParticles3D).emitting,
+			"both tips trail on the burner"
+		)
+		_player.set("_boosting", false)
+
 	_player.call("_start_transform")
 	for _i in 20:
 		await get_tree().physics_frame

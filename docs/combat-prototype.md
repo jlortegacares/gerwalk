@@ -365,7 +365,7 @@ games rather than two gears of the same one.
 | Aim | mouse or right stick, instantly | the nose, and only the nose |
 | Hull turn | 1800 °/s, presentation only | 400 °/s, and it is the turn rate the game reads |
 | Dash | 3.17x burst, 0.12 s, i-frames, on a double tap of the direction | barrel roll, 55 u/s in the tapped direction over 0.20 s with a 0.45 s turn-over, heading kept; the button still repeats the last side |
-| Afterburner | 42 u/s | 60 u/s plus the shockwave cone |
+| Afterburner | 42 u/s | 60 u/s, the burst that eats incoming fire, and vapour off both tips |
 | Gun | free aim, 16° vulcan fan, base range | 0°, 4° fan, 1.35x muzzle speed, 1.4x range, no plasma lock |
 
 ### The GERWALK airframe
@@ -570,9 +570,18 @@ tapped direction without turning the nose.
 
 **The shockwave is a rule, not an aura.** While the burner is lit in FIGHTER, any
 enemy projectile inside a 7-unit cone of ±30° off the nose is destroyed in the
-same frame, and that cone is drawn, so the picture and the hitbox are the same
-shape. Every current enemy shot counts as weak: the filter is geometry, not a
+same frame. Every current enemy shot counts as weak: the filter is geometry, not a
 damage threshold. A head-on run through a ring pattern is what the mode is for.
+The cone used to be drawn as a translucent wedge and the wedge read as a stray
+triangle hanging off the nose, so nothing is drawn for it now: the wingtip vapour
+is what says the burner is on, which is exactly when the rule applies.
+
+**The tips leave a vapour trail at full burn.** Two emitters sit on the wingtips
+and only run on the afterburner. Like the exhaust, the puffs are dropped in world
+space, so the trail lengthens with the speed on its own; the tips are re-posed
+every frame from the wing bone, so a swept wing trails from where the tip actually
+is. They are additive, unlike the grey wake, because the tips are read against the
+sky and a bright line is what makes the speed legible from the game camera.
 
 **The exhaust leaves a trail that grows with speed.** Each nozzle carries a GPU
 emitter that drops soft puffs and leaves them where they were born, so the gap
@@ -713,6 +722,7 @@ All values are named constants at the top of each script.
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
 | Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows speed from zero in `_update_smoke()` |
+| Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_AMOUNT`, `WINGTIP_LIFETIME`, `WINGTIP_PUFF`, `WINGTIP_COLOR`; on the burner only, positioned from `wing_tips()` (`WING_TIP`) |
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |

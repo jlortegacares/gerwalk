@@ -179,6 +179,17 @@ const SMOKE_LIFETIME: float = 0.50
 const SMOKE_PUFF: float = 0.80
 const SMOKE_DENSITY_HIGH: float = 0.95
 
+## Wingtip vapour, the burner's tell. The cone that used to point the way is gone;
+## a pair of trails off the tips says "this is the fast one" without painting a
+## shape over the arena. Same trick as the wake: the puffs are dropped in world
+## space, so the trail lengthens with the speed on its own.
+const WINGTIP_COLOR: Color = Color(0.52, 0.86, 1.0, 1.0)
+const WINGTIP_AMOUNT: int = 190
+## Longer-lived than the exhaust wake on purpose: the two lines have to outlast the
+## grey rope the nozzles drop, or they end inside it and there is nothing to see.
+const WINGTIP_LIFETIME: float = 0.85
+const WINGTIP_PUFF: float = 0.38
+
 ## The counter-light that keeps a mirrored airframe reading evenly. Level and tint
 ## only; where it points is `_build_fill_light`'s story. It is cool because it
 ## stands in for sky bounce rather than for a second sun.
@@ -234,7 +245,6 @@ var _roll_anim_time: float = 0.0
 ## flight model subtracts it before reading the air: otherwise every jink tops up
 ## the previous one and a 55 u/s roll ends up at 390.
 var _roll_velocity: Vector3 = Vector3.ZERO
-var _shockwave: Node3D
 
 var _turbo: float = TURBO_MAX
 var _boosting: bool = false
@@ -256,6 +266,7 @@ var _thruster_cores_material: StandardMaterial3D
 var _thruster_plumes: Array[MeshInstance3D] = []
 var _thruster_cores: Array[MeshInstance3D] = []
 var _smoke: Array[GPUParticles3D] = []
+var _wingtip_trails: Array[GPUParticles3D] = []
 
 
 func _ready() -> void:
@@ -265,8 +276,8 @@ func _ready() -> void:
 	_build_visual()
 	_build_thrusters()
 	_build_smoke()
+	_build_wingtip_trails()
 	_build_aim_beam()
-	_build_shockwave()
 
 	_weapons = WeaponSystem.new()
 	_weapons.name = "Weapons"
@@ -310,6 +321,7 @@ func _physics_process(delta: float) -> void:
 	_update_bank(delta)
 	_update_weapons(delta)
 	_update_afterburner_visual(delta)
+	_update_wingtip_trails()
 	_update_shockwave()
 
 
@@ -575,46 +587,14 @@ func _update_afterburner_visual(delta: float) -> void:
 
 
 ## The supersonic burst: a cone in front of the nose that shreds enemy fire while
-## the burner is lit. It is a rule, not an aura, so the cone the player sees is the
-## cone that eats the shots. Every current enemy shot is "weak": the filter is
-## geometry, not damage.
-func _build_shockwave() -> void:
-	_shockwave = Node3D.new()
-	_shockwave.visible = false
-	add_child(_shockwave)
-
-	var cone: CylinderMesh = CylinderMesh.new()
-	cone.top_radius = 0.35
-	cone.bottom_radius = tan(deg_to_rad(SHOCKWAVE_HALF_ANGLE)) * SHOCKWAVE_LENGTH
-	cone.height = SHOCKWAVE_LENGTH
-	cone.radial_segments = 16
-	cone.rings = 1
-
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.albedo_color = Color(0.62, 0.95, 1.0, 0.16)
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-
-	var mesh: MeshInstance3D = MeshInstance3D.new()
-	mesh.mesh = cone
-	mesh.material_override = material
-	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# CylinderMesh runs along Y; tip it onto +X and push it out so the small radius
-	# sits on the nose and the wide end is the far edge of the burst.
-	mesh.rotation.z = -PI * 0.5
-	mesh.position = Vector3(SHOCKWAVE_LENGTH * 0.5, 0.0, 0.0)
-	_shockwave.add_child(mesh)
-
-
+## the burner is lit. It is a rule, not an aura: the cone used to be drawn as a
+## translucent wedge, and the wedge read as a stray triangle hanging off the nose.
+## Nothing is drawn for it now; the wingtip vapour is what tells the player the
+## burner is on, which is exactly when the rule applies.
 func _update_shockwave() -> void:
-	var active: bool = _alive and _mode == Mode.FIGHTER and _boosting
-	_shockwave.visible = active
-	if not active:
+	if not (_alive and _mode == Mode.FIGHTER and _boosting):
 		return
 
-	_shockwave.rotation.y = atan2(-_heading.z, _heading.x)
 	for node in get_tree().get_nodes_in_group(&"enemy_bullet"):
 		var bullet: Node3D = node as Node3D
 		if bullet == null or bullet.is_queued_for_deletion():
@@ -949,9 +929,6 @@ func _die() -> void:
 	velocity = Vector3.ZERO
 	_visual.visible = false
 	_aim_beam.visible = false
-	# `_update_shockwave` only runs while alive, so a ship killed on the burner
-	# would leave the cone hanging where it died.
-	_shockwave.visible = false
 	_spawn_explosion()
 	GlobalEventBus.player_died.emit()
 
@@ -1202,6 +1179,94 @@ func _update_smoke(forward_speed: float, kick: float) -> void:
 		if nozzle < _nozzle_anchors.size():
 			smoke.position = _nozzle_anchors[nozzle]
 		smoke.amount_ratio = density
+
+
+## Two emitters, one per tip. They are re-posed every frame because the sweep walks
+## the tip aft, and they only emit on the burner: the vapour is the cue that the
+## ship is at top speed, which is also when the burst eats incoming fire.
+func _build_wingtip_trails() -> void:
+	for _side in 2:
+		var trail: GPUParticles3D = GPUParticles3D.new()
+		trail.amount = WINGTIP_AMOUNT
+		trail.lifetime = WINGTIP_LIFETIME
+		trail.local_coords = false
+		trail.emitting = false
+		trail.fixed_fps = 0
+		trail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		trail.process_material = _make_wingtip_process()
+		trail.draw_pass_1 = _make_wingtip_puff()
+		_visual.add_child(trail)
+		_wingtip_trails.append(trail)
+
+
+func _update_wingtip_trails() -> void:
+	if _model == null:
+		return
+	var tips: Array[Vector3] = _model.wing_tips()
+	for index in _wingtip_trails.size():
+		var trail: GPUParticles3D = _wingtip_trails[index]
+		if index < tips.size():
+			trail.position = tips[index]
+		trail.emitting = _boosting
+
+
+func _make_wingtip_process() -> ParticleProcessMaterial:
+	var process: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	process.emission_sphere_radius = 0.03
+	# Same convention as the wake: local -X is aft, so the vapour is left behind.
+	process.direction = Vector3(-1.0, 0.0, 0.0)
+	process.spread = 10.0
+	process.initial_velocity_min = 0.2
+	process.initial_velocity_max = 0.9
+	process.gravity = Vector3.ZERO
+	process.damping_min = 0.5
+	process.damping_max = 1.2
+	process.scale_min = 0.6
+	process.scale_max = 1.1
+	process.scale_curve = _make_wingtip_curve()
+	process.color = WINGTIP_COLOR
+	process.color_ramp = _make_wingtip_ramp()
+	return process
+
+
+## The puff thins as it ages instead of growing: a contrail is a line of small
+## beads, and growing them into soft discs is what makes a trail read as smoke.
+func _make_wingtip_curve() -> CurveTexture:
+	var curve: Curve = Curve.new()
+	curve.add_point(Vector2(0.0, 1.0))
+	curve.add_point(Vector2(1.0, 0.72))
+	var texture: CurveTexture = CurveTexture.new()
+	texture.curve = curve
+	return texture
+
+
+func _make_wingtip_ramp() -> GradientTexture1D:
+	var gradient: Gradient = Gradient.new()
+	gradient.set_color(0, Color(1.0, 1.0, 1.0, 0.9))
+	gradient.add_point(0.5, Color(1.0, 1.0, 1.0, 0.55))
+	gradient.set_color(2, Color(1.0, 1.0, 1.0, 0.0))
+	var texture: GradientTexture1D = GradientTexture1D.new()
+	texture.gradient = gradient
+	texture.width = 64
+	return texture
+
+
+## Additive, unlike the exhaust wake: the tips have sky behind them, and a bright
+## line against a dark arena is what makes the speed readable from the game camera.
+func _make_wingtip_puff() -> QuadMesh:
+	var quad: QuadMesh = QuadMesh.new()
+	quad.size = Vector2(WINGTIP_PUFF, WINGTIP_PUFF)
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.vertex_color_use_as_albedo = true
+	material.albedo_texture = _make_smoke_texture()
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	quad.material = material
+	return quad
 
 
 func _make_smoke_process() -> ParticleProcessMaterial:
