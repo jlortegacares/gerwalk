@@ -2784,6 +2784,20 @@ func _test_damage_and_iframes() -> void:
 
 
 func _test_death() -> void:
+	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
+	var game_over: GameOver = hud.get_node("%GameOver") as GameOver
+	var counter: Label = hud.get_node("%Counter") as Label
+	_check(not game_over.visible, "the death screen starts hidden")
+
+	# The HUD turns both answers into a scene change, and reloading here would
+	# restart the scene this test runs in. The answers are the unit under test, so
+	# the HUD's handlers are detached for the rest of the check; the countdown is
+	# detached too, because it would answer on its own five seconds in.
+	for connection in game_over.respawn_requested.get_connections():
+		game_over.respawn_requested.disconnect(connection["callable"])
+	for connection in game_over.menu_requested.get_connections():
+		game_over.menu_requested.disconnect(connection["callable"])
+
 	while int(_player.get("_hp")) > 0:
 		_player.set("_invulnerable", 0.0)
 		_player.take_damage(1)
@@ -2792,6 +2806,63 @@ func _test_death() -> void:
 	_check(int(_player.get("_hp")) == 0, "health drains to zero")
 	_check(_died_count > 0, "player_died reaches the event bus")
 	_check(not bool(_player.get("_alive")), "player enters a dead state")
+
+	# The screen opens on the death event and starts the count on the same frame,
+	# so a frame of `_process` has already run by the time the loop above returns.
+	_check(game_over.visible, "death opens the game over screen")
+	_check(
+		game_over.remaining > 0.0 and game_over.remaining <= GameOver.RESPAWN_SECONDS,
+		"the countdown starts full (%.2f of %.0f)" % [game_over.remaining, GameOver.RESPAWN_SECONDS]
+	)
+	_check(
+		counter.text == "RESPAWN IN %d" % GameOver.RESPAWN_SECONDS,
+		"the counter reads the full countdown (\"%s\")" % counter.text
+	)
+
+	var before: float = game_over.remaining
+	await get_tree().physics_frame
+	_check(game_over.remaining < before, "the countdown ticks down with the frame")
+	_check(counter.text.begins_with("RESPAWN IN "), "the counter stays a countdown (\"%s\")" % counter.text)
+
+	# Each answer is checked for the signal it raises; navigation stays with the HUD,
+	# whose handlers were detached above.
+	var respawns: Array[bool] = []
+	var menus: Array[bool] = []
+	game_over.respawn_requested.connect(func() -> void: respawns.append(true))
+	game_over.menu_requested.connect(func() -> void: menus.append(true))
+
+	var continue_button: Button = hud.get_node("%ContinueButton") as Button
+	var menu_button: Button = hud.get_node("%MenuButton") as Button
+	_check(continue_button.has_focus(), "the continue button takes the focus for a gamepad")
+
+	continue_button.pressed.emit()
+	_check(respawns.size() == 1, "CONTINUE asks for a respawn")
+	_check(menus.is_empty(), "CONTINUE does not also ask for the menu")
+
+	game_over.start()
+	menu_button.pressed.emit()
+	_check(menus.size() == 1, "MAIN MENU asks for the menu")
+	_check(respawns.size() == 1, "MAIN MENU does not also ask for a respawn")
+
+	game_over.start()
+	var restart_event: InputEventAction = InputEventAction.new()
+	restart_event.action = &"restart"
+	restart_event.pressed = true
+	game_over._unhandled_input(restart_event)
+	_check(respawns.size() == 2, "R continues the run")
+
+	game_over.start()
+	var cancel_event: InputEventAction = InputEventAction.new()
+	cancel_event.action = &"ui_cancel"
+	cancel_event.pressed = true
+	game_over._unhandled_input(cancel_event)
+	_check(menus.size() == 2, "ESC leaves for the menu")
+
+	# Disarmed by the last answer: a live countdown would reload the arena while the
+	# rest of the suite is still running.
+	var stopped_at: float = game_over.remaining
+	await get_tree().physics_frame
+	_check(game_over.remaining == stopped_at, "one answer stops the countdown")
 
 
 func _clear_enemies() -> void:

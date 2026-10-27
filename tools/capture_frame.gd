@@ -30,6 +30,9 @@ extends Node
 ## the wake and `--noshadow 1` turns the sun's shadow map off, which is how a dark
 ## patch on the hull is told apart from the trail and from a cast shadow.
 ## `--out PATH` overrides the output file.
+## `--death 1` kills the ship right before the capture, which is how the death
+## screen and its countdown are reviewed without waiting for a turret to land the
+## last hit.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
 const DEFAULT_OUTPUT: String = "/tmp/gerwalk_frame.png"
@@ -50,6 +53,7 @@ func _ready() -> void:
 	var no_smoke: bool = _argument("nosmoke", "0") == "1"
 	var no_shadow: bool = _argument("noshadow", "0") == "1"
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
+	var death: bool = _argument("death", "0") == "1"
 
 	var arena: Node = load(ARENA_SCENE).instantiate()
 	add_child(arena)
@@ -211,6 +215,18 @@ func _ready() -> void:
 		ship.set("_invulnerable", 0.0)
 		if visual != null:
 			visual.visible = true
+
+	# The death screen is a UI state, so the ship is killed outright here and the
+	# countdown is captured on its first frame, where it still reads the full five.
+	if death:
+		Input.action_release(&"fire")
+		Input.action_release(&"aim_right")
+		while int(ship.get("_hp")) > 0:
+			ship.set("_invulnerable", 0.0)
+			ship.take_damage(1)
+			await get_tree().physics_frame
+		for _i in 2:
+			await get_tree().physics_frame
 
 	await RenderingServer.frame_post_draw
 	var image: Image = get_viewport().get_texture().get_image()

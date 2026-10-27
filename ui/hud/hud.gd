@@ -2,6 +2,13 @@ extends CanvasLayer
 ## Stateless projection of gameplay state. The bars and labels read only from the
 ## event bus; `Radar` polls the enemy group for the one thing that is not an event,
 ## a contact's bearing.
+##
+## The death screen is the exception: it asks the player a question, so its answers
+## have to become scene changes somewhere, and the HUD is the node that already
+## owns the run's lifetime.
+
+## The boot scene, which is where the death screen's other answer goes.
+const MENU_SCENE: String = "res://ui/menu/main_menu.tscn"
 
 @onready var _health_bar: Control = %HealthBar
 @onready var _turbo_bar: Control = %TurboBar
@@ -10,13 +17,10 @@ extends CanvasLayer
 @onready var _bomb_pips: Control = %BombPips
 @onready var _salvo_label: Label = %SalvoLabel
 @onready var _decoy_label: Label = %DecoyLabel
-@onready var _game_over: Control = %GameOver
-
-var _game_over_visible: bool = false
+@onready var _game_over: GameOver = %GameOver
 
 
 func _ready() -> void:
-	_game_over.visible = false
 	GlobalEventBus.player_health_changed.connect(_on_player_health_changed)
 	GlobalEventBus.player_turbo_changed.connect(_on_player_turbo_changed)
 	GlobalEventBus.player_weapon_changed.connect(_on_player_weapon_changed)
@@ -25,12 +29,18 @@ func _ready() -> void:
 	GlobalEventBus.player_missile_salvo_changed.connect(_on_player_missile_salvo_changed)
 	GlobalEventBus.player_decoy_changed.connect(_on_player_decoy_changed)
 	GlobalEventBus.player_died.connect(_on_player_died)
+	_game_over.respawn_requested.connect(_restart_run)
+	_game_over.menu_requested.connect(_back_to_menu)
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if _game_over_visible and event.is_action_pressed(&"restart"):
-		get_viewport().set_input_as_handled()
-		get_tree().reload_current_scene()
+## The countdown and the buttons both end a run the same way: the arena is rebuilt
+## from the scene, so a death never leaves half a fight behind.
+func _restart_run() -> void:
+	get_tree().reload_current_scene()
+
+
+func _back_to_menu() -> void:
+	get_tree().change_scene_to_file(MENU_SCENE)
 
 
 func _on_player_health_changed(current: int, maximum: int) -> void:
@@ -72,5 +82,4 @@ func _on_player_decoy_changed(ready: bool) -> void:
 
 
 func _on_player_died() -> void:
-	_game_over_visible = true
-	_game_over.visible = true
+	_game_over.start()

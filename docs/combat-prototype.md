@@ -32,7 +32,8 @@ window and is what CI uses.
 | Afterburner (hold) | Shift | Right trigger |
 | Dash | Double tap WASD, or Space | Double tap left stick, or left stick click |
 | Transform | Q | Left bumper |
-| Restart | R (on the game-over screen) | Start |
+| Restart | R (on the death screen) | Start |
+| Main menu | Escape (on the death screen) | B |
 
 Aiming and firing are independent of movement by construction: `_move_gerwalk()`
 never reads the aim vector and `_update_aim()` never reads the movement vector.
@@ -597,6 +598,23 @@ the lead at 0.6 units instead of letting it scale with speed. The ship stays
 framed at fighter cruise; the camera reads the speed through the FOV kick and the
 terrain, not through the ship sliding off centre.
 
+## Death and the next run
+
+Death is a five-second question, not a game over: **SIGNAL LOST** takes the
+screen, the panel counts `RESPAWN IN 5` down to zero, and the run restarts by
+itself when it gets there. **CONTINUE** gives that answer early and **MAIN MENU**
+leaves for the boot scene; `R` / Start and Escape / B are the same two answers on
+the keyboard and the pad.
+
+The countdown is the default answer because the alternative — a panel that waits
+for a button nobody presses — turns a death into a pause, and a prototype is
+played in short bursts where waiting is the worst outcome. The world keeps
+running behind the panel for the same reason: the fight is already lost, so
+freezing it would only make the restart slower. `GameOver` raises
+`respawn_requested` or `menu_requested` and nothing else; the HUD owns the scene
+change, which is what lets a test press both answers without reloading the scene
+it runs in.
+
 ## What this build is meant to answer
 
 1. **Does 360° aiming read clearly?** The aim line is there to check it, not to
@@ -669,6 +687,7 @@ All values are named constants at the top of each script.
 | Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
 | Lock reticle | `combat/lock_reticle.gd` | `RADIUS`, `THICKNESS`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH` |
 | Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |
+| Death countdown | `ui/hud/game_over.gd` | `RESPAWN_SECONDS` |
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Decoy | `combat/arsenal.gd`, `combat/decoy.gd` | `DECOY_COOLDOWN`; `LIFETIME`, `CAPTURE_RADIUS` |
@@ -788,6 +807,10 @@ read as a contact that was not on the scope.
 # Same, after travelling: the terrain must not match the resting frame
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --travel 180 --out /tmp/gerwalk_moved.png
+
+# The death screen: the countdown, both answers and the shortcut hint
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --death 1 --out /tmp/gerwalk_death.png
 
 # Review the bank: strafe across the nose and the hull must lean
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
