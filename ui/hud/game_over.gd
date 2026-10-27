@@ -18,6 +18,13 @@ signal menu_requested
 ## Long enough to read the panel and change your mind, short enough that a death
 ## does not read as a pause.
 const RESPAWN_SECONDS: float = 5.0
+## The blast owns the first half second: the backdrop is opaque enough to swallow
+## it, so the panel arrives once the fireball has opened instead of on the frame
+## the hull goes. The countdown starts when the panel does.
+const BLAST_DELAY: float = 0.6
+## Then it fades in rather than cutting to a dark card, which keeps the smoke and
+## the last of the fire readable behind the tint.
+const FADE_IN: float = 0.4
 
 @onready var _counter: Label = %Counter
 @onready var _continue_button: Button = %ContinueButton
@@ -42,6 +49,9 @@ func start() -> void:
 	remaining = RESPAWN_SECONDS
 	_paint()
 	visible = true
+	modulate.a = 0.0
+	var tween: Tween = create_tween()
+	tween.tween_property(self, "modulate:a", 1.0, FADE_IN)
 	# Focus, not a hover: the same two answers have to work on a gamepad.
 	_continue_button.grab_focus()
 

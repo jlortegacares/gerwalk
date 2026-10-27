@@ -616,6 +616,19 @@ freezing it would only make the restart slower. `GameOver` raises
 change, which is what lets a test press both answers without reloading the scene
 it runs in.
 
+The hull does not just vanish. `common/ship_explosion.gd` builds a `ShipExplosion`
+where the ship died and frees it when it is done: an additive white core that peaks
+in 0.18 s, three staggered fireball blobs, seven tumbling shards, additive sparks
+that arc and fall, and dark smoke that outlives both. The layers are staggered on
+purpose — one expanding sphere reads as a hit, not as a ship coming apart. The
+effect is a world node rather than a child of the ship, so it stays where the wreck
+was while the hidden model waits for the respawn, and it asks for a full-strength
+camera kick on top of the one the killing hit already sent.
+
+The panel fades in over `FADE_IN` (0.5 s) instead of cutting to its backdrop on the
+same frame. Its tint is dark enough to swallow the blast, and the countdown is
+unaffected: it starts when the death event fires, exactly as before.
+
 ## What this build is meant to answer
 
 1. **Does 360° aiming read clearly?** The aim line is there to check it, not to
@@ -688,7 +701,8 @@ All values are named constants at the top of each script.
 | Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
 | Lock reticle | `combat/lock_reticle.gd` | `RADIUS`, `THICKNESS`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH` |
 | Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |
-| Death countdown | `ui/hud/game_over.gd` | `RESPAWN_SECONDS` |
+| Death countdown | `ui/hud/game_over.gd` | `RESPAWN_SECONDS`, `FADE_IN` |
+| Death blast | `common/ship_explosion.gd` | `LIFETIME`, `CORE_*`, `FIRE_*`, `DEBRIS_DURATION`, `SPARK_LIFETIME`, `SMOKE_LIFETIME` |
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Decoy | `combat/arsenal.gd`, `combat/decoy.gd` | `DECOY_COOLDOWN`; `LIFETIME`, `CAPTURE_RADIUS` |

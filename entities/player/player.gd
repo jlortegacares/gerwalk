@@ -935,10 +935,13 @@ func take_damage(amount: int, source_position: Vector3 = Vector3.ZERO) -> void:
 		if push.length_squared() > 0.0001:
 			velocity += push.normalized() * 11.0
 
-	_spawn_impact()
-
 	if _hp <= 0:
+		# The blast is the hit flash on the killing blow: a second teal sphere over
+		# the fireball only muddies the frame the explosion needs.
 		_die()
+		return
+
+	_spawn_impact()
 
 
 func _die() -> void:
@@ -946,7 +949,24 @@ func _die() -> void:
 	velocity = Vector3.ZERO
 	_visual.visible = false
 	_aim_beam.visible = false
+	# `_update_shockwave` only runs while alive, so a ship killed on the burner
+	# would leave the cone hanging where it died.
+	_shockwave.visible = false
+	_spawn_explosion()
 	GlobalEventBus.player_died.emit()
+
+
+## The blast is a world node, not a child of the ship: it stays where the hull died
+## and outlives it, while the hidden model sits there waiting for the respawn.
+func _spawn_explosion() -> void:
+	var host: Node = get_tree().current_scene
+	if host == null:
+		host = get_parent()
+	if host == null:
+		return
+	var blast: ShipExplosion = ShipExplosion.new()
+	host.add_child(blast)
+	blast.global_position = global_position
 
 
 func _spawn_impact() -> void:

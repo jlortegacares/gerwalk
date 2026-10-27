@@ -32,7 +32,8 @@ extends Node
 ## `--out PATH` overrides the output file.
 ## `--death 1` kills the ship right before the capture, which is how the death
 ## screen and its countdown are reviewed without waiting for a turret to land the
-## last hit.
+## last hit. `--death-delay N` waits N physics frames after the kill before
+## capturing (default 2), which is how the explosion is reviewed mid-blast.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
 const DEFAULT_OUTPUT: String = "/tmp/gerwalk_frame.png"
@@ -54,6 +55,7 @@ func _ready() -> void:
 	var no_shadow: bool = _argument("noshadow", "0") == "1"
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
 	var death: bool = _argument("death", "0") == "1"
+	var death_delay: int = int(_argument("death-delay", "2"))
 
 	var arena: Node = load(ARENA_SCENE).instantiate()
 	add_child(arena)
@@ -221,11 +223,12 @@ func _ready() -> void:
 	if death:
 		Input.action_release(&"fire")
 		Input.action_release(&"aim_right")
-		while int(ship.get("_hp")) > 0:
-			ship.set("_invulnerable", 0.0)
-			ship.take_damage(1)
-			await get_tree().physics_frame
-		for _i in 2:
+		# One lethal hit instead of a loop of 1-damage pokes: the loop stacked a
+		# HitSpark per poke on the same spot, which is not what the death frame
+		# looks like in play.
+		ship.set("_invulnerable", 0.0)
+		ship.take_damage(999)
+		for _i in death_delay:
 			await get_tree().physics_frame
 
 	await RenderingServer.frame_post_draw

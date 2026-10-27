@@ -82,4 +82,7 @@ func _on_player_decoy_changed(ready: bool) -> void:
 
 
 func _on_player_died() -> void:
+	# The blast gets the frame to itself: the panel is dark enough to hide it, so
+	# the death screen arrives once the fireball has opened.
+	await get_tree().create_timer(GameOver.BLAST_DELAY).timeout
 	_game_over.start()

@@ -2841,8 +2841,24 @@ func _test_death() -> void:
 	_check(_died_count > 0, "player_died reaches the event bus")
 	_check(not bool(_player.get("_alive")), "player enters a dead state")
 
-	# The screen opens on the death event and starts the count on the same frame,
-	# so a frame of `_process` has already run by the time the loop above returns.
+	# The blast is a world node at the hull's last position, not a child of the
+	# ship: it has to outlive the hidden model and the respawn that follows it.
+	var blasts: Array[ShipExplosion] = []
+	for child in get_tree().current_scene.get_children():
+		if child is ShipExplosion:
+			blasts.append(child)
+	_check(blasts.size() == 1, "death spawns one explosion")
+	_check(
+		blasts.size() == 1
+		and blasts[0].global_position.distance_to(_player.global_position) < 0.01,
+		"the explosion starts where the ship died"
+	)
+
+	# The panel waits for the blast to open, so the screen is still clear on the
+	# death frame; the count starts when the panel arrives.
+	_check(not game_over.visible, "the panel waits for the blast")
+	for _i in int(GameOver.BLAST_DELAY * 60.0) + 4:
+		await get_tree().physics_frame
 	_check(game_over.visible, "death opens the game over screen")
 	_check(
 		game_over.remaining > 0.0 and game_over.remaining <= GameOver.RESPAWN_SECONDS,
@@ -2897,6 +2913,16 @@ func _test_death() -> void:
 	var stopped_at: float = game_over.remaining
 	await get_tree().physics_frame
 	_check(game_over.remaining == stopped_at, "one answer stops the countdown")
+
+	# Nothing else owns the blast, so it has to clean itself up: a leaked node would
+	# sit in the arena until the next scene change.
+	for _i in int(ShipExplosion.LIFETIME * 60.0) + 10:
+		await get_tree().physics_frame
+	var leaked: bool = false
+	for child in get_tree().current_scene.get_children():
+		if child is ShipExplosion:
+			leaked = true
+	_check(not leaked, "the explosion frees itself")
 
 
 func _clear_enemies() -> void:
