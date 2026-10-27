@@ -1321,49 +1321,33 @@ func _test_gerwalk_silhouette() -> void:
 	_check(held.x > 0.3, "the gunpod reaches ahead of the wing root (x %.2f)" % held.x)
 	_check(held.z > 0.1, "the gunpod rides the right side (z %.2f)" % held.z)
 
-	# GERWALK is a hover, so a wingtip trail at cruise would say nothing: the ship
-	# flies sideways and backwards as happily as forwards. The tips mark the
-	# throttle there instead, the same rule the exhaust follows. The measurement is
-	# driven directly so the check does not depend on the flight model's timing.
+	# GERWALK is a hover, not a wing: it flies sideways and backwards as happily as
+	# forwards, so a tip trail there would say nothing about anything. There is no
+	# wingtip vapour in that mode at all, at any throttle. The measurement is driven
+	# directly so the check does not depend on the flight model's timing.
 	var frame: float = 1.0 / 60.0
 	_player.velocity = Vector3.RIGHT * Player.MAX_SPEED
-	_player.set("_air_velocity", Vector3.RIGHT * Player.MAX_SPEED)
-	_player.set("_vapour_hold", 0.0)
 	_check(
-		is_zero_approx(float(_player.call("_wingtip_vapour", frame))),
-		"the tips are clean at a steady GERWALK speed"
+		is_zero_approx(float(_player.call("_wingtip_vapour"))),
+		"GERWALK leaves the tips clean at cruise"
 	)
-	# A swerve at a steady speed is a turn, not a throttle. The hover interpolates
-	# its velocity through a chord, so the climb has to be read along the old course
-	# or every direction change would puff the tips.
-	_player.velocity = (
-		Vector3.RIGHT.rotated(Vector3.UP, deg_to_rad(60.0)) * Player.MAX_SPEED
-	)
-	_check(
-		is_zero_approx(float(_player.call("_wingtip_vapour", frame))),
-		"a steady-speed swerve leaves the tips clean"
-	)
-	_player.set("_air_velocity", Vector3.RIGHT * Player.MAX_SPEED)
 	_player.velocity = Vector3.RIGHT * (Player.MAX_SPEED + Player.ACCELERATION * frame)
 	_check(
-		float(_player.call("_wingtip_vapour", frame)) > 0.9,
-		"the tips trail while GERWALK gains speed"
+		is_zero_approx(float(_player.call("_wingtip_vapour"))),
+		"GERWALK leaves the tips clean while it gains speed"
 	)
-	# The climb lasts four frames, so the burst has to hold to be a line at all.
-	for _i in 6:
-		_player.call("_wingtip_vapour", frame)
-	_check(
-		float(_player.call("_wingtip_vapour", frame)) > 0.0,
-		"the burst holds after the hover reaches cruise"
-	)
-	for _i in 20:
-		_player.call("_wingtip_vapour", frame)
-	_check(
-		is_zero_approx(float(_player.call("_wingtip_vapour", frame))),
-		"the burst clears once the hover settles"
-	)
+	# The strips are wiped, not merely faded: a trail laid down in FIGHTER would
+	# otherwise hang in the air for its whole lifetime after the switch.
+	var gerwalk_trails: Array = _player.get("_wingtip_trails")
+	for trail in gerwalk_trails:
+		(trail.get("points") as Array).append(Vector3.ONE)
+		(trail.get("born") as Array).append(0.0)
+	_player.call("_update_wingtip_trails", frame)
+	var wiped: bool = true
+	for trail in gerwalk_trails:
+		wiped = wiped and (trail.get("points") as Array).is_empty()
+	_check(wiped, "the strips are wiped outside FIGHTER")
 	_player.velocity = Vector3.ZERO
-	_player.set("_vapour_hold", 0.0)
 
 	_player.call("_start_transform")
 	for _i in 20:
@@ -1429,7 +1413,10 @@ func _test_gerwalk_silhouette() -> void:
 
 	# The speed cue is a ribbon off each tip. The wedge that used to draw the burst
 	# is gone; the rule still eats enemy fire (S6), but nothing is painted in front
-	# of the nose any more.
+	# of the nose any more. The pose is reset to the unswept fighter first: the
+	# sweep is what the geometry is measured against, and the previous check left
+	# the wings near the stop.
+	model.pose_mode(0.0, 0.0)
 	var tips: Array[Vector3] = model.wing_tips()
 	var hardpoints: Array[Vector3] = model.wing_anchors()
 	_check(tips.size() == 2, "the airframe carries two wingtips")
@@ -1437,6 +1424,12 @@ func _test_gerwalk_silhouette() -> void:
 		_check(
 			tips[0].length() > hardpoints[0].length() + 0.2,
 			"the vapour leaves from the tip, past the hardpoint"
+		)
+		# Measured off the mesh, not off a bone: the aileron sits at 81% of the
+		# span, so a trail from it read inboard of the wing the player sees.
+		_check(
+			tips[0].z < -2.05 and tips[1].z > 2.05,
+			"the vapour leaves from the outer edge (z %.2f / %.2f)" % [tips[0].z, tips[1].z]
 		)
 	var trails: Array = _player.get("_wingtip_trails")
 	_check(trails.size() == 2, "the fighter carries a ribbon on each tip")
@@ -1446,12 +1439,12 @@ func _test_gerwalk_silhouette() -> void:
 		_player.call("_clear_wingtip_trails")
 		_player.velocity = aim * Player.FIGHTER_SPEED * 0.5
 		_check(
-			is_zero_approx(float(_player.call("_wingtip_vapour", frame))),
+			is_zero_approx(float(_player.call("_wingtip_vapour"))),
 			"the tips are clean at half throttle"
 		)
 		_player.velocity = aim * Player.FIGHTER_SPEED
 		_check(
-			float(_player.call("_wingtip_vapour", frame)) > 0.9,
+			float(_player.call("_wingtip_vapour")) > 0.9,
 			"the tips vapour at cruise"
 		)
 
@@ -1461,7 +1454,7 @@ func _test_gerwalk_silhouette() -> void:
 		# die at about 70 deg of skid, which is a hard turn, not a slow ship.
 		_player.velocity = aim.rotated(Vector3.UP, deg_to_rad(70.0)) * Player.FIGHTER_SPEED
 		_check(
-			float(_player.call("_wingtip_vapour", frame)) > 0.9,
+			float(_player.call("_wingtip_vapour")) > 0.9,
 			"the tips still trail through a turn's skid"
 		)
 

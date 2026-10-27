@@ -574,18 +574,24 @@ same frame. Every current enemy shot counts as weak: the filter is geometry, not
 damage threshold. A head-on run through a ring pattern is what the mode is for.
 The cone used to be drawn as a translucent wedge and the wedge read as a stray
 triangle hanging off the nose, so nothing is drawn for it now: the wingtip vapour
-is what says the burner is on, which is exactly when the rule applies.
+is what says the ship is at speed, and the burner is the top of that range.
 
 **The tips leave a vapour trail from the middle of the throttle up.** Each wingtip
 draws a ribbon: a triangle strip rebuilt every frame through the positions the tip
 has visited, so the line is continuous by construction. A particle wake could only
 ever be as dense as the rate it spawns at, and at 60 u/s that leaves visible gaps,
 which is why the tips read as a dotted trail instead. The strip is built in world
-space from the posed aileron bone, so a swept wing trails from where the tip
-actually is and a turn bends the line rather than snapping it. The head is bright
-and the tail fades, and it is additive unlike the grey wake: the tips are read
-against the sky, and a bright line is what makes the speed legible from the game
-camera.
+space from the posed wing bone, so a swept wing trails from where the tip actually
+is and a turn bends the line rather than snapping it. The head is bright and the
+tail fades, and it is additive unlike the grey wake: the tips are read against the
+sky, and a bright line is what makes the speed legible from the game camera.
+
+The emission point is the outermost vertex of the airframe, measured off the mesh
+and carried in each wing bone's own frame. The aileron bone sits at 81% of the
+span, so a trail read from it left the wing visibly inboard of its edge; the
+measured tips sit past it, and keeping them in the bone frame is what makes them
+ride the sweep. The values are per side because the rig's wings are not the same
+length, and one fraction of the span would trail one of them short.
 
 The vapour answers airspeed in FIGHTER, not the burner. It fades in from 55% of
 cruise and is at full strength by cruise, so the tips are already trailing at
@@ -595,18 +601,13 @@ the component along the nose: in a turn the nose outruns the course, and the
 forward projection collapses while the wing is still moving at cruise, which used
 to make the vapour die exactly when the airframe was loaded.
 
-In GERWALK the vapour follows the throttle instead, the same rule the exhaust
-follows. That mode is a hover, not a wing: it flies sideways and backwards as
-happily as forwards, so a permanent trail at cruise says nothing about anything.
-The tips are clean at a steady speed and only smoke while the ship is gaining
-speed. The hover reaches cruise in about four frames, so the burst holds for a
-quarter second before the head freezes: that is what turns a four-frame blip into
-a line, and it is the tips' version of the exhaust's short smear. A swerve at a
-steady speed is not a climb, because the climb is read along the old course — the
-chord the hover interpolates through shortens the speed for a few frames while the
-throttle never moved. The trail outlives the grey exhaust on purpose: the two
-lines have to survive past the nozzle rope, or they end inside it and there is
-nothing to see.
+GERWALK has no wingtip vapour at all. That mode is a hover, not a wing: it flies
+sideways and backwards as happily as forwards, so a trail there says nothing about
+the throttle and nothing about the airframe. The strips are wiped on the frame the
+ship stops being a fighter — including mid-transition, while the wings are
+folding — so a line laid down in FIGHTER does not hang in the air through the
+switch. The trail outlives the grey exhaust on purpose: the two lines have to
+survive past the nozzle rope, or they end inside it and there is nothing to see.
 
 **The exhaust answers a change in speed, not the speed.** Each nozzle carries a GPU
 emitter that drops soft puffs and leaves them where they were born, so the gap
@@ -749,7 +750,7 @@ All values are named constants at the top of each script.
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
 | Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows the measured acceleration in `_update_smoke()`, so the nozzles are clean at a steady throttle |
-| Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`, `WINGTIP_SPEED_FLOOR`, `WINGTIP_BURST_HOLD`; a ribbon rebuilt each frame from `wing_tips()`, which reads the posed aileron bone, faded in by `_wingtip_vapour()` from the airspeed in FIGHTER and from the climb in GERWALK |
+| Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`, `WINGTIP_SPEED_FLOOR`, `WING_TIP_L`, `WING_TIP_R`; a ribbon rebuilt each frame from `wing_tips()`, which carries the measured mesh tip in the posed wing bone's frame, faded in by `_wingtip_vapour()` from the FIGHTER airspeed and wiped entirely outside FIGHTER |
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |

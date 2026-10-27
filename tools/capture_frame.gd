@@ -131,8 +131,8 @@ func _ready() -> void:
 			await get_tree().physics_frame
 
 	# `--settle N` waits N physics frames with the stick released, which is how a
-	# burst is told apart from a permanent trail: at 60 fps the GERWALK vapour holds
-	# for 15 frames and then clears itself.
+	# wake is told apart from a permanent trail: the exhaust and the vapour both
+	# clear themselves a fraction of a second after the ship stops gaining speed.
 	var settle_frames: int = int(_argument("settle", "0"))
 	for _i in settle_frames:
 		await get_tree().physics_frame
