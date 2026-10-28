@@ -660,3 +660,4 @@ func _clear_wingtip_trails() -> void:
 		trail.points.clear()
 		trail.born.clear()
 
+func _clear_trails() -> void:\n\t_clear_wingtip_trails()

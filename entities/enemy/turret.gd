@@ -272,8 +272,27 @@ func take_damage(amount: int) -> void:
 
 func _die() -> void:
 	_state = State.DEAD
+	_clear_trails()
+	if is_instance_valid(_visual):
+		_visual.visible = false
+	if is_instance_valid(_aim_beam):
+		_aim_beam.visible = false
+	_spawn_explosion()
 	killed.emit()
 	queue_free()
+
+func _clear_trails() -> void:
+	pass
+
+func _spawn_explosion() -> void:
+	var host: Node = get_tree().current_scene
+	if host == null:
+		host = get_parent()
+	if host == null:
+		return
+	var blast: ShipExplosion = ShipExplosion.new()
+	host.add_child(blast)
+	blast.global_position = global_position
 
 
 func _planar_distance_to(point: Vector3) -> float:
