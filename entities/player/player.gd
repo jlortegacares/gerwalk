@@ -260,7 +260,7 @@ var _turbo: float = TURBO_MAX
 var _boosting: bool = false
 var _turbo_locked: bool = false
 var _turbo_shown: float = TURBO_MAX
-var _base_fov: float = 58.0
+var _base_fov: float = 75.0
 
 var _visual: Node3D
 var _aim_beam: MeshInstance3D
