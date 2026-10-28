@@ -91,6 +91,17 @@ const CANOPY_COLOR: Color = Color(0.09, 0.05, 0.06, 1.0)
 const LINES_COLOR: Color = Color(0.07, 0.05, 0.06, 1.0)
 const NOSE_COLOR: Color = Color(0.44, 0.16, 0.17, 1.0)
 
+const SMOKE_COLOR: Color = Color(0.74, 0.79, 0.85, 1.0)
+const SMOKE_AMOUNT: int = 450
+const SMOKE_LIFETIME: float = 0.50
+const SMOKE_PUFF: float = 0.80
+const SMOKE_DENSITY_HIGH: float = 0.95
+const WINGTIP_COLOR: Color = Color(0.52, 0.86, 1.0, 0.9)
+const WINGTIP_WIDTH: float = 0.18
+const WINGTIP_SPEED_FLOOR: float = 0.55
+const WINGTIP_LIFETIME: float = 0.65
+const WINGTIP_SPACING: float = 0.30
+
 var _model: PlayerModel
 var _heading: Vector3 = Vector3.RIGHT
 var _desired_heading: Vector3 = Vector3.RIGHT
@@ -102,12 +113,27 @@ var _bank: float = 0.0
 var _yaw_rate: float = 0.0
 var _sweep: float = 0.0
 
+var _thruster_plumes_material: StandardMaterial3D
+var _thruster_cores_material: StandardMaterial3D
+var _thruster_plumes: Array[MeshInstance3D] = []
+var _thruster_cores: Array[MeshInstance3D] = []
+var _smoke: Array[GPUParticles3D] = []
+var _wingtip_trails: Array = []
+var _wingtip_material: StandardMaterial3D
+var _nozzle_anchors: Array[Vector3] = []
+var _thrust_kick: float = 0.0
+var _forward_speed: float = 0.0
+
 
 func _ready() -> void:
 	_hp = FIGHTER_HP
 	add_to_group(&"enemy")
 	_player = _find_player()
 	_build_visual()
+	if is_instance_valid(_model):
+		_build_thrusters()
+		_build_smoke()
+		_build_wingtip_trails()
 	_build_aim_beam()
 
 
@@ -169,6 +195,9 @@ func _physics_process(delta: float) -> void:
 
 	_fly(delta)
 	_pose(delta)
+	_update_thrusters(delta)
+	_update_smoke(delta)
+	_update_wingtip_trails(delta)
 
 
 ## The patrol is a straight leg with a drift at the end of it. The wings stay at
@@ -365,3 +394,269 @@ func _build_visual() -> void:
 		var mesh: MeshInstance3D = node as MeshInstance3D
 		if mesh != null:
 			mesh.layers = 1
+
+func _build_thrusters() -> void:
+	_thruster_plumes_material = _make_thruster_material(Color(0.22, 0.6, 1.0, 0.12))
+	_thruster_cores_material = _make_thruster_material(Color(0.88, 0.98, 1.0, 0.25))
+	if _model == null: return
+	_nozzle_anchors = _model.nozzle_anchors()
+	for nozzle in _nozzle_anchors.size():
+		_add_thruster(nozzle, 0.19, _thruster_plumes_material, _thruster_plumes)
+		_add_thruster(nozzle, 0.09, _thruster_cores_material, _thruster_cores)
+
+func _add_thruster(nozzle: int, base_radius: float, material: StandardMaterial3D, into: Array) -> void:
+	var flame_mesh: CylinderMesh = CylinderMesh.new()
+	flame_mesh.top_radius = 0.0
+	flame_mesh.bottom_radius = base_radius
+	flame_mesh.height = 1.0
+	flame_mesh.radial_segments = 8
+	var flame: MeshInstance3D = MeshInstance3D.new()
+	flame.mesh = flame_mesh
+	flame.material_override = material
+	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flame.rotation.z = PI * 0.5
+	flame.set_meta("nozzle", nozzle)
+	_visual.add_child(flame)
+	into.append(flame)
+
+func _make_thruster_material(tint: Color) -> StandardMaterial3D:
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.albedo_color = tint
+	return material
+
+func _layout_flames(flames: Array[MeshInstance3D], length: float) -> void:
+	if _model == null: return
+	if _nozzle_anchors.is_empty():
+		_nozzle_anchors = _model.nozzle_anchors()
+	for flame in flames:
+		var nozzle: int = int(flame.get_meta("nozzle", 0))
+		var anchor: Vector3 = Vector3.ZERO
+		if nozzle < _nozzle_anchors.size():
+			anchor = _nozzle_anchors[nozzle]
+		flame.scale = Vector3(1.0, length, 1.0)
+		flame.position = Vector3(anchor.x - length * 0.5, anchor.y, anchor.z)
+
+func _thrust_flame_colors(thrust: float, kick: float) -> void:
+	var heat: float = clampf((maxf(_forward_speed - TOP_SPEED * 0.7, 0.0)) / maxf(TOP_SPEED * 0.3, 0.001), 0.0, 1.0)
+	if _thruster_plumes_material != null:
+		_thruster_plumes_material.albedo_color = Color(
+			lerpf(0.22, 0.5, heat),
+			lerpf(0.6, 0.85, heat),
+			1.0,
+			clampf(0.08 + thrust * 0.24 + kick * 0.30, 0.0, 0.8)
+		)
+	if _thruster_cores_material != null:
+		_thruster_cores_material.albedo_color = Color(
+			0.88, 0.98, 1.0, clampf(0.18 + thrust * 0.45 + kick * 0.25, 0.0, 0.95)
+		)
+
+func _update_thrusters(delta: float) -> void:
+	if _model == null: return
+	_forward_speed = maxf(velocity.dot(_heading), 0.0)
+	var thrust: float = clampf(_forward_speed / TOP_SPEED, 0.0, 1.0)
+	var accel: float = (maxf(velocity.dot(_heading), 0.0) - _forward_speed) / maxf(delta, 0.0001) if delta > 0.0 else 0.0
+	_thrust_kick = maxf(_thrust_kick, clampf(accel / ACCELERATION, 0.0, 1.0))
+	_thrust_kick = move_toward(_thrust_kick, 0.0, 3.0 * delta)
+	var kick: float = _thrust_kick
+	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65 + kick * 1.10)
+	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00 + kick * 0.70)
+	_thrust_flame_colors(thrust, kick)
+
+func _build_smoke() -> void:
+	if _model == null: return
+	_nozzle_anchors = _model.nozzle_anchors()
+	for nozzle in _nozzle_anchors.size():
+		var smoke: GPUParticles3D = GPUParticles3D.new()
+		smoke.amount = SMOKE_AMOUNT
+		smoke.lifetime = SMOKE_LIFETIME
+		smoke.local_coords = false
+		smoke.emitting = true
+		smoke.fixed_fps = 0
+		smoke.amount_ratio = 0.0
+		smoke.process_material = _make_smoke_process()
+		smoke.draw_pass_1 = _make_smoke_puff()
+		smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		smoke.set_meta("nozzle", nozzle)
+		_visual.add_child(smoke)
+		_smoke.append(smoke)
+
+func _make_smoke_process() -> ParticleProcessMaterial:
+	var process: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	process.emission_sphere_radius = 0.05
+	process.direction = Vector3(-1.0, 0.0, 0.0)
+	process.spread = 18.0
+	process.initial_velocity_min = 0.5
+	process.initial_velocity_max = 2.0
+	process.gravity = Vector3(0.0, 0.4, 0.0)
+	process.damping_min = 0.6
+	process.damping_max = 1.6
+	process.angle_min = -180.0
+	process.angle_max = 180.0
+	process.scale_min = 0.45
+	process.scale_max = 1.15
+	process.scale_curve = _make_smoke_curve()
+	process.color = SMOKE_COLOR
+	process.color_ramp = _make_smoke_ramp()
+	return process
+
+func _make_smoke_curve() -> CurveTexture:
+	var curve: Curve = Curve.new()
+	curve.add_point(Vector2(0.0, 0.7))
+	curve.add_point(Vector2(1.0, 2.6))
+	var texture: CurveTexture = CurveTexture.new()
+	texture.curve = curve
+	return texture
+
+func _make_smoke_ramp() -> GradientTexture1D:
+	var gradient: Gradient = Gradient.new()
+	gradient.set_color(0, Color(1.0, 1.0, 1.0, 0.30))
+	gradient.add_point(0.35, Color(1.0, 1.0, 1.0, 0.18))
+	gradient.set_color(2, Color(1.0, 1.0, 1.0, 0.0))
+	var texture: GradientTexture1D = GradientTexture1D.new()
+	texture.gradient = gradient
+	texture.width = 64
+	return texture
+
+func _make_smoke_puff() -> QuadMesh:
+	var quad: QuadMesh = QuadMesh.new()
+	quad.size = Vector2(SMOKE_PUFF, SMOKE_PUFF)
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.vertex_color_use_as_albedo = true
+	var grad: Gradient = Gradient.new()
+	grad.set_color(0, Color(1.0, 1.0, 1.0, 1.0))
+	grad.add_point(0.45, Color(1.0, 1.0, 1.0, 0.75))
+	grad.set_color(2, Color(1.0, 1.0, 1.0, 0.0))
+	var grad_texture: GradientTexture2D = GradientTexture2D.new()
+	grad_texture.gradient = grad
+	grad_texture.fill = GradientTexture2D.FILL_RADIAL
+	grad_texture.fill_from = Vector2(0.5, 0.5)
+	grad_texture.fill_to = Vector2(1.0, 0.5)
+	grad_texture.width = 64
+	grad_texture.height = 64
+	material.albedo_texture = grad_texture
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	quad.material = material
+	return quad
+
+func _update_smoke(delta: float) -> void:
+	if _model == null: return
+	var current_forward: float = maxf(velocity.dot(_heading), 0.0)
+	var accel: float = (current_forward - _forward_speed) / maxf(delta, 0.0001) if delta > 0.0 else 0.0
+	_forward_speed = current_forward
+	var density: float = clampf(accel / ACCELERATION, 0.0, 1.0) * SMOKE_DENSITY_HIGH
+	if _nozzle_anchors.is_empty():
+		_nozzle_anchors = _model.nozzle_anchors()
+	for smoke in _smoke:
+		var nozzle: int = int(smoke.get_meta("nozzle", 0))
+		if nozzle < _nozzle_anchors.size():
+			smoke.position = _nozzle_anchors[nozzle]
+		smoke.amount_ratio = density
+
+class WingtipTrail:
+	var mesh: ImmediateMesh = ImmediateMesh.new()
+	var points: Array[Vector3] = []
+	var born: Array[float] = []
+	var age: float = 0.0
+	var vapour: float = 0.0
+
+func _build_wingtip_trails() -> void:
+	_wingtip_material = _make_wingtip_material()
+	for _side in 2:
+		var trail: WingtipTrail = WingtipTrail.new()
+		var instance: MeshInstance3D = MeshInstance3D.new()
+		instance.mesh = trail.mesh
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		instance.top_level = true
+		instance.transform = Transform3D.IDENTITY
+		add_child(instance)
+		_wingtip_trails.append(trail)
+
+func _make_wingtip_material() -> StandardMaterial3D:
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.vertex_color_use_as_albedo = true
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return material
+
+func _update_wingtip_trails(delta: float) -> void:
+	if _model == null: return
+	var vapour: float = _wingtip_vapour()
+	var tips: Array[Vector3] = _model.wing_tips()
+	for index in _wingtip_trails.size():
+		var trail: WingtipTrail = _wingtip_trails[index]
+		var has_tip: bool = index < tips.size()
+		var tip: Vector3 = _visual.global_transform * tips[index] if has_tip else Vector3.ZERO
+		_advance_wingtip_trail(trail, tip, vapour if has_tip else 0.0, delta)
+
+func _wingtip_vapour() -> float:
+	if not is_instance_valid(self) or _state == Enemy.State.DEAD:
+		return 0.0
+	var airspeed: float = velocity.length()
+	var floor_speed: float = TOP_SPEED * WINGTIP_SPEED_FLOOR
+	return clampf((airspeed - floor_speed) / maxf(TOP_SPEED - floor_speed, 0.001), 0.0, 1.0)
+
+func _advance_wingtip_trail(trail: WingtipTrail, tip: Vector3, vapour: float, delta: float) -> void:
+	trail.vapour = vapour
+	trail.age += delta
+	while not trail.born.is_empty() and trail.age - trail.born[0] > WINGTIP_LIFETIME:
+		trail.born.pop_front()
+		trail.points.pop_front()
+	if vapour > 0.0:
+		if trail.points.is_empty():
+			trail.points.append(tip)
+			trail.born.append(trail.age)
+		else:
+			var from: Vector3 = trail.points[-1]
+			var gap: float = from.distance_to(tip)
+			if gap < WINGTIP_SPACING:
+				trail.points[-1] = tip
+				trail.born[-1] = trail.age
+			else:
+				var steps: int = clampi(int(ceil(gap / WINGTIP_SPACING)), 1, 8)
+				for step in steps:
+					trail.points.append(from.lerp(tip, float(step + 1) / float(steps)))
+					trail.born.append(trail.age)
+	_rebuild_wingtip_ribbon(trail)
+
+func _rebuild_wingtip_ribbon(trail: WingtipTrail) -> void:
+	trail.mesh.clear_surfaces()
+	var count: int = trail.points.size()
+	if count < 2:
+		return
+	var camera: Camera3D = get_viewport().get_camera_3d()
+	trail.mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP, _wingtip_material)
+	for index in count:
+		var point: Vector3 = trail.points[index]
+		var before: Vector3 = trail.points[max(0, index - 1)]
+		var after: Vector3 = trail.points[min(count - 1, index + 1)]
+		var along: Vector3 = after - before
+		if along.length_squared() < 0.000001:
+			along = Vector3.RIGHT
+		var side: Vector3 = (along.cross(Vector3.UP)).normalized() * (WINGTIP_WIDTH * 0.5)
+		if side.length_squared() < 0.000001:
+			side = Vector3.RIGHT * (WINGTIP_WIDTH * 0.5)
+		var fade: float = 1.0 - (trail.age - trail.born[index]) / WINGTIP_LIFETIME
+		fade = clampf(fade, 0.0, 1.0)
+		var color: Color = WINGTIP_COLOR
+		color.a *= fade * fade * trail.vapour
+		trail.mesh.surface_set_color(color)
+		trail.mesh.surface_add_vertex(point - side)
+		trail.mesh.surface_set_color(color)
+		trail.mesh.surface_add_vertex(point + side)
+	trail.mesh.surface_end()
+
+func _clear_wingtip_trails() -> void:
+	for trail: WingtipTrail in _wingtip_trails:
+		trail.points.clear()
+		trail.born.clear()
+
