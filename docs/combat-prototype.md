@@ -699,6 +699,14 @@ effect is a world node rather than a child of the ship, so it stays where the wr
 was while the hidden model waits for the respawn, and it asks for a full-strength
 camera kick on top of the one the killing hit already sent.
 
+Enemies die the same way, because the blast is the game's word for "a hull came
+apart" and a kill should not be a different event from a death. The turret, the
+launcher and the interceptor all run the one `Enemy._die`: the hull and the aim
+beam are hidden on the death frame, the same `ShipExplosion` opens where the enemy
+was, the `killed` signal still reaches the arena, and the enemy frees itself. Only
+the camera kick is scaled (`Enemy.DEATH_SHAKE`, 0.35): the explosion is identical,
+but a kill is not the run ending.
+
 The panel fades in over `FADE_IN` (0.5 s) instead of cutting to its backdrop on the
 same frame. Its tint is dark enough to swallow the blast, and the countdown is
 unaffected: it starts when the death event fires, exactly as before.
@@ -941,6 +949,11 @@ read as a contact that was not on the scope.
     -- --interceptor 20 --out /tmp/gerwalk_interceptor.png
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --interceptor 200 --out /tmp/gerwalk_interceptor_salvo.png
+
+# Review an enemy death blast: the interceptor is flown in, then killed 8 frames
+# before the capture, which is where the fireball has opened
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --interceptor 40 --kill 1 --death-delay 8 --out /tmp/gerwalk_enemy_death.png
 
 # Review a hull detail close up, and split a dark patch into its three causes:
 # `--nosmoke` removes the wake, `--noshadow` the sun's shadow map, `--sunrot`

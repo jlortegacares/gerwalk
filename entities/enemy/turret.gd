@@ -61,6 +61,9 @@ const CORE_RADIUS: float = 0.9
 
 const BASE_COLOR: Color = Color(0.93, 0.36, 0.48, 1.0)
 const TELEGRAPH_COLOR: Color = Color(1.0, 0.93, 0.72, 1.0)
+## Lighter than the ship's full-strength kick: the blast is the same one, but the
+## camera should not answer an enemy kill as if the run had ended.
+const DEATH_SHAKE: float = 0.35
 
 signal killed
 
@@ -272,8 +275,32 @@ func take_damage(amount: int) -> void:
 
 func _die() -> void:
 	_state = State.DEAD
+	# The enemy frees itself at the end of the frame, so the hull and the aim beam
+	# are hidden now: a live model under the fireball reads as two hulls for one
+	# frame, which is exactly the frame the blast is peaking.
+	if is_instance_valid(_visual):
+		_visual.visible = false
+	if is_instance_valid(_aim_beam):
+		_aim_beam.visible = false
+	_spawn_explosion()
 	killed.emit()
 	queue_free()
+
+
+## The enemy dies the way the ship does. The blast is a world node, not a child,
+## because the enemy is freed on this frame and the wreck has to outlive it. The
+## camera kick is lighter than the ship's: the explosion is the same, but a kill is
+## not the run ending.
+func _spawn_explosion() -> void:
+	var host: Node = get_tree().current_scene
+	if host == null:
+		host = get_parent()
+	if host == null:
+		return
+	var blast: ShipExplosion = ShipExplosion.new()
+	blast.shake_strength = DEATH_SHAKE
+	host.add_child(blast)
+	blast.global_position = global_position
 
 
 func _planar_distance_to(point: Vector3) -> float:

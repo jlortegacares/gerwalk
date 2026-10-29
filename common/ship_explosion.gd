@@ -1,7 +1,11 @@
 class_name ShipExplosion
 extends Node3D
-## The player's death blast: a white core, a fireball, debris, sparks and smoke.
+## The death blast: a white core, a fireball, debris, sparks and smoke.
 ## Self-freeing, no pooling at prototype scale.
+##
+## The ship uses it when it dies and every enemy uses it too, so the blast is the
+## one thing in the game that means "a hull came apart". Only the camera kick is
+## scaled: a kill is not the run ending.
 ##
 ## Built in code for the same reason as `HitSpark`: the meshes are placeholders, so
 ## this node disappears behind a scene swap when real art lands. It is one node with
@@ -35,6 +39,9 @@ const DEBRIS_COLOR: Color = Color(0.3, 0.29, 0.31, 1.0)
 ## a shape with a hot middle instead of three discs of the same size.
 const FIRE_LOBES: Array[float] = [1.0, 0.72, 0.5]
 
+## Read by `_ready`, so it has to be set before the node enters the tree.
+var shake_strength: float = 1.0
+
 
 func _ready() -> void:
 	_add_core()
@@ -43,8 +50,8 @@ func _ready() -> void:
 	_add_sparks()
 	_add_smoke()
 	# The hull is gone in one frame, so the only cue that something big happened is
-	# the camera: a full-strength kick on top of the one the killing hit asked for.
-	GlobalEventBus.camera_shake_requested.emit(1.0)
+	# the camera: a kick on top of the one the killing hit asked for.
+	GlobalEventBus.camera_shake_requested.emit(shake_strength)
 
 	var tween: Tween = create_tween()
 	tween.tween_interval(LIFETIME)

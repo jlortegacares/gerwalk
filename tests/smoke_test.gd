@@ -36,6 +36,7 @@ func _ready() -> void:
 	await _test_enemies_roam_the_planet()
 	await _test_missile_enemy()
 	await _test_fighter_enemy()
+	await _test_enemy_death_blast()
 	await _test_afterburner()
 	await _test_exhaust_trail()
 	_test_airframe_lighting()
@@ -1745,6 +1746,73 @@ func _test_fighter_enemy() -> void:
 
 
 
+## The blast is the game's word for "a hull came apart", so every enemy speaks it
+## too. The three kinds share the one death path in `Enemy`, and this drives each
+## of them through it: the hull disappears, one blast appears where the enemy was,
+## the kill still reaches the arena, and the enemy frees itself.
+func _test_enemy_death_blast() -> void:
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	_player.global_position = Vector3.ZERO
+	_player.velocity = Vector3.ZERO
+
+	var kinds: Array[String] = ["turret", "launcher", "interceptor"]
+	var enemies: Array[Enemy] = [
+		_spawn_turret(Vector3(22.0, 0.0, 0.0)),
+		_spawn_missile_enemy(Vector3(0.0, 0.0, 22.0)),
+		_spawn_fighter_enemy(Vector3(-22.0, 0.0, 0.0)),
+	]
+
+	for index in enemies.size():
+		var enemy: Enemy = enemies[index]
+		var kind: String = kinds[index]
+		if enemy == null:
+			_check(false, "the %s spawns for the death check" % kind)
+			continue
+
+		var died_at: Vector3 = enemy.global_position
+		var kills: Array[int] = [0]
+		enemy.killed.connect(func() -> void: kills[0] += 1)
+
+		enemy.take_damage(enemy.current_hp())
+
+		_check(kills[0] == 1, "the %s reports exactly one kill" % kind)
+		var hull: Node3D = enemy.get("_visual") as Node3D
+		_check(
+			hull != null and not hull.visible,
+			"the %s hides its hull on the death frame" % kind
+		)
+		_check(
+			enemy.is_queued_for_deletion(),
+			"the %s frees itself after the blast" % kind
+		)
+
+		await get_tree().physics_frame
+
+		# Matched by where the enemy died instead of by count: a blast from the
+		# previous kind may still be leaving the tree on this frame.
+		var blasts_at_death: int = 0
+		var blast: ShipExplosion = null
+		for candidate in _death_blasts():
+			if candidate.global_position.distance_to(died_at) < 0.01:
+				blasts_at_death += 1
+				blast = candidate
+		_check(
+			blasts_at_death == 1,
+			"the %s leaves one death blast (%d)" % [kind, blasts_at_death]
+		)
+		if blast != null:
+			_check(
+				is_equal_approx(blast.shake_strength, Enemy.DEATH_SHAKE),
+				"the %s blast kicks the camera less than the ship's" % kind
+			)
+			blast.queue_free()
+
+	await get_tree().physics_frame
+
+
 ## The burner is a tank, not a cooldown, so this drives the whole cycle in one
 ## run: burn, coast, burn out, release and re-arm. Those four states are the
 ## mechanic; checking a single one of them would miss the transitions.
@@ -2842,6 +2910,29 @@ func _spawn_fighter_enemy(position: Vector3) -> FighterEnemy:
 	_arena.add_child(enemy)
 	enemy.setup_spawn(position)
 	return enemy
+
+
+func _spawn_turret(position: Vector3) -> Enemy:
+	var scene: PackedScene = load("res://entities/enemy/turret.tscn")
+	if scene == null:
+		return null
+	var enemy: Enemy = scene.instantiate() as Enemy
+	_arena.add_child(enemy)
+	enemy.setup_spawn(position)
+	return enemy
+
+
+## Blasts live in the scene root, not under the enemy, so they outlive the hull.
+## Counting them is how a death is told apart from a silent `queue_free`.
+func _death_blasts() -> Array[ShipExplosion]:
+	var found: Array[ShipExplosion] = []
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return found
+	for child in scene.get_children():
+		if child is ShipExplosion:
+			found.append(child)
+	return found
 
 
 func _player_projectiles() -> Array[Projectile]:

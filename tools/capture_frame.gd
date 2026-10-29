@@ -35,7 +35,10 @@ extends Node
 ## `--death 1` kills the ship right before the capture, which is how the death
 ## screen and its countdown are reviewed without waiting for a turret to land the
 ## last hit. `--death-delay N` waits N physics frames after the kill before
-## capturing (default 2), which is how the explosion is reviewed mid-blast.
+## capturing (default 2), which is how the explosion is reviewed mid-blast; 8 is
+## about where the fireball opens.
+## `--interceptor N --kill 1` ends the interceptor hold with a lethal hit, which is
+## how an enemy death blast is reviewed.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
 const DEFAULT_OUTPUT: String = "/tmp/gerwalk_frame.png"
@@ -58,6 +61,7 @@ func _ready() -> void:
 	var output_path: String = _argument("out", DEFAULT_OUTPUT)
 	var death: bool = _argument("death", "0") == "1"
 	var death_delay: int = int(_argument("death-delay", "2"))
+	var kill_subject: bool = _argument("kill", "0") == "1"
 
 	var arena: Node = load(ARENA_SCENE).instantiate()
 	add_child(arena)
@@ -232,6 +236,7 @@ func _ready() -> void:
 	# short hold catches it on the way in; a long one catches the launch, because
 	# the reload, the warning and the salvo together take about three seconds.
 	var interceptor_frames: int = int(_argument("interceptor", "0"))
+	var interceptor: FighterEnemy = null
 	if interceptor_frames > 0:
 		Input.action_release(&"fire")
 		Input.action_release(&"aim_right")
@@ -249,7 +254,7 @@ func _ready() -> void:
 		var interceptor_scene: PackedScene = load(
 			"res://entities/enemy/fighter_enemy.tscn"
 		)
-		var interceptor: FighterEnemy = interceptor_scene.instantiate() as FighterEnemy
+		interceptor = interceptor_scene.instantiate() as FighterEnemy
 		enemies.add_child(interceptor)
 		interceptor.setup_spawn(ship.global_position + forward * 24.0)
 		for _i in interceptor_frames:
@@ -258,6 +263,13 @@ func _ready() -> void:
 		ship.set("_invulnerable", 0.0)
 		if visual != null:
 			visual.visible = true
+
+	# `--kill 1` ends the hold with a lethal hit, so the blast is reviewed on an
+	# enemy: the same explosion the ship leaves, with the lighter camera kick.
+	if kill_subject and is_instance_valid(interceptor):
+		interceptor.take_damage(999)
+		for _i in death_delay:
+			await get_tree().physics_frame
 
 	# The death screen is a UI state, so the ship is killed outright here and the
 	# countdown is captured on its first frame, where it still reads the full five.
