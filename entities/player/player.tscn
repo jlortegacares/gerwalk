@@ -22,7 +22,7 @@ shape = SubResource("CapsuleShape3D_player")
 
 [node name="CameraRig" type="Node3D" parent="."]
 unique_name_in_owner = true
-position = Vector3(0, 50, 13.4)
+position = Vector3(0, 65, 17.42)
 rotation_degrees = Vector3(-75, 0, 0)
 
 [node name="Camera" type="Camera3D" parent="CameraRig"]
