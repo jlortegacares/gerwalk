@@ -76,8 +76,14 @@ its own phase, so a full rack braids rather than moving in lockstep. The swing i
 applied to the desired heading, never to the per-frame turn step, and it fades to
 zero inside `MISSILE_WEAVE_HIT_RANGE` so the shot still hits what it locked onto.
 `MISSILE_TURN_RATE` rises to 5.2 because the turn radius must be small enough for the
-weave to bend more than once per flight. Enemy missiles keep their straight track:
-their weave would change how the fight reads without buying the player anything.
+weave to bend more than once per flight.
+
+S13. **The interceptor's salvo behaves like the player's.** Requested verbatim: "Los
+misiles del figther enemigo debe comportarse igual al del player". The interceptor's
+pair holds its heading for `MISSILE_GUIDANCE_DELAY`, then weaves on the player's own
+`MISSILE_WEAVE_*` constants with one phase per shot, and its turn rate is the player's
+5.2 so the weave can bend. The warhead, the speed, the lifetime and the paint stay the
+interceptor's: what is shared is the flight profile, not the damage.
 
 ## Tasks
 
@@ -94,6 +100,7 @@ their weave would change how the fight reads without buying the player anything.
 | T9 | S11 | inline | done |
 | T10 | S12 | inline | done |
 | T11 | S11, S12 | inline | done |
+| T12 | S13 | inline | done |
 
 ## Log
 
@@ -206,3 +213,18 @@ origin.
 L21: Evidence: 365 PASS / 0 FAIL. Captures `--missile 100 --salvo-delay 26` (the
 braid), `--missile 100 --close 1 --zoom 1.7 --salvo-delay 20` (the fan), and
 `--lock 30` (the settled bracket box) all reviewed.
+
+L22 (verbatim): "Los misiles del figther enemigo debe comportarse igual al del
+player"
+
+L23: Supersedes the "enemy missiles keep a straight track" line in S12. The
+interceptor now calls `set_guidance_delay` and `set_weave` with the Arsenal constants,
+phase `index * 2.1`, and its `MISSILE_TURN_RATE` goes 1.7 -> 5.2 (a 21-unit radius at
+36 u/s cannot bend the weave). Damage, speed, lifetime and livery stay the enemy's.
+The missile launcher (`missile_enemy.gd`) is untouched: the request named the
+interceptor, and the launcher's single slow shot is the one the decoy answers.
+
+L24: RED observed before GREEN: with `fighter_enemy.gd` stashed the four new
+assertions failed exactly as expected (amplitude 0.00, rate mismatch, turn rate 1.7,
+phases [0, 0]); with the change, 369 PASS / 0 FAIL. Capture `--interceptor 225` and
+`--interceptor 240` show the pair leaving on two braided lines.

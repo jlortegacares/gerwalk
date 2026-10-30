@@ -1709,7 +1709,7 @@ func _test_fighter_enemy() -> void:
 
 	# The attack is the salvo, so wait for the state machine to commit instead of
 	# calling the fire function behind its back.
-	var missile: Projectile = null
+	var salvo: Array[Projectile] = []
 	for _i in 360:
 		await get_tree().physics_frame
 		for child in get_children():
@@ -1720,11 +1720,11 @@ func _test_fighter_enemy() -> void:
 				continue
 			if int(shot.get("_style")) != Projectile.Style.MISSILE:
 				continue
-			missile = shot
-			break
-		if missile != null:
+			salvo.append(shot)
+		if not salvo.is_empty():
 			break
 
+	var missile: Projectile = null if salvo.is_empty() else salvo[0]
 	_check(missile != null, "the interceptor launches a missile")
 	if missile != null:
 		_check(bool(missile.call("is_homing")), "the interceptor's missile is guided")
@@ -1735,6 +1735,32 @@ func _test_fighter_enemy() -> void:
 		_check(
 			int(missile.get("_damage")) == FighterEnemy.MISSILE_DAMAGE,
 			"the interceptor's missile carries its own warhead"
+		)
+		# The interceptor's salvo is the player's salvo in hostile paint: same
+		# weave, same tuning. Two paths would drift apart on the first tweak.
+		_check(
+			is_equal_approx(
+				float(missile.get("_weave_amplitude")),
+				Arsenal.MISSILE_WEAVE_AMPLITUDE
+			),
+			"the interceptor's missile weaves like the player's (%.2f)"
+			% float(missile.get("_weave_amplitude"))
+		)
+		_check(
+			is_equal_approx(float(missile.get("_weave_rate")), Arsenal.MISSILE_WEAVE_RATE),
+			"the interceptor uses the player's weave rate, not a second tuning"
+		)
+		_check(
+			float(missile.get("_turn_rate")) >= Arsenal.MISSILE_TURN_RATE - 0.001,
+			"the interceptor's missile is agile enough for the weave (%.1f rad/s)"
+			% float(missile.get("_turn_rate"))
+		)
+		var phases: Array[int] = []
+		for shot in salvo:
+			phases.append(int(round(float(shot.get("_weave_phase")) * 10.0)))
+		_check(
+			_unique_count(phases) == salvo.size(),
+			"the pair braids instead of weaving in step (%s)" % [str(phases)]
 		)
 
 	# Break the chase before it lands: this check is about the attack, not about

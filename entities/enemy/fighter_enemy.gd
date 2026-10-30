@@ -72,7 +72,11 @@ const EXTEND_TIME: float = 2.1
 const SALVO: int = 2
 const MISSILE_SPEED: float = 36.0
 const MISSILE_DAMAGE: int = 2
-const MISSILE_TURN_RATE: float = 1.7
+## The player's turn rate, because the weave below needs it: a turn rate is a turn
+## radius, and the interceptor's old 1.7 (a 21-unit radius at this speed) cannot
+## bend a path more than once before the shot arrives, so the braid would be a
+## straight line with a kink in it.
+const MISSILE_TURN_RATE: float = 5.2
 const MISSILE_SIZE: Vector3 = Vector3(0.46, 0.38, 1.9)
 const MISSILE_LIFETIME: float = 5.0
 const MISSILE_SPREAD_DEGREES: float = 5.0
@@ -350,10 +354,15 @@ func _fire_pattern() -> void:
 		var spread: float = (
 			deg_to_rad(MISSILE_SPREAD_DEGREES) * (float(index) - float(SALVO - 1) * 0.5)
 		)
-		_spawn_missile(origin, _heading.rotated(Vector3.UP, spread))
+		_spawn_missile(origin, _heading.rotated(Vector3.UP, spread), index)
 
 
-func _spawn_missile(origin: Vector3, direction: Vector3) -> void:
+## The interceptor's salvo is the player's salvo in hostile paint: the pair holds its
+## heading for a beat so the two lines separate, then weaves on the player's own
+## tuning, one phase per shot. The paint and the warhead stay the enemy's; only the
+## flight profile is shared, because a hostile missile that does not braid reads as a
+## different weapon instead of the same one aimed at you.
+func _spawn_missile(origin: Vector3, direction: Vector3, index: int) -> void:
 	var missile: Projectile = bullet_scene.instantiate()
 	get_tree().current_scene.add_child(missile)
 	missile.global_position = origin
@@ -368,6 +377,14 @@ func _spawn_missile(origin: Vector3, direction: Vector3) -> void:
 		Color(0.0, 0.0, 0.0, 0.0),
 		MISSILE_LIFETIME,
 		Projectile.Style.MISSILE
+	)
+	missile.set_guidance_delay(Arsenal.MISSILE_GUIDANCE_DELAY)
+	missile.set_weave(
+		Arsenal.MISSILE_WEAVE_AMPLITUDE,
+		Arsenal.MISSILE_WEAVE_RATE,
+		float(index) * 2.1,
+		Arsenal.MISSILE_WEAVE_HIT_RANGE,
+		Arsenal.MISSILE_WEAVE_FADE
 	)
 
 

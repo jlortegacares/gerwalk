@@ -121,8 +121,10 @@ The swing is applied to the desired heading, never to the per-frame turn step. A
 step is already an angle: adding the swing to it turns the missile at a rate it never
 asked for, and the shot spirals around its target without closing on it. The swing
 also fades to zero inside `MISSILE_WEAVE_HIT_RANGE`, because a missile still weaving
-at the hull misses the thing it was locked onto. Enemy missiles keep a straight track:
-their weave would change how the fight reads without buying the player anything.
+at the hull misses the thing it was locked onto. Enemy missiles weave on the same
+tuning, because a hostile shot that does not braid reads as a different weapon instead
+of the same one aimed at you; what stays the enemy's is the warhead, the speed and
+the paint.
 
 **Missiles leave from the wings.** Each shot is born on the hardpoint of the wing it
 is angling towards. The point is read from the wing bone's own span axis, so the
@@ -694,6 +696,12 @@ The salvo is the launcher's, one step faster: 36 u/s against the launcher's 33, 
 it still closes on a hovering ship but stays under the burner. Both the decoy and
 shooting it down work exactly as they do against the launcher, because it is the
 same `Projectile` with the same enemy-missile layer.
+
+Its flight profile is the player's, not the launcher's: the pair holds its heading
+for `MISSILE_GUIDANCE_DELAY` so the two lines separate, then weaves on
+`MISSILE_WEAVE_*` with one phase per shot, and its turn rate is the player's 5.2
+rather than the launcher's 1.6, because the weave cannot bend a path on a 21-unit
+radius. Only the warhead, the speed and the paint stay the enemy's.
 
 It inherits from `Enemy` for the identity rather than for the movement. Being an
 `Enemy` in the `enemy` group is what makes it a first-class target: the arena
