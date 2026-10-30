@@ -2210,6 +2210,7 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	await _test_missile_cap(weapons)
 	await _test_missile_tap(weapons)
 	await _test_missile_wings(weapons)
+	await _test_missile_weave()
 	await _test_lock_reticle()
 
 	Input.action_release(&"missile")
@@ -2572,8 +2573,78 @@ func _test_missile_wings(weapons: WeaponSystem) -> void:
 	_clear_projectiles()
 
 
-## The mark is a lock, not a decal: it has to announce itself when it appears and
-## keep moving while it holds, or a target reads as painted on instead of tracked.
+## The salvo's trails braid: a shot spirals around its line of sight instead of
+## tracking it dead straight, and still straightens out to hit what it locked.
+func _test_missile_weave() -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	await get_tree().physics_frame
+
+	# Flown far from the arena: a queue_freed turret is still in the tree for the
+	# tick that frees it, and a steering check that spawns at the origin can be
+	# killed by a leftover contact from the test before it.
+	var base: Vector3 = Vector3(400.0, 0.0, 400.0)
+	var target: Node3D = Node3D.new()
+	add_child(target)
+	target.global_position = base + Vector3(0.0, 0.0, -32.0)
+
+	var scene: PackedScene = load("res://combat/projectile.tscn")
+	var missile: Projectile = scene.instantiate() as Projectile
+	add_child(missile)
+	missile.global_position = base
+	missile.setup(
+		Vector3(0.0, 0.0, -1.0),
+		Arsenal.MISSILE_SPEED,
+		Projectile.Team.PLAYER,
+		Arsenal.MISSILE_DAMAGE,
+		Arsenal.MISSILE_SIZE,
+		target,
+		Arsenal.MISSILE_TURN_RATE,
+		Arsenal.MISSILE_COLOR,
+		Projectile.LIFETIME,
+		Projectile.Style.MISSILE
+	)
+	missile.set_weave(
+		Arsenal.MISSILE_WEAVE_AMPLITUDE,
+		Arsenal.MISSILE_WEAVE_RATE,
+		0.0,
+		Arsenal.MISSILE_WEAVE_HIT_RANGE,
+		Arsenal.MISSILE_WEAVE_FADE
+	)
+
+	# The shot leaves down -Z towards the target, so its X is the distance off the
+	# straight line: the weave has to open one, change side, and close it again.
+	var swings: Array[int] = []
+	var widest: float = 0.0
+	var closest: float = INF
+	for _i in 60:
+		await get_tree().physics_frame
+		if not is_instance_valid(missile):
+			break
+		var offset: Vector3 = missile.global_position
+		widest = maxf(widest, absf(offset.x - base.x))
+		closest = minf(closest, offset.distance_to(target.global_position))
+		var side: int = int(signf(offset.x - base.x))
+		if swings.is_empty() or swings[-1] != side:
+			swings.append(side)
+
+	_check(widest > 1.5, "the shot spirals off the straight line (%.2f units)" % widest)
+	_check(
+		swings.size() >= 3,
+		"the trail braids instead of bending once (%s)" % str(swings)
+	)
+	_check(
+		closest < 2.5,
+		"the shot straightens out and reaches its target (%.2f units)" % closest
+	)
+
+	target.queue_free()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+
+## The mark is a lock, not a decal: it arrives wide and snaps down onto the
+## contact, squeezing past its resting size before it settles.
 func _test_lock_reticle() -> void:
 	var host: Node3D = Node3D.new()
 	add_child(host)
@@ -2582,23 +2653,34 @@ func _test_lock_reticle() -> void:
 	# Checked on the frame it is born: `_process` starts closing it from there.
 	_check(
 		reticle.scale.x > 1.2,
-		"the mark arrives wider than its resting ring (%.2f)" % reticle.scale.x
+		"the mark arrives wider than its resting box (%.2f)" % reticle.scale.x
+	)
+	# Four corner brackets are two quads each, plus the four triangles of the pip.
+	var arrays: Array = (reticle.mesh as ImmediateMesh).surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	_check(
+		vertices.size() == 4 * 2 * 6 + 4 * 3,
+		"the mark is four corner brackets and a centre pip (got %d vertices)"
+		% vertices.size()
 	)
 
-	var spin_before: float = reticle.rotation.y
-	await get_tree().create_timer(0.5).timeout
+	# Driven frame by frame instead of by wall clock: the snap is an overshoot, and
+	# a single sample after the fact misses the squeeze that makes it read as a snap.
+	var lowest: float = reticle.scale.x
+	for _i in 14:
+		reticle.call("_process", 1.0 / 60.0)
+		lowest = minf(lowest, reticle.scale.x)
 	_check(
-		absf(reticle.scale.x - 1.0) < 0.12,
+		lowest < 0.96,
+		"the box squeezes past its resting size on the way in (%.2f)" % lowest
+	)
+	_check(
+		absf(reticle.scale.x - 1.0) < 0.06,
 		"the mark settles onto the contact (%.2f)" % reticle.scale.x
 	)
 	_check(
 		reticle.transparency <= 0.05,
 		"the mark is fully drawn once the lock has closed (%.2f)" % reticle.transparency
-	)
-	_check(
-		absf(reticle.rotation.y - spin_before) > 0.2,
-		"the mark keeps turning while it holds (%.2f rad)"
-		% (reticle.rotation.y - spin_before)
 	)
 
 	host.queue_free()

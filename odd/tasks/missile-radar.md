@@ -44,7 +44,7 @@ in the world while the button is down, and the HUD shows the loaded count as
 S8. **The shot's flight profile does not change.** Missile model, smoke trail,
 speed, turn rate, damage and lifetime stay as they are. This change owns when a
 missile launches, where it comes from, which heading it leaves on and which contact
-it chases, not how fast or how tightly it flies.
+it chases, not how fast or how tightly it flies. Superseded by S12.
 
 S9. **The button is discoverable.** A `missile` action (right mouse button, gamepad
 X, key F) appears in the on-screen control hint and in the docs. Nothing else in the
@@ -58,10 +58,26 @@ the guidance engages, because guidance on the launch frame folds the spread into
 column. A six-missile load must read as six lines, not as three shots fired twice.
 
 S11. **The mark is a lock, not a decal.** Requested verbatim: "a su vez mejora la
-animacion de targear a un enemigo". The reticle arrives wider than its resting size (1.9x) and closes onto
-the contact in 0.24 s while it fades in, then keeps turning. The ring is drawn as
-four arcs so the turn is visible: a closed torus is rotationally symmetric and a spin
-on it reads as frozen. It still dies with its target and follows it while it moves.
+animacion de targear a un enemigo". The mark is the anime lock, not a ring: four
+corner brackets pointing inwards plus a diamond pip on the centre, so the target
+stays visible inside its own mark. It arrives 1.9x wide and snaps down onto the
+contact in 0.22 s while it fades in, and the snap is an ease-out-back, so the box
+passes its resting size and squeezes before it settles. Once settled it breathes on
+its emission rather than spinning: the box is not symmetric, but rotating it with the
+turret would tilt a marker that has to stay level with the play plane. It still dies
+with its target and follows it while it moves.
+
+S12. **The salvo braids like the anime.** Requested verbatim: "quiero que el efecto
+de los misiles y el target se inspiren en el anime marcross". A player missile swings
+its aim direction off the line of sight by `MISSILE_WEAVE_AMPLITUDE` radians at
+`MISSILE_WEAVE_RATE` radians per second, so it crabs sideways and swings back and the
+smoke trail draws a wave instead of a straight line. Each missile of a salvo carries
+its own phase, so a full rack braids rather than moving in lockstep. The swing is
+applied to the desired heading, never to the per-frame turn step, and it fades to
+zero inside `MISSILE_WEAVE_HIT_RANGE` so the shot still hits what it locked onto.
+`MISSILE_TURN_RATE` rises to 5.2 because the turn radius must be small enough for the
+weave to bend more than once per flight. Enemy missiles keep their straight track:
+their weave would change how the fight reads without buying the player anything.
 
 ## Tasks
 
@@ -76,6 +92,8 @@ on it reads as frozen. It still dies with its target and follows it while it mov
 | T7 | S7, S9 | inline | done |
 | T8 | S8, S10 | inline | done |
 | T9 | S11 | inline | done |
+| T10 | S12 | inline | done |
+| T11 | S11, S12 | inline | done |
 
 ## Log
 
@@ -152,3 +170,39 @@ and settling into an idle turn, with the emission pulsing. `transparency` needs 
 `TRANSPARENCY_ALPHA` material, so the material is built before the fade is set.
 Evidence: 361 PASS / 0 FAIL; `--missile 100 --salvo-delay 10` shows five separate
 lines; `--lock 4` and `--lock 40` show the lock-in and the settled ring.
+
+L15 (verbatim): "quiero que el efecto de los misiles y el target se inspiren en el
+anime marcross"
+
+L16: Read the request as two things: the Itano Circus (missiles that weave, leaving
+braided smoke) and the anime lock (a bracket box, not a ring). The weave is applied
+only to player missiles, because enemy guidance is gameplay the player reads.
+
+L17: The first weave offset the *aim point* sideways, and the shot orbited its target
+without closing: a lateral aim offset at 2.8 rad/s turn rate is a spiral, not a weave.
+The second attempt added the swing to the per-frame `step`, which is already an angle,
+so the missile turned at roughly 25 rad/s. The shape that works swings the *desired
+heading* by `sin(age * rate + phase) * amplitude * weight` before the turn-rate clamp.
+Evidence: the first version reported `widest = 0.01` and never arrived.
+
+L18: `MISSILE_TURN_RATE` went 2.8 -> 5.2. A turn rate is a turn radius: 15 units at
+42 u/s cannot bend a path more than once before the shot arrives, so the weave had
+nowhere to draw. Final tuning: amplitude 0.62 rad, rate 11 rad/s, hit range 9,
+fade 9. Phase is `index * 2.1`, which over six missiles gives three opposed pairs.
+
+L19: The reticle became four corner brackets plus a diamond pip, and the spin was
+replaced by an emission breath: the box is no longer symmetric, but rotating it with
+the turret would tilt a marker that has to stay level with the play plane. The
+lock-in is an ease-out-back (`OVERSHOOT = 1.70158`), so the box overshoots to 0.91x
+of its resting scale and squeezes before it settles.
+
+L20: The reticle test drives `_process(1.0 / 60.0)` fourteen times by hand. In
+headless, `process_frame` is not tied to the clock, so a wall-clock wait would sample
+past the squeeze and the overshoot assertion would pass for the wrong reason. The
+weave test flies at `Vector3(400, 0, 400)`: a turret freed in the previous test is
+still in the tree for the tick it frees, and it killed the missile 1.4 units from the
+origin.
+
+L21: Evidence: 365 PASS / 0 FAIL. Captures `--missile 100 --salvo-delay 26` (the
+braid), `--missile 100 --close 1 --zoom 1.7 --salvo-delay 20` (the fan), and
+`--lock 30` (the settled bracket box) all reviewed.

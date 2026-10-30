@@ -99,13 +99,30 @@ it, because a missile has no hull to chew through. The point is to give the warn
 window a second ending — a good player kills the shot instead of spending the
 burner on it — without turning a ring of orbs into a wall of props.
 
-Each missile drops a puff of smoke every 0.018 s at its tail, and each puff is a node
+Each missile drops a puff of smoke every 0.017 s at its tail, and each puff is a node
 in the scene rather than a child of the missile. That is the whole point of the
 design: the smoke already in the air has to survive the impact that frees the shot.
-A puff grows from 0.10 to 0.55, fades out over 0.62 s and frees itself, and it
+A puff grows from 0.10 to 0.62, fades out over 0.85 s and frees itself, and it
 inherits a fraction of the missile's speed so a guided turn leaves a curved trail
 instead of a straight line. The interval is tight enough that consecutive puffs
 overlap: a sparser one reads as a dotted line, not as smoke.
+
+**The salvo braids.** A player missile does not track the line of sight dead
+straight: it swings its aim direction off that line by `MISSILE_WEAVE_AMPLITUDE`
+radians, at `MISSILE_WEAVE_RATE` radians per second, so it crabs sideways for half a
+cycle and then swings back. That is the Macross picture — the smoke of a salvo
+braiding in the air instead of six parallel lines — and it is why the turn rate went
+up to 5.2: a turn rate is a turn radius, and a radius of 15 units cannot bend a path
+more than once before the shot arrives. Each missile of a salvo gets its own phase
+(`index * 2.1`), so a full rack draws three pairs of opposed curves rather than six
+trails in lockstep.
+
+The swing is applied to the desired heading, never to the per-frame turn step. A
+step is already an angle: adding the swing to it turns the missile at a rate it never
+asked for, and the shot spirals around its target without closing on it. The swing
+also fades to zero inside `MISSILE_WEAVE_HIT_RANGE`, because a missile still weaving
+at the hull misses the thing it was locked onto. Enemy missiles keep a straight track:
+their weave would change how the fight reads without buying the player anything.
 
 **Missiles leave from the wings.** Each shot is born on the hardpoint of the wing it
 is angling towards. The point is read from the wing bone's own span axis, so the
@@ -117,16 +134,23 @@ is angling towards, so the picture and the trajectory agree. A hand's width of
 clearance keeps the shot from spawning inside the pylon.
 
 Every contact is visible. While the button is down, each turret the radar holds
-carries a ring (`combat/lock_reticle.gd`): flat on the play plane and above the
-body, because that is what an angled camera reads as a ring around the unit
-instead of a line through it. The ring is a lock, not a decal — it arrives 1.9×
-wide and closes onto the contact in 0.24 s while it fades in, then keeps turning,
-and the four arcs that make up the ring are what make that turn readable (a closed
-torus spinning on its axis looks frozen). The reticle is parented to the turret, so
-it dies with its target and follows it while it moves, and the HUD counts the
-loaded missiles while the button is down. A mechanic whose payoff depends on how
-long you held a button cannot be invisible, and a salvo that spreads has to show
-what it will spread over.
+carries a mark (`combat/lock_reticle.gd`): flat on the play plane and above the
+body, because that is what an angled camera reads as a box around the unit instead
+of a line through it. The shape is the anime lock, not a ring — four corner brackets
+pointing inwards and a diamond pip on the centre. A bracket box says "this one,
+here" while leaving the target itself visible, which a closed circle does not.
+
+The mark is a lock, not a decal. It arrives 1.9× wide and fades in while it snaps
+down onto the contact in 0.22 s, and the snap is an ease-out-back: the box passes its
+resting size, squeezes, and only then settles. That overshoot is what reads as a lock
+instead of a zoom, and it is why the test drives `_process` frame by frame — a single
+sample after the fact would miss the squeeze. Once settled it breathes on its
+emission instead of spinning: the box is not rotationally symmetric, but rotating it
+with the turret would tilt a marker that has to stay level with the play plane. The
+reticle is parented to the turret, so it dies with its target and follows it while it
+moves, and the HUD counts the loaded missiles while the button is down. A mechanic
+whose payoff depends on how long you held a button cannot be invisible, and a salvo
+that spreads has to show what it will spread over.
 
 The bomb is the emergency button. One charge detonates a 40-unit ring that cancels
 enemy fire inside it and pays 8 damage to every turret in range, in the same frame.
@@ -783,9 +807,9 @@ All values are named constants at the top of each script.
 | Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED`, `FIGHTER_ROLL_ANIM_TIME` |
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
-| Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load interval, max salvo, salvo cooldown, damage, turn rate, range, launch fan step and cap) |
+| Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load interval, max salvo, salvo cooldown, damage, turn rate, range, launch fan step and cap, weave amplitude/rate/hit range/fade) |
 | Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
-| Lock reticle | `combat/lock_reticle.gd` | `RADIUS`, `THICKNESS`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH`, `LOCK_IN_SCALE`, `LOCK_IN_TIME`, `LOCK_IN_SPIN`, `SPIN_SPEED`, `ARCS` |
+| Lock reticle | `combat/lock_reticle.gd` | `HALF_SIZE`, `ARM`, `THICKNESS`, `PIP`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH`, `GLOW`, `GLOW_DEPTH`, `LOCK_IN_SCALE`, `LOCK_IN_TIME`, `OVERSHOOT` |
 | Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |
 | Death countdown | `ui/hud/game_over.gd` | `RESPAWN_SECONDS`, `FADE_IN` |
 | Death blast | `common/ship_explosion.gd` | `LIFETIME`, `CORE_*`, `FIRE_*`, `DEBRIS_DURATION`, `SPARK_LIFETIME`, `SMOKE_LIFETIME` |
@@ -943,11 +967,16 @@ read as a contact that was not on the scope.
     -- --missile 100 --close 1 --zoom 1.7 --salvo-delay 10 --out /tmp/gerwalk_salvo.png
 
 # Review the lock reticle: the same hold without the release. A short N catches the
-# lock-in, a long one the settled ring and its idle spin.
+# lock-in, a long one the settled box and its breathing emission.
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --lock 4 --out /tmp/gerwalk_lock_in.png
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --lock 40 --out /tmp/gerwalk_lock_settled.png
+
+# Review the braid: the same salvo held longer, so the shots have woven a full wave
+# and the trails read as curves instead of a fan of straight lines.
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --missile 100 --salvo-delay 26 --out /tmp/gerwalk_salvo_braid.png
 
 # Review the airframe alone, orthographic, in both modes (silhouette debugging)
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/model_view.tscn \

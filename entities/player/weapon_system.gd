@@ -451,6 +451,15 @@ func _launch_missile(
 	# readable.
 	if shot != null:
 		shot.set_guidance_delay(Arsenal.MISSILE_GUIDANCE_DELAY)
+		# Each shot weaves on its own phase, so a salvo draws a braid of smoke
+		# instead of six trails moving in lockstep.
+		shot.set_weave(
+			Arsenal.MISSILE_WEAVE_AMPLITUDE,
+			Arsenal.MISSILE_WEAVE_RATE,
+			float(index) * 2.1,
+			Arsenal.MISSILE_WEAVE_HIT_RANGE,
+			Arsenal.MISSILE_WEAVE_FADE
+		)
 
 
 ## Empties the rack and its marks. Called on release, on cooldown and on an empty

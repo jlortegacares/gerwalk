@@ -70,7 +70,11 @@ const FIGHTER_VULCAN_SPREAD_DEGREES: float = 4.0
 const MISSILE_SPEED: float = 42.0
 const MISSILE_DAMAGE: int = 4
 const MISSILE_SIZE: Vector3 = Vector3(0.46, 0.38, 1.9)
-const MISSILE_TURN_RATE: float = 2.8
+## Agile enough for the weave below to draw a real curve: a turn rate is a turn
+## radius, and a radius of 15 units (the old 2.8) cannot bend a path more than once
+## in a missile's whole flight. Macross missiles are absurdly agile for this reason:
+## the braided smoke is the point.
+const MISSILE_TURN_RATE: float = 5.2
 const MISSILE_RANGE: float = 48.0
 ## Half-angle of the forward radar around the aim. Wide enough to sweep a turning
 ## fight, narrow enough that the lock is still a forward decision.
@@ -93,6 +97,16 @@ const MISSILE_LAUNCH_ANGLE_MAX_DEGREES: float = 33.0
 ## be readable before the shots commit, or the salvo collapses into one column on
 ## the launch frame and the spread is invisible.
 const MISSILE_GUIDANCE_DELAY: float = 0.22
+## The weave. Every shot swings its heading off the line of sight instead of
+## tracking it dead straight, which is what draws the braided smoke of a Macross
+## salvo: the missile crabs sideways for half a cycle and then swings back.
+## Amplitude is a heading in radians, rate is radians per second, and a phase per
+## missile keeps a salvo from weaving in step. The swing fades to zero inside
+## WEAVE_HIT_RANGE, because a shot still weaving at the hull misses.
+const MISSILE_WEAVE_AMPLITUDE: float = 0.62
+const MISSILE_WEAVE_RATE: float = 11.0
+const MISSILE_WEAVE_HIT_RANGE: float = 9.0
+const MISSILE_WEAVE_FADE: float = 9.0
 const MISSILE_COLOR: Color = Color(1.0, 0.8, 0.42, 1.0)
 
 ## Decoy: the countermeasure against guided fire. A flare burns where it was

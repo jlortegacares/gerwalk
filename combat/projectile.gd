@@ -47,13 +47,14 @@ const ORB_RADIUS: float = 0.55
 ## tight and the puffs grow past the gap between them. It is tuned against the
 ## fastest shot in the game (the player's missile at 42), where one interval is
 ## still under a puff's diameter at the tail.
-const TRAIL_INTERVAL: float = 0.018
-const TRAIL_PUFF_LIFETIME: float = 0.62
+const TRAIL_INTERVAL: float = 0.017
+const TRAIL_PUFF_LIFETIME: float = 0.85
 const TRAIL_START_RADIUS: float = 0.10
-const TRAIL_END_RADIUS: float = 0.55
+const TRAIL_END_RADIUS: float = 0.62
 ## A fraction of the missile's speed: enough to curl with a guided turn, little
-## enough that the shot instantly outruns its own smoke.
-const TRAIL_INHERIT: float = 0.18
+## enough that the shot instantly outruns its own smoke. Higher than a straight
+## shot needs, because the weave is what the trail is meant to show.
+const TRAIL_INHERIT: float = 0.24
 
 @export var impact_scene: PackedScene
 
@@ -70,6 +71,17 @@ var _trail_timer: float = 0.0
 ## Straight flight left before the guidance engages. The player's salvo uses it so
 ## the fan is readable before the shots commit to their targets.
 var _guidance_timer: float = 0.0
+## Flight time, used by the weave's phase.
+var _age: float = 0.0
+## The weave: the heading is swung off the line of sight by `_weave_amplitude`
+## radians at `_weave_rate` radians per second, with a phase per missile so a
+## salvo braids. It fades to zero inside `_weave_hit_range`, where the shot must
+## fly straight enough to hit what it was locked onto.
+var _weave_amplitude: float = 0.0
+var _weave_rate: float = 0.0
+var _weave_phase: float = 0.0
+var _weave_hit_range: float = 0.0
+var _weave_fade: float = 1.0
 
 
 func _ready() -> void:
@@ -295,6 +307,7 @@ func _flat_material(color: Color, glow: float) -> StandardMaterial3D:
 
 
 func _physics_process(delta: float) -> void:
+	_age += delta
 	_steer(delta)
 	global_position += _velocity * delta
 	_life -= delta
@@ -347,6 +360,20 @@ func set_guidance_delay(seconds: float) -> void:
 	_guidance_timer = maxf(seconds, 0.0)
 
 
+## Makes the shot weave around its line of sight instead of tracking it dead
+## straight, which is what draws the braided smoke of a Macross salvo. `phase`
+## separates a salvo's shots so they do not weave in step, and the weave fades out
+## inside `hit_range` so the shot still arrives.
+func set_weave(
+	amplitude: float, rate: float, phase: float, hit_range: float, fade: float
+) -> void:
+	_weave_amplitude = maxf(amplitude, 0.0)
+	_weave_rate = maxf(rate, 0.0)
+	_weave_phase = phase
+	_weave_hit_range = maxf(hit_range, 0.0)
+	_weave_fade = maxf(fade, 0.01)
+
+
 ## Hands the guidance to another target. The decoy is the only caller: the flare
 ## takes the lock for as long as it burns, and the shot is left with nothing when
 ## it is gone.
@@ -386,7 +413,19 @@ func _steer(delta: float) -> void:
 		return
 
 	var heading: Vector3 = _velocity.normalized()
-	var angle: float = heading.signed_angle_to(to_target.normalized(), Vector3.UP)
+	var desired: Vector3 = to_target.normalized()
+	# The weave swings the aim direction itself, not the per-frame step. A step is
+	# already an angle, so adding a swing to it would turn at a rate the missile
+	# never asked for and send the shot spiralling off the target instead of at it.
+	if _weave_amplitude > 0.0:
+		var distance: float = to_target.length()
+		var weight: float = clampf(
+			(distance - _weave_hit_range) / _weave_fade, 0.0, 1.0
+		)
+		var swing: float = sin(_age * _weave_rate + _weave_phase) * _weave_amplitude * weight
+		desired = desired.rotated(Vector3.UP, swing)
+
+	var angle: float = heading.signed_angle_to(desired, Vector3.UP)
 	var step: float = clampf(angle, -_turn_rate * delta, _turn_rate * delta)
 	_velocity = heading.rotated(Vector3.UP, step) * _speed
 	rotation.y = atan2(_velocity.x, _velocity.z)
