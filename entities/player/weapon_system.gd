@@ -19,7 +19,6 @@ var _beam: Node3D
 
 var _missile_cooldown: float = 0.0
 var _salvo_timer: float = 0.0
-var _missiles_fired: int = 0
 ## Missiles loaded by the current hold. The radar only decides who they are spread
 ## over; the load itself is pure held time.
 var _salvo: int = 0
@@ -260,7 +259,8 @@ func _enemies_in_cone(
 
 
 ## One spawn path for every player shot, so the muzzle, the scene and the team can
-## never drift between weapons.
+## never drift between weapons. Returns the shot so a caller that needs to configure
+## it further (the missile's guidance delay) does not have to search the scene.
 func _spawn(
 	position: Vector3,
 	direction: Vector3,
@@ -272,9 +272,9 @@ func _spawn(
 	turn_rate: float = 0.0,
 	lifetime: float = Projectile.LIFETIME,
 	style: Projectile.Style = Projectile.Style.DART
-) -> void:
+) -> Projectile:
 	if _bullet_scene == null:
-		return
+		return null
 
 	var bullet: Projectile = _bullet_scene.instantiate()
 	get_tree().current_scene.add_child(bullet)
@@ -283,6 +283,7 @@ func _spawn(
 		direction, speed, Projectile.Team.PLAYER, damage, size, target, turn_rate, color,
 		lifetime, style
 	)
+	return bullet
 
 
 ## How many missiles the hold has loaded. The HUD reads it through the bus and the
@@ -400,18 +401,23 @@ func _fire_salvo(pool: Array[Enemy], origin: Vector3, direction: Vector3) -> voi
 			_launch_missile(target, origin, direction, index)
 
 
-## Alternating wings and an outward angle, so the guidance curve is visible from
+## Alternating wings and a widening angle, so the guidance curve is visible from
 ## the first frame instead of looking like a straight shot. Same salvo, different
 ## line: the load decides how many, the radar decides who.
 ##
-## The missile leaves from the hardpoint on the wing it is angling towards, so the
-## two cues agree. The pair is picked by side rather than by index: with the wings
-## listed left first, the sign of the offset is what says which one is which.
+## The fan opens in pairs outwards (11, -11, 22, -22...), so every missile of the
+## load has a heading of its own. The angle also picks the wing: the missile leaves
+## from the pylon it is angling towards, which is what keeps the picture and the
+## trajectory agreeing.
 func _launch_missile(
 	target: Enemy, origin: Vector3, direction: Vector3, index: int
 ) -> void:
-	var side: float = 1.0 if _missiles_fired % 2 == 0 else -1.0
-	_missiles_fired += 1
+	var side: float = 1.0 if index % 2 == 0 else -1.0
+	var pair: int = index / 2 + 1
+	var angle: float = minf(
+		float(pair) * Arsenal.MISSILE_LAUNCH_ANGLE_STEP_DEGREES,
+		Arsenal.MISSILE_LAUNCH_ANGLE_MAX_DEGREES
+	)
 
 	var right: Vector3 = Vector3(-direction.z, 0.0, direction.x)
 	var launch: Vector3 = (
@@ -426,9 +432,9 @@ func _launch_missile(
 		# A hand's width ahead of the pylon, so the shot clears the wing it hangs from.
 		launch = _hardpoints[pick] + direction * MISSILE_CLEARANCE
 	var heading: Vector3 = direction.rotated(
-		Vector3.UP, deg_to_rad(Arsenal.MISSILE_LAUNCH_ANGLE_DEGREES) * side
+		Vector3.UP, deg_to_rad(angle) * side
 	)
-	_spawn(
+	var shot: Projectile = _spawn(
 		launch,
 		heading,
 		Arsenal.MISSILE_SPEED,
@@ -440,6 +446,11 @@ func _launch_missile(
 		Projectile.LIFETIME,
 		Projectile.Style.MISSILE
 	)
+	# The fan only exists if the missiles hold their line for a beat: guidance that
+	# engages on the launch frame folds the spread into one column before it is
+	# readable.
+	if shot != null:
+		shot.set_guidance_delay(Arsenal.MISSILE_GUIDANCE_DELAY)
 
 
 ## Empties the rack and its marks. Called on release, on cooldown and on an empty

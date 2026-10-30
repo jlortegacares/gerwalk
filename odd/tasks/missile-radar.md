@@ -41,13 +41,27 @@ S7. **The player can see the radar and the load.** Every contact carries a retic
 in the world while the button is down, and the HUD shows the loaded count as
 `SALVO n / 6`. A mechanic that depends on hold time cannot be invisible.
 
-S8. **The shot itself does not change.** Missile model, smoke trail, speed, turn
-rate, damage and lifetime stay as they are: this change owns when a missile
-launches, where it comes from, and which contact it chases, not how it flies.
+S8. **The shot's flight profile does not change.** Missile model, smoke trail,
+speed, turn rate, damage and lifetime stay as they are. This change owns when a
+missile launches, where it comes from, which heading it leaves on and which contact
+it chases, not how fast or how tightly it flies.
 
 S9. **The button is discoverable.** A `missile` action (right mouse button, gamepad
 X, key F) appears in the on-screen control hint and in the docs. Nothing else in the
 game may be bound to it.
+
+S10. **The salvo leaves as a fan.** "quiero que los misiles acumulados del player
+salgan en distintas direcciones del avion". Missiles are numbered in pairs outwards,
+so a load of n leaves on n distinct headings: 11, -11, 22, -22, up to 33 degrees.
+Each missile holds its launch heading for `MISSILE_GUIDANCE_DELAY = 0.22` s before
+the guidance engages, because guidance on the launch frame folds the spread into one
+column. A six-missile load must read as six lines, not as three shots fired twice.
+
+S11. **The mark is a lock, not a decal.** Requested verbatim: "a su vez mejora la
+animacion de targear a un enemigo". The reticle arrives wider than its resting size (1.9x) and closes onto
+the contact in 0.24 s while it fades in, then keeps turning. The ring is drawn as
+four arcs so the turn is visible: a closed torus is rotationally symmetric and a spin
+on it reads as frozen. It still dies with its target and follows it while it moves.
 
 ## Tasks
 
@@ -60,6 +74,8 @@ game may be bound to it.
 | T5 | S9 | inline | done |
 | T6 | S1-S6 | inline | done |
 | T7 | S7, S9 | inline | done |
+| T8 | S8, S10 | inline | done |
+| T9 | S11 | inline | done |
 
 ## Log
 
@@ -116,3 +132,23 @@ and the error repeated every frame. Reproduced first with a new sub-test (kill a
 ringed contact mid-hold, keep holding, release), which failed "the rack empties" and
 printed the error every frame. Fix: both loops walk the list backwards, drop a freed
 mark without calling into it, and only call `_drop_reticle` on a live enemy.
+
+L12 (verbatim): "quiero que los misiles acumulados del player salgan en distintas
+direcciones del avion, a su vez mejora la animacion de targear a un enemigo"
+
+L13: The fan is a pair counter, not a side counter. `_missiles_fired` is gone: the
+salvo index already says both which wing and which pair, so `index / 2 + 1` gives
+11, -11, 22, -22, 33, -33 and the rack reads as a spread instead of a stream. The
+first capture showed the problem the angle alone cannot fix: with guidance on the
+launch frame the spread folds into a column before it is a few frames old, so
+`Projectile.set_guidance_delay()` holds the shot on its heading for
+`MISSILE_GUIDANCE_DELAY = 0.22` s first. The test reads the heading two frames after
+the release and asserts every missile lands in its own 5-degree bucket.
+
+L14: The reticle was a torus, and a torus spinning on its own axis is invisible, so
+the "pulsing ring" read as painted on. It is now four arcs (`ImmediateMesh`) with a
+lock-in: born 1.9x wide, closing to 1.0 in 0.24 s while it fades in, spinning fast
+and settling into an idle turn, with the emission pulsing. `transparency` needs a
+`TRANSPARENCY_ALPHA` material, so the material is built before the fade is set.
+Evidence: 361 PASS / 0 FAIL; `--missile 100 --salvo-delay 10` shows five separate
+lines; `--lock 4` and `--lock 40` show the lock-in and the settled ring.

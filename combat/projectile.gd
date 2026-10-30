@@ -67,6 +67,9 @@ var _turn_rate: float = 0.0
 var _style: Style = Style.DART
 var _trail_offset: float = 0.0
 var _trail_timer: float = 0.0
+## Straight flight left before the guidance engages. The player's salvo uses it so
+## the fan is readable before the shots commit to their targets.
+var _guidance_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -337,6 +340,13 @@ func is_homing() -> bool:
 	return _turn_rate > 0.0
 
 
+## Holds the shot on its launch heading for `seconds` before the guidance engages.
+## A salvo that turns on the launch frame folds into one line before the spread is
+## readable; the delay is what lets the fan open first.
+func set_guidance_delay(seconds: float) -> void:
+	_guidance_timer = maxf(seconds, 0.0)
+
+
 ## Hands the guidance to another target. The decoy is the only caller: the flare
 ## takes the lock for as long as it burns, and the shot is left with nothing when
 ## it is gone.
@@ -350,6 +360,11 @@ func retarget(target: Node3D) -> void:
 ## died mid-flight, or a decoy burned out) simply leaves the shot flying straight.
 func _steer(delta: float) -> void:
 	if _turn_rate <= 0.0:
+		return
+
+	# The salvo's fan is only readable while the shots hold their launch heading.
+	if _guidance_timer > 0.0:
+		_guidance_timer = maxf(_guidance_timer - delta, 0.0)
 		return
 
 	# Enemy guidance is dumb enough to be fooled: any flare close enough outranks

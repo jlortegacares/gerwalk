@@ -84,7 +84,15 @@ const MISSILE_MAX_SALVO: int = 6
 const MISSILE_SALVO_COOLDOWN: float = 0.45
 const MISSILE_LAUNCH_AHEAD: float = 0.3
 const MISSILE_LAUNCH_SIDE: float = 0.9
-const MISSILE_LAUNCH_ANGLE_DEGREES: float = 14.0
+## The salvo leaves as a fan, not as a line. Missiles are numbered in pairs
+## outwards, so a load of n uses n distinct headings: 11, -11, 22, -22, 33, -33.
+## Without that, a six-missile load reads as three shots fired twice.
+const MISSILE_LAUNCH_ANGLE_STEP_DEGREES: float = 11.0
+const MISSILE_LAUNCH_ANGLE_MAX_DEGREES: float = 33.0
+## Seconds of straight flight before a player missile starts guiding. The fan has to
+## be readable before the shots commit, or the salvo collapses into one column on
+## the launch frame and the spread is invisible.
+const MISSILE_GUIDANCE_DELAY: float = 0.22
 const MISSILE_COLOR: Color = Color(1.0, 0.8, 0.42, 1.0)
 
 ## Decoy: the countermeasure against guided fire. A flare burns where it was

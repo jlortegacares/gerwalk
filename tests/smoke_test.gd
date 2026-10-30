@@ -2210,6 +2210,7 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	await _test_missile_cap(weapons)
 	await _test_missile_tap(weapons)
 	await _test_missile_wings(weapons)
+	await _test_lock_reticle()
 
 	Input.action_release(&"missile")
 	_clear_projectiles()
@@ -2555,7 +2556,53 @@ func _test_missile_wings(weapons: WeaponSystem) -> void:
 			"consecutive missiles alternate wings (%.2f then %.2f)"
 			% [sides[index - 1], sides[index]]
 		)
+
+	# A load is a spread, not a stream: every missile has to leave on its own line,
+	# which is what makes the accumulated salvo read as a fan. The heading is read
+	# off the shot two frames after launch, before guidance bends it far.
+	var lines: Array[int] = []
+	for missile in flight:
+		var shot: Vector3 = missile.get("_velocity")
+		var lateral: float = shot.dot(right) / maxf(shot.length(), 0.001)
+		lines.append(int(round(rad_to_deg(asin(clampf(lateral, -1.0, 1.0))) / 5.0)))
+	_check(
+		_unique_count(lines) == flight.size(),
+		"each missile of a salvo leaves on its own line (%s)" % [str(lines)]
+	)
 	_clear_projectiles()
+
+
+## The mark is a lock, not a decal: it has to announce itself when it appears and
+## keep moving while it holds, or a target reads as painted on instead of tracked.
+func _test_lock_reticle() -> void:
+	var host: Node3D = Node3D.new()
+	add_child(host)
+	var reticle: LockReticle = LockReticle.new()
+	host.add_child(reticle)
+	# Checked on the frame it is born: `_process` starts closing it from there.
+	_check(
+		reticle.scale.x > 1.2,
+		"the mark arrives wider than its resting ring (%.2f)" % reticle.scale.x
+	)
+
+	var spin_before: float = reticle.rotation.y
+	await get_tree().create_timer(0.5).timeout
+	_check(
+		absf(reticle.scale.x - 1.0) < 0.12,
+		"the mark settles onto the contact (%.2f)" % reticle.scale.x
+	)
+	_check(
+		reticle.transparency <= 0.05,
+		"the mark is fully drawn once the lock has closed (%.2f)" % reticle.transparency
+	)
+	_check(
+		absf(reticle.rotation.y - spin_before) > 0.2,
+		"the mark keeps turning while it holds (%.2f rad)"
+		% (reticle.rotation.y - spin_before)
+	)
+
+	host.queue_free()
+	await get_tree().process_frame
 
 
 func _wait_frames(count: int) -> void:

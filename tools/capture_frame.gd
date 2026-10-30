@@ -19,9 +19,14 @@ extends Node
 ## move_right for N frames: the swept silhouette and the nose-locked gun. Add
 ## `--boost N` to capture the supersonic burst cone instead of a plain run.
 ## `--missile N` spawns a contact ahead, holds the missile rack for N frames and
-## captures right after the salvo leaves, which is how the wing hardpoints are
-## reviewed. Add `--close` to hang the camera nearer the ship, since the game
-## camera sits high enough that a missile is only a few pixels long.
+## captures right after the salvo leaves, which is how the wing hardpoints and the
+## fan of the salvo are reviewed. Add `--close` to hang the camera nearer the ship,
+## since the game camera sits high enough that a missile is only a few pixels long.
+## `--salvo-delay N` (default 4) waits N frames after the release, which is how the
+## fan is read once the missiles have opened it out.
+## `--lock N` is the same hold without the release: the rack is still loaded and the
+## marks are up, which is how the lock reticle is reviewed. A short N catches the
+## lock-in, a long one the settled spin.
 ## `--roll N` (with `--fighter 1`) starts a left barrel roll and captures N frames
 ## into it, which is how the slower turn-over and the roll's own side are
 ## reviewed. Add `--close` to read the hull coming over at the game camera's
@@ -53,6 +58,8 @@ func _ready() -> void:
 	var drop_bomb: bool = _argument("bomb", "0") == "1"
 	var fighter_frames: int = int(_argument("fighter", "0"))
 	var missile_frames: int = int(_argument("missile", "0"))
+	var lock_frames: int = int(_argument("lock", "0"))
+	var salvo_delay: int = int(_argument("salvo-delay", "4"))
 	var roll_frames: int = int(_argument("roll", "0"))
 	var close: bool = _argument("close", "0") == "1"
 	var zoom: float = float(_argument("zoom", "1.0"))
@@ -76,7 +83,7 @@ func _ready() -> void:
 		Input.action_release("weapon_" + weapon)
 	# The vulcan stream would hide the missiles leaving the wings, and it also
 	# kills the turret the rack needs, so a missile capture flies unarmed.
-	if missile_frames == 0:
+	if missile_frames == 0 and lock_frames == 0:
 		Input.action_press(&"fire")
 
 	if fighter_frames > 0:
@@ -202,7 +209,7 @@ func _ready() -> void:
 	# dropped right before the hold so it sits inside the cone. The gun is silenced
 	# for the shot, otherwise its stream of bullets hides the missiles leaving the
 	# wings.
-	if missile_frames > 0:
+	if missile_frames > 0 or lock_frames > 0:
 		Input.action_release(&"fire")
 		# The gun also fires whenever the aim stick is off centre, so both go up
 		# before the hold. The last bullets need a moment to clear the frame.
@@ -221,11 +228,16 @@ func _ready() -> void:
 		for _i in 2:
 			await get_tree().physics_frame
 		Input.action_press(&"missile")
-		for _i in missile_frames:
+		for _i in (lock_frames if lock_frames > 0 else missile_frames):
 			await get_tree().physics_frame
-		Input.action_release(&"missile")
-		for _i in 4:
-			await get_tree().physics_frame
+		# `--lock N` captures with the rack still loaded, which is the only way to
+		# see the mark: a salvo capture releases and takes the reticles with it.
+		if lock_frames == 0:
+			Input.action_release(&"missile")
+			# The fan is a few frames old at four: the missiles have cleared the wings
+			# but the guidance has not bent them back onto the contact yet.
+			for _i in salvo_delay:
+				await get_tree().physics_frame
 		# The hold is a salvo long, so the blink is cleared again on the last frame.
 		ship.set("_invulnerable", 0.0)
 		if visual != null:
