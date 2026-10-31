@@ -17,6 +17,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 [autoload]
 
 GlobalEventBus="*res://common/global_event_bus.gd"
+Sfx="*res://common/sfx.gd"
 
 [display]
 
