@@ -9,7 +9,8 @@ extends SceneTree
 ## effect is a small stack of tones and filtered noise, so the palette lives in code
 ## next to the rest of the tuning and the repository ships no third-party audio.
 ## Re-running the script reproduces the committed WAVs byte for byte, because the
-## noise source is a fixed-seed generator instead of `randf()`.
+## noise source is a seeded generator instead of `randf()`. Each sound gets its own
+## seed derived from its name, so editing one builder never rewrites the others.
 
 ## Shapes a tone can take. A gunpod burst and a lock tone want different edges.
 const SHAPE_SINE: int = 0
@@ -29,32 +30,34 @@ func _init() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 	var written: Array[String] = []
 	for entry in _catalogue():
-		written.append(_save(entry[0], entry[1], entry[2]))
+		_seed = _seed_for(entry[0])
+		written.append(_save(entry[0], entry[1].call(), entry[2]))
 	print("generated %d sounds: %s" % [written.size(), ", ".join(PackedStringArray(written))])
 	quit()
 
 
-## Every effect, in one list: name, buffer, loop. Keeping the catalogue in one place
+## Every effect, in one list: name, builder, loop. The builder is a Callable so the
+## noise seed can be set per sound before it runs. Keeping the catalogue in one place
 ## is what makes "what sounds does the game have" a single readable answer.
 func _catalogue() -> Array:
 	return [
-		["vulcan", _vulcan(), false],
-		["plasma", _plasma(), false],
-		["laser", _laser(), false],
-		["missile_launch", _missile_launch(), false],
-		["lock_tone", _lock_tone(), false],
-		["missile_warning", _missile_warning(), false],
-		["enemy_fire", _enemy_fire(), false],
-		["explosion", _explosion(1.15, 1.0), false],
-		["player_death", _explosion(1.7, 0.75), false],
-		["hit", _hit(), false],
-		["transform", _transform(), false],
-		["afterburner", _afterburner(), false],
-		["dash", _dash(), false],
-		["bomb", _bomb(), false],
-		["decoy", _decoy(), false],
-		["ui_select", _ui_select(), false],
-		["engine_loop", _engine_loop(), true],
+		["vulcan", _vulcan, false],
+		["plasma", _plasma, false],
+		["laser", _laser, false],
+		["missile_launch", _missile_launch, false],
+		["lock_tone", _lock_tone, false],
+		["missile_warning", _missile_warning, false],
+		["enemy_fire", _enemy_fire, false],
+		["explosion", _explosion.bind(1.15, 1.0), false],
+		["player_death", _explosion.bind(1.7, 0.75), false],
+		["hit", _hit, false],
+		["transform", _transform, false],
+		["afterburner", _afterburner, false],
+		["dash", _dash, false],
+		["bomb", _bomb, false],
+		["decoy", _decoy, false],
+		["ui_select", _ui_select, false],
+		["engine_loop", _engine_loop, true],
 	]
 
 
@@ -132,14 +135,19 @@ func _enemy_fire() -> PackedFloat32Array:
 
 # --- Impacts -------------------------------------------------------------------
 
-## A hull coming apart: a noise body with a sub drop under it, plus a scatter of
-## crackles so the tail reads as debris instead of a reverb.
+## A hull coming apart: a bright crack over a mid body, a sub drop under it, and a
+## scatter of crackles so the tail reads as debris instead of a reverb.
+##
+## The bright band is the point, not decoration. A blast that lives under 300 Hz is
+## silent on a laptop speaker, so the crack carries the hit and the sub only adds
+## weight underneath it.
 func _explosion(seconds: float, pitch: float) -> PackedFloat32Array:
 	var buf: PackedFloat32Array = _buffer(seconds)
-	_noise(buf, 0.0, seconds * 0.8, 0.80, 900.0 * pitch, 3.2, 0.002)
-	_tone(buf, 0.0, seconds * 0.7, 130.0 * pitch, 30.0, 0.75, SHAPE_SINE, 2.6, 0.002)
-	_noise(buf, 0.0, seconds, 0.26, 400.0 * pitch, 2.2, 0.004)
-	_crackle(buf, 0.05, seconds * 0.6, 7, 0.22)
+	_noise(buf, 0.0, minf(seconds * 0.5, 0.35), 0.95, 6500.0 * pitch, 20.0, 0.001)
+	_noise(buf, 0.0, seconds * 0.70, 1.30, 2300.0 * pitch, 3.6, 0.003)
+	_tone(buf, 0.0, seconds * 0.7, 118.0 * pitch, 34.0, 0.45, SHAPE_SINE, 3.0, 0.002)
+	_noise(buf, 0.0, seconds, 0.30, 700.0 * pitch, 2.4, 0.004)
+	_crackle(buf, 0.03, seconds * 0.55, 8, 0.36)
 	return buf
 
 
@@ -337,6 +345,15 @@ func _env(t: float, dur: float, attack: float, decay: float, fade: float) -> flo
 	if fade > 0.0:
 		level *= clampf((dur - t) / fade, 0.0, 1.0)
 	return level
+
+
+## FNV-1a over the sound's name: a stable seed per effect, so a change to one
+## builder never shifts the noise of the sounds listed after it.
+func _seed_for(name: String) -> int:
+	var hash: int = 0x811c9dc5
+	for i in name.length():
+		hash = ((hash ^ name.unicode_at(i)) * 0x01000193) & 0xffffffff
+	return hash if hash != 0 else 0x2f6e2b1
 
 
 func _rand() -> float:

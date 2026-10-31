@@ -1522,6 +1522,17 @@ func _test_audio() -> void:
 			missing.append(String(key))
 	_check(missing.is_empty(), "the palette loads every sound (%s)" % [str(missing)])
 
+	# An explosion has to be heard on a laptop speaker, not only felt on a sub. The
+	# blasts carry the kill, so most of their energy must live in the bright band
+	# instead of under 300 Hz where a small speaker reproduces nothing.
+	for blast: String in ["explosion", "player_death"]:
+		var bright: float = _high_band_energy("res://audio/sfx/%s.wav" % blast, 1000.0)
+		_check(
+			bright >= 0.30,
+			"the %s blast is audible on small speakers (%.1f%% above 1 kHz)"
+			% [blast, bright * 100.0]
+		)
+
 	# The hum follows the hull: the ship is alive here, so it must be running.
 	_check(Sfx.engine_active(), "the hover engine hums while the ship is alive")
 
@@ -1631,6 +1642,9 @@ func _test_audio() -> void:
 	_player.set("_dash_time", 0.0)
 	_player.set("_dash_cooldown", 0.0)
 
+	# Heal first: a run that reaches this probe on its last hull point would die to
+	# it and leave the later damage test with a dead ship.
+	_player.set("_hp", Player.MAX_HP)
 	_player.set("_invulnerable", 0.0)
 	Sfx.reset_counts()
 	_player.take_damage(1)
@@ -3586,6 +3600,60 @@ func _count_projectiles(team: int) -> int:
 		if child is Projectile and int(child.get("_team")) == team:
 			total += 1
 	return total
+
+
+## Share of a committed WAV's energy above `cutoff` Hz, as a one-pole high-pass.
+## The palette is synthesized, so the only question is whether the bright band is
+## there at all, not what its exact shape is.
+##
+## The file is read from disk on purpose: Godot imports these WAVs as QOA, so the
+## resource's `data` is not the PCM that ships and cannot be decoded as samples.
+func _high_band_energy(path: String, cutoff: float) -> float:
+	var wav: Dictionary = _wav_pcm(path)
+	if wav.is_empty():
+		return 0.0
+	var pcm: PackedByteArray = wav["data"]
+	var rate: float = float(wav["rate"])
+	var alpha: float = 1.0 / (1.0 + TAU * cutoff / rate)
+	var previous_input: float = 0.0
+	var previous_output: float = 0.0
+	var high: float = 0.0
+	var total: float = 0.0
+	var frames: int = pcm.size() >> 1
+	for i in frames:
+		var sample: float = float(pcm.decode_s16(i * 2)) / 32768.0
+		var filtered: float = alpha * (previous_output + sample - previous_input)
+		previous_input = sample
+		previous_output = filtered
+		high += filtered * filtered
+		total += sample * sample
+	return high / total if total > 0.0 else 0.0
+
+
+## The 16-bit mono PCM of a RIFF/WAVE file, with its sample rate.
+func _wav_pcm(path: String) -> Dictionary:
+	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return {}
+	if file.get_buffer(4).get_string_from_ascii() != "RIFF":
+		return {}
+	file.get_32()
+	if file.get_buffer(4).get_string_from_ascii() != "WAVE":
+		return {}
+	var rate: int = 44100
+	while file.get_position() + 8 <= file.get_length():
+		var chunk: String = file.get_buffer(4).get_string_from_ascii()
+		var size: int = file.get_32()
+		if chunk == "fmt ":
+			file.get_16()
+			file.get_16()
+			rate = file.get_32()
+			file.seek(file.get_position() + size - 8 + (size & 1))
+		elif chunk == "data":
+			return {"rate": rate, "data": file.get_buffer(size)}
+		else:
+			file.seek(file.get_position() + size + (size & 1))
+	return {}
 
 
 func _check(condition: bool, description: String) -> void:

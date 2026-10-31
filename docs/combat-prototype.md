@@ -757,8 +757,9 @@ turbine, the gunpod is a hard dry burst, a missile leaves the rail with an airy
 whoosh, the lock answers with a rising two-pip sting, the transformation is servos
 and a clunk, and an incoming guided shot is a two-tone alarm that must never be
 mistaken for the player's own weapons. Re-running the generator reproduces every
-WAV byte for byte, because its noise source is a fixed-seed LCG instead of
-`randf()`.
+WAV byte for byte, because its noise source is a seeded LCG instead of `randf()`.
+Each sound seeds that LCG from its own name, so editing one builder never rewrites
+the noise of the effects listed after it.
 
 The palette is one place, `common/sfx.gd`, autoloaded as `Sfx`. Callers name a
 sound and never touch a player node:
@@ -799,11 +800,21 @@ these is a machine gun of noise:
   frame; `_die` and `_exit_tree` stop it, so a restart or a return to the menu never
   leaves the engine running over the next scene.
 
+The blasts are tuned by band, not by taste. An explosion that puts most of its
+energy under 300 Hz is silent on a laptop speaker even at full volume: there is no
+driver left to move it. `_explosion` therefore carries the hit in a bright crack
+around 6.5 kHz over a mid body around 2.3 kHz, and the sub only adds weight
+underneath. The same builder voices the ship's own death, pitched down.
+
 Headless runs have no audio device, so the test asserts the wiring instead of
 pretending to hear it: `Sfx.played(key)` counts plays per key, `Sfx.has(key)` proves
 the palette is complete, and `Sfx.engine_active()` proves the hum starts and stops
 with the ship. `reset_counts()` scopes each assertion so one event cannot satisfy
-another's.
+another's. The one check that looks at the signal itself reads
+`audio/sfx/explosion.wav` and `player_death.wav` from disk and fails if less than 30%
+of a blast's energy sits above 1 kHz. It reads the file rather than the resource on
+purpose: Godot imports these WAVs as QOA, so `AudioStreamWAV.data` is not the PCM
+that ships.
 
 ## What this build is meant to answer
 
@@ -882,7 +893,8 @@ All values are named constants at the top of each script.
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Decoy | `combat/arsenal.gd`, `combat/decoy.gd` | `DECOY_COOLDOWN`; `LIFETIME`, `CAPTURE_RADIUS` |
 | Audio palette and mixing | `common/sfx.gd` | `VOICES`, `MAX_SPATIAL`, `SPATIAL_UNIT`, `SPATIAL_REACH`, `ENGINE_REST_DB`, `ENGINE_TOP_DB`, `SFX_BUS`, and the loaded `KEYS` |
-| Sound synthesis | `tools/generate_sfx.gd` | `RATE`, `PEAK`, `SHAPE_SINE/SAW/SQUARE`, one builder per key in `_catalogue()`; the noise seed is fixed so the WAVs are reproducible |
+| Sound synthesis | `tools/generate_sfx.gd` | `RATE`, `PEAK`, `SHAPE_SINE/SAW/SQUARE`, one builder per key in `_catalogue()`; each sound seeds the noise from its name, so the WAVs are reproducible and one builder cannot shift the others |
+| Blast spectrum | `tools/generate_sfx.gd` | `_explosion` crack (~6.5 kHz), body (~2.3 kHz), sub and rumble; the suite requires at least 30% of the energy above 1 kHz |
 | Weapon sound cues | `entities/player/weapon_system.gd` | one `Sfx.play` per shot; `_laser_sounding` gates the beam ignition; `missile_launch` pitch climbs with the salvo index |
 | Ship sound cues | `entities/player/player.gd` | `Sfx.play` on `_start_transform`, `_start_dash` and `take_damage`; `_burning` hysteresis for the ignition; `Sfx.engine()` every frame |
 | Enemy sound cues | `entities/enemy/*.gd` | `Sfx.play_at` on `_fire_pattern` (`enemy_fire`, `missile_warning`) and on `_spawn_explosion` (`explosion`) |

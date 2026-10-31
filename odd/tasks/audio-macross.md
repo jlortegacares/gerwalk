@@ -51,6 +51,12 @@ S8. **Headless stays honest.** The smoke test runs without an audio device. The
 counter so the test can assert the wiring (which sound an event asked for) instead of
 pretending to hear it.
 
+S9. **Enemy explosions are heard.** Requested verbatim: "agrega sonido a las
+explosiones de los enemigos". A dying enemy plays the explosion cue, and that cue has
+to be audible on a laptop speaker: most of its energy lives above 300 Hz, with at
+least 30% above 1 kHz. The ship's death blast uses the same builder and meets the
+same floor.
+
 ## Tasks
 
 | ID | Spec | Route | Status |
@@ -64,6 +70,7 @@ pretending to hear it.
 | T7 | S1, S5 | inline | done |
 | T8 | S8 | inline | done |
 | T9 | all | inline | done |
+| T10 | S9 | inline | done |
 
 ## Log
 
@@ -125,3 +132,23 @@ waiting for health to drain. The working tree was restored with `git stash pop` 
 green suite was re-run afterwards; it passes. No change to the shipped code came out of
 this: the RED evidence is the 18 audio failures, and the hang is an artifact of running
 tests against half-reverted files.
+
+L12 (verbatim): "agrega sonido a las explosiones de los enemigos"
+
+L12: The cue was already wired — `Enemy._spawn_explosion` calls
+`Sfx.play_at(&"explosion", global_position)` — and a runtime probe with a real audio
+device confirmed the 3D voice is created, plays for its full 1.15 s and frees itself.
+The defect was spectral, not wiring: `explosion.wav` carried 61% of its energy below
+300 Hz and only 18.6% above 1 kHz (`player_death` 66.9% / 14.9%), and a laptop speaker
+cannot reproduce that band at any volume. `_explosion` was rebuilt around a bright
+crack (~6.5 kHz) over a mid body (~2.3 kHz), with the sub reduced to weight
+underneath; it now measures 52.0% / 48.6% above 1 kHz. The generator also seeds its
+LCG per sound from the sound's name, so editing one builder no longer rewrites the
+effects listed after it (the WAVs were regenerated once with the new seeds). The
+suite gained a spectral assertion that reads the committed WAVs from disk — the
+imported resource is QOA, so its `data` is not the PCM that ships — and requires at
+least 30% above 1 kHz. RED observed first at 18.6% / 14.9%, then GREEN at **396
+PASS / 0 FAIL**. One test-isolation fix came out of the same pass: `_test_audio` now
+heals the ship before its `take_damage(1)` probe, because a run that reached it on the
+last hull point killed the player and left `_test_damage_and_iframes` reporting
+`hp 6` with no health event.
