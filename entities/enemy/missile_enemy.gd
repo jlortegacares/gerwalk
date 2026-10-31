@@ -71,6 +71,7 @@ func _fire_pattern() -> void:
 		var offset_index: float = float(index) - float(SALVO_MISSILES - 1) * 0.5
 		var offset: float = deg_to_rad(MISSILE_SPREAD_DEGREES) * offset_index
 		_spawn_missile(aim_at_player.rotated(Vector3.UP, offset))
+	Sfx.play_at(&"missile_warning", global_position)
 
 
 ## The missile is born already pointed at the ship, but its guidance is what makes

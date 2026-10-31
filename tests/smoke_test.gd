@@ -58,6 +58,7 @@ func _ready() -> void:
 	await _test_double_tap_dash()
 	await _test_transformation()
 	await _test_gerwalk_silhouette()
+	await _test_audio()
 
 	_clear_enemies()
 	_clear_projectiles()
@@ -117,9 +118,11 @@ func _test_main_menu() -> void:
 	_check(not options.visible, "the options panel starts hidden")
 	_check(preview != null, "the panel carries a live livery preview")
 
+	Sfx.reset_counts()
 	options_button.pressed.emit()
 	await get_tree().process_frame
 	_check(options.visible, "the options button opens the panel")
+	_check(Sfx.played(&"ui_select") == 1, "opening the options panel asks for a menu blip")
 
 	# The controls reference is the second half of the panel, so a row has to be
 	# there and it has to name a control the build really has.
@@ -1505,6 +1508,185 @@ func _test_gerwalk_silhouette() -> void:
 		not _player.is_fighter() and dropped.y < -0.2,
 		"the switch back drops the legs again (y %.2f)" % dropped.y
 	)
+
+
+func _test_audio() -> void:
+	_check(Sfx != null, "the Sfx autoload is registered")
+	if Sfx == null:
+		return
+
+	# The palette is the contract: every key the game can ask for has a stream.
+	var missing: Array[String] = []
+	for key in Sfx.KEYS:
+		if not Sfx.has(key):
+			missing.append(String(key))
+	_check(missing.is_empty(), "the palette loads every sound (%s)" % [str(missing)])
+
+	# The hum follows the hull: the ship is alive here, so it must be running.
+	_check(Sfx.engine_active(), "the hover engine hums while the ship is alive")
+
+	var weapons: WeaponSystem = _player.get("_weapons") as WeaponSystem
+	_check(weapons != null, "the player exposes its weapons for the audio check")
+	if weapons == null:
+		return
+
+	var origin: Vector3 = _player.global_position
+	var aim: Vector3 = _aim()
+
+	# Gunpod: one burst per shot, never one per pellet.
+	weapons.select(Arsenal.Kind.VULCAN)
+	weapons.set("_cooldown", 0.0)
+	Sfx.reset_counts()
+	weapons.tick(0.0, origin, origin, aim, true)
+	_check(
+		Sfx.played(&"vulcan") == 1,
+		"the gunpod asks for one burst sound per shot (got %d)" % Sfx.played(&"vulcan")
+	)
+	_clear_projectiles()
+
+	# Plasma: one zap per bolt.
+	weapons.select(Arsenal.Kind.PLASMA)
+	weapons.set("_cooldown", 0.0)
+	Sfx.reset_counts()
+	weapons.tick(0.0, origin, origin, aim, true)
+	_check(Sfx.played(&"plasma") == 1, "the plasma bolt asks for its zap")
+	_clear_projectiles()
+
+	# The beam is continuous: the trigger pull ignites it once, and a second pull
+	# ignites it again. A zap per frame would be a machine-gun of hiss.
+	weapons.select(Arsenal.Kind.LASER)
+	Sfx.reset_counts()
+	for _i in 3:
+		weapons.tick(0.016, origin, origin, aim, true)
+	_check(
+		Sfx.played(&"laser") == 1,
+		"the beam ignites once per trigger pull (got %d)" % Sfx.played(&"laser")
+	)
+	weapons.tick(0.016, origin, origin, aim, false)
+	Sfx.reset_counts()
+	weapons.tick(0.016, origin, origin, aim, true)
+	_check(Sfx.played(&"laser") == 1, "releasing and pulling again re-ignites the beam")
+
+	# The salvo: one whoosh per missile, so a pair reads as a sequence.
+	_clear_enemies()
+	await get_tree().physics_frame
+	var target: Enemy = _spawn_enemy(origin + aim * 20.0)
+	if target != null:
+		weapons.set("_salvo", 2)
+		weapons.set("_missile_cooldown", 0.0)
+		Sfx.reset_counts()
+		weapons.tick(0.0, origin, origin, aim, false, false, false)
+		_check(
+			Sfx.played(&"missile_launch") == 2,
+			"the salvo asks for one launch sound per missile (got %d)"
+			% Sfx.played(&"missile_launch")
+		)
+	_clear_projectiles()
+
+	# The lock: a new contact stings once, and a contact already held is silent.
+	_clear_enemies()
+	await get_tree().physics_frame
+	var contact: Enemy = _spawn_enemy(origin + aim * 20.0)
+	if contact != null:
+		# The salvo above left the rack on cooldown, and a cooling rack never marks.
+		weapons.set("_missile_cooldown", 0.0)
+		Sfx.reset_counts()
+		weapons.tick(0.0, origin, origin, aim, false, false, true)
+		_check(
+			Sfx.played(&"lock_tone") == 1,
+			"the radar rings a new contact with one lock tone (got %d)"
+			% Sfx.played(&"lock_tone")
+		)
+		weapons.tick(0.0, origin, origin, aim, false, false, true)
+		_check(Sfx.played(&"lock_tone") == 1, "an already held contact does not re-sting")
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	# Bomb and decoy are world events, and they count on the positional path too.
+	weapons.set("_bombs", Arsenal.BOMB_MAX_CHARGES)
+	Sfx.reset_counts()
+	_check(weapons.fire_bomb(origin), "the bomb fires for the audio check")
+	_check(Sfx.played(&"bomb") == 1, "the bomb asks for its blast")
+	weapons.set("_decoy_cooldown", 0.0)
+	Sfx.reset_counts()
+	_check(weapons.drop_decoy(origin), "the decoy drops for the audio check")
+	_check(Sfx.played(&"decoy") == 1, "the decoy asks for its flare")
+	for node in get_tree().get_nodes_in_group(&"decoy"):
+		node.queue_free()
+	await get_tree().physics_frame
+
+	# The ship itself: servo on the switch, whoosh on the dash, impact on a hit.
+	var mode_before: Player.Mode = _player.mode()
+	Sfx.reset_counts()
+	_player.call("_start_transform")
+	_check(Sfx.played(&"transform") == 1, "the switch asks for the servo sound")
+	# Undo the switch: the sound is the unit under test, not the mode change.
+	_player.set("_transform_time", 0.0)
+	_player.set("_mode", mode_before)
+
+	Sfx.reset_counts()
+	_player.call("_start_dash")
+	_check(Sfx.played(&"dash") == 1, "the dash asks for its whoosh")
+	_player.set("_dash_time", 0.0)
+	_player.set("_dash_cooldown", 0.0)
+
+	_player.set("_invulnerable", 0.0)
+	Sfx.reset_counts()
+	_player.take_damage(1)
+	_check(Sfx.played(&"hit") == 1, "a hit asks for the hull impact")
+	_player.set("_hp", Player.MAX_HP)
+	_player.set("_invulnerable", 0.0)
+
+	# Enemy weapons speak in their own voices, positioned at the shooter.
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	var turret: Enemy = _spawn_turret(Vector3(20.0, 0.0, 0.0))
+	if turret != null:
+		await get_tree().physics_frame
+		Sfx.reset_counts()
+		turret.call("_fire_pattern")
+		_check(Sfx.played(&"enemy_fire") == 1, "the turret asks for its gun report")
+		var hull: int = turret.current_hp()
+		Sfx.reset_counts()
+		turret.take_damage(hull)
+		_check(Sfx.played(&"explosion") == 1, "a dying hull asks for its explosion")
+	await get_tree().physics_frame
+
+	var launcher: MissileEnemy = _spawn_missile_enemy(Vector3(0.0, 0.0, 24.0))
+	if launcher != null:
+		await get_tree().physics_frame
+		Sfx.reset_counts()
+		launcher.call("_fire_pattern")
+		_check(
+			Sfx.played(&"missile_warning") == 1,
+			"the launcher warns before its salvo (got %d)"
+			% Sfx.played(&"missile_warning")
+		)
+	await get_tree().physics_frame
+
+	var interceptor: FighterEnemy = _spawn_fighter_enemy(Vector3(-26.0, 0.0, 0.0))
+	if interceptor != null:
+		await get_tree().physics_frame
+		Sfx.reset_counts()
+		interceptor.call("_fire_pattern")
+		_check(
+			Sfx.played(&"missile_warning") == 1,
+			"the interceptor warns before its salvo (got %d)"
+			% Sfx.played(&"missile_warning")
+		)
+
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	# The turret's wreck is a world node that outlives it. It is cleared here so the
+	# death test later finds only the blast its own ship produced.
+	for blast in _death_blasts():
+		blast.queue_free()
+	await get_tree().physics_frame
 
 
 func _release_all_input() -> void:
@@ -3288,6 +3470,10 @@ func _test_death() -> void:
 	for connection in game_over.menu_requested.get_connections():
 		game_over.menu_requested.disconnect(connection["callable"])
 
+	# The death sound is counted from a clean slate: an earlier encounter is allowed
+	# to have landed a killing hit in another test, and this check is about the
+	# blast the drain below produces.
+	Sfx.reset_counts()
 	while int(_player.get("_hp")) > 0:
 		_player.set("_invulnerable", 0.0)
 		_player.take_damage(1)
@@ -3296,6 +3482,8 @@ func _test_death() -> void:
 	_check(int(_player.get("_hp")) == 0, "health drains to zero")
 	_check(_died_count > 0, "player_died reaches the event bus")
 	_check(not bool(_player.get("_alive")), "player enters a dead state")
+	_check(Sfx.played(&"player_death") == 1, "the death asks for the ship's blast")
+	_check(not Sfx.engine_active(), "the hull's death silences the engine hum")
 
 	# The blast is a world node at the hull's last position, not a child of the
 	# ship: it has to outlive the hidden model and the respawn that follows it.

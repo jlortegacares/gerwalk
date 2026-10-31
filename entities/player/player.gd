@@ -232,6 +232,9 @@ var _visual_yaw_prev: float = 0.0
 var _bank: float = 0.0
 var _forward_speed: float = 0.0
 var _thrust_kick: float = 0.0
+## Whether the burner is already lit. The ignition is an edge, not a level: the
+## sound belongs to crossing into the burner, not to every frame spent in it.
+var _burning: bool = false
 ## Wing angle the pose was last built with. The wings travel to their target at a
 ## fixed rate instead of following the throttle frame by frame: the fighter reaches
 ## cruise in a handful of frames, so a derived angle would snap.
@@ -300,6 +303,12 @@ func _ready() -> void:
 	GlobalEventBus.player_mode_changed.emit.call_deferred(mode_name())
 
 
+## The hum belongs to this ship, so it goes when the ship does: a restart or a
+## return to the menu must not leave the engine running over the new scene.
+func _exit_tree() -> void:
+	Sfx.engine(false)
+
+
 func _physics_process(delta: float) -> void:
 	_tick_timers(delta)
 	if not _alive:
@@ -333,6 +342,9 @@ func _physics_process(delta: float) -> void:
 	_update_weapons(delta)
 	_update_afterburner_visual(delta)
 	_update_wingtip_trails(delta)
+	# The hum follows the ship: one continuous voice whose pitch and level track the
+	# airspeed, instead of a loop that restarts on every mode change.
+	Sfx.engine(true, velocity.length() / BOOST_SPEED)
 
 
 func _move_gerwalk(delta: float) -> void:
@@ -459,6 +471,7 @@ func _start_transform() -> void:
 	_roll_velocity = Vector3.ZERO
 	_spawn_impact()
 	GlobalEventBus.camera_shake_requested.emit(0.35)
+	Sfx.play(&"transform")
 
 
 func mode() -> Mode:
@@ -524,6 +537,12 @@ func _update_afterburner_visual(delta: float) -> void:
 	var heat: float = clampf(
 		(forward_speed - MAX_SPEED) / (BOOST_SPEED - MAX_SPEED), 0.0, 1.0
 	)
+	# The burner announces itself once, on the way in. Hysteresis, because a ship
+	# riding the threshold would otherwise stutter the ignition every few frames.
+	var burning: bool = heat > 0.08 if not _burning else heat > 0.02
+	if burning and not _burning and delta > 0.0:
+		Sfx.play(&"afterburner")
+	_burning = burning
 
 	# A kick is a flash, not a speed curve: opening the throttle past a walk, or
 	# punching the dash, spikes the plumes and then decays in about a third of a
@@ -648,6 +667,7 @@ func _start_dash(direction: Vector2 = Vector2.ZERO) -> void:
 		_start_barrel_roll()
 		return
 
+	Sfx.play(&"dash")
 	var input_direction: Vector2 = direction
 	if input_direction.length_squared() <= 0.0:
 		input_direction = Input.get_vector(
@@ -672,6 +692,7 @@ func _start_dash(direction: Vector2 = Vector2.ZERO) -> void:
 ## step turn with the nose. Without a tap (the button) the aim axis picks the
 ## side, and a centred stick repeats the last one instead of defaulting right.
 func _start_barrel_roll(tapped: Vector2 = Vector2.ZERO) -> void:
+	Sfx.play(&"dash")
 	var world: Vector3 = Vector3.ZERO
 	if tapped.length_squared() > 0.0:
 		world = Vector3(tapped.x, 0.0, tapped.y).normalized()
@@ -895,6 +916,9 @@ func take_damage(amount: int, source_position: Vector3 = Vector3.ZERO) -> void:
 	_invulnerable = IFRAME_DURATION
 	GlobalEventBus.player_health_changed.emit(_hp, MAX_HP)
 	GlobalEventBus.camera_shake_requested.emit(0.6)
+	# The hit is on the ship the camera is riding, so it is never positional: the
+	# only thing distance would add is a quieter cue for the player's own damage.
+	Sfx.play(&"hit")
 
 	if source_position != Vector3.ZERO:
 		var push: Vector3 = global_position - source_position
@@ -914,6 +938,7 @@ func take_damage(amount: int, source_position: Vector3 = Vector3.ZERO) -> void:
 func _die() -> void:
 	_alive = false
 	velocity = Vector3.ZERO
+	Sfx.engine(false)
 	_visual.visible = false
 	_aim_beam.visible = false
 	_clear_wingtip_trails()
@@ -932,6 +957,9 @@ func _spawn_explosion() -> void:
 	var blast: ShipExplosion = ShipExplosion.new()
 	host.add_child(blast)
 	blast.global_position = global_position
+	# The ship's own death is the one sound that must not be positional: the
+	# camera is on the wreck, so distance attenuation would only make it quieter.
+	Sfx.play(&"player_death")
 
 
 func _spawn_impact() -> void:

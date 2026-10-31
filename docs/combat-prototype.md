@@ -748,6 +748,63 @@ The panel fades in over `FADE_IN` (0.5 s) instead of cutting to its backdrop on 
 same frame. Its tint is dark enough to swallow the blast, and the countdown is
 unaffected: it starts when the death event fires, exactly as before.
 
+## Audio
+
+The game has a voice, and it is ours. Every sound in `audio/sfx/` is synthesized by
+`tools/generate_sfx.gd`; nothing is sampled, ripped or downloaded from the anime.
+"Inspired by Macross" is a character brief, not a source: the ship hums like a
+turbine, the gunpod is a hard dry burst, a missile leaves the rail with an airy
+whoosh, the lock answers with a rising two-pip sting, the transformation is servos
+and a clunk, and an incoming guided shot is a two-tone alarm that must never be
+mistaken for the player's own weapons. Re-running the generator reproduces every
+WAV byte for byte, because its noise source is a fixed-seed LCG instead of
+`randf()`.
+
+The palette is one place, `common/sfx.gd`, autoloaded as `Sfx`. Callers name a
+sound and never touch a player node:
+
+| Call | Used for | Why |
+|------|----------|-----|
+| `Sfx.play(key)` | the ship's own weapons, the lock tone, the interface | the camera is on the source, so distance and panning would only add noise |
+| `Sfx.play_at(key, position)` | explosions, enemy fire, launches, the bomb, the decoy | the world is around the ship, and a turret on the nose should not sound like one behind it |
+| `Sfx.engine(active, ratio)` | the hover hum | one continuous voice whose pitch and level follow the airspeed |
+
+The non-positional side is a fixed pool of `VOICES` (16) players that steals the
+oldest voice; a held trigger therefore cannot grow the scene. The positional side
+creates an `AudioStreamPlayer3D` per event and frees it when the stream finishes,
+capped at `MAX_SPATIAL` (24); past the cap it falls back to the flat pool rather
+than dropping the sound. Everything routes through a `SFX` bus under `Master`, and
+`Master` carries an `AudioEffectHardLimiter` so a full salvo plus an explosion sums
+without clipping. Bus and limiter are built in `_ready` instead of a `.tres`: one
+fewer asset to drift out of sync with the code that names the bus.
+
+Cue discipline is part of the design, because the cheap version of every one of
+these is a machine gun of noise:
+
+- **One burst per vulcan shot**, not one per pellet. Five pellets are one gun.
+- **One ignition per trigger pull for the beam.** The laser is a continuous stream,
+  so `_laser_sounding` latches on the pull and clears on release; a zap per frame
+  would be a wall of hiss.
+- **One launch sound per missile**, with the pitch climbing `index * 0.04`, so a
+  salvo reads as a sequence of whooshes instead of one long noise.
+- **One lock tone per acquisition frame**, not per contact: three turrets entering
+  the radar at once are one acquisition.
+- **One warning per enemy salvo**, fired at the launch. The warning window is the
+  moment the player has to act, so the alarm belongs to the launch, not to each
+  missile in it.
+- **The burner is an edge.** The ignition plays when `heat` crosses into the burner
+  with hysteresis (`0.08` in, `0.02` out), so a ship riding the threshold does not
+  stutter it every few frames.
+- **The hum follows the hull.** `Sfx.engine(true, speed / BOOST_SPEED)` runs every
+  frame; `_die` and `_exit_tree` stop it, so a restart or a return to the menu never
+  leaves the engine running over the next scene.
+
+Headless runs have no audio device, so the test asserts the wiring instead of
+pretending to hear it: `Sfx.played(key)` counts plays per key, `Sfx.has(key)` proves
+the palette is complete, and `Sfx.engine_active()` proves the hum starts and stops
+with the ship. `reset_counts()` scopes each assertion so one event cannot satisfy
+another's.
+
 ## What this build is meant to answer
 
 1. **Does 360° aiming read clearly?** The aim line is there to check it, not to
@@ -824,6 +881,11 @@ All values are named constants at the top of each script.
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Decoy | `combat/arsenal.gd`, `combat/decoy.gd` | `DECOY_COOLDOWN`; `LIFETIME`, `CAPTURE_RADIUS` |
+| Audio palette and mixing | `common/sfx.gd` | `VOICES`, `MAX_SPATIAL`, `SPATIAL_UNIT`, `SPATIAL_REACH`, `ENGINE_REST_DB`, `ENGINE_TOP_DB`, `SFX_BUS`, and the loaded `KEYS` |
+| Sound synthesis | `tools/generate_sfx.gd` | `RATE`, `PEAK`, `SHAPE_SINE/SAW/SQUARE`, one builder per key in `_catalogue()`; the noise seed is fixed so the WAVs are reproducible |
+| Weapon sound cues | `entities/player/weapon_system.gd` | one `Sfx.play` per shot; `_laser_sounding` gates the beam ignition; `missile_launch` pitch climbs with the salvo index |
+| Ship sound cues | `entities/player/player.gd` | `Sfx.play` on `_start_transform`, `_start_dash` and `take_damage`; `_burning` hysteresis for the ignition; `Sfx.engine()` every frame |
+| Enemy sound cues | `entities/enemy/*.gd` | `Sfx.play_at` on `_fire_pattern` (`enemy_fire`, `missile_warning`) and on `_spawn_explosion` (`explosion`) |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
 | Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
@@ -863,6 +925,9 @@ All values are named constants at the top of each script.
 
 ```
 common/global_event_bus.gd      lifecycle signals only (< 15 events)
+common/sfx.gd                   autoload: palette, SFX bus + limiter, 2D voice pool, 3D events, engine hum
+tools/generate_sfx.gd           deterministic synthesizer that writes audio/sfx/*.wav
+audio/sfx/*.wav                 the committed palette (generated, never sampled)
 common/hit_spark.*              self-freeing 3D impact flash
 combat/arsenal.gd               weapon catalogue: every number a player feels
 combat/projectile.*             one shared bullet, team decides layers + shape, guidance and interception here
@@ -945,6 +1010,9 @@ read as a contact that was not on the scope.
 ```sh
 # Headless gameplay assertions (movement, firing, patterns, i-frames, death)
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . tests/smoke_test.tscn
+
+# Regenerate the sound palette from scratch (reproduces the committed WAVs byte for byte)
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path . -s tools/generate_sfx.gd
 
 # Render one real frame to /tmp/gerwalk_frame.png for visual review
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn
@@ -1111,3 +1179,12 @@ actions, so it exercises the same path a player does.
   understood.
 - **i-frames and dash are prototypes of FR-09 and FR-11**, which remain
   unconfirmed product requirements — try them and decide, do not assume.
+- **Sound is synthesized, not recorded.** The palette matches the *character* of
+  the anime's cues, never their waveforms, and there is no music and no voice:
+  shipping a track would need its own bus, a loop point and a licence decision.
+- **The hum is one voice, not one per nozzle.** A stereo or per-thruster engine
+  would need the nozzle anchors fed into the audio path; at prototype zoom the
+  single loop reads as the ship, and the plumes carry the per-nozzle cue.
+- **The positional path caps at 24 voices.** Past the cap, world sounds fall back
+  to the flat pool instead of queueing, so in a heavier fight distant explosions
+  lose their panning before they are dropped.

@@ -96,12 +96,14 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _on_start_pressed() -> void:
+	Sfx.play(&"ui_select")
 	var error: Error = get_tree().change_scene_to_file(ARENA_SCENE)
 	if error != OK:
 		push_error("Could not open %s: %s" % [ARENA_SCENE, error_string(error)])
 
 
 func _on_options_pressed() -> void:
+	Sfx.play(&"ui_select")
 	_options.visible = true
 	_preview.ensure_built()
 	# The panel opens on the colours, so the focus lands on the chosen hull: a pad
@@ -115,6 +117,7 @@ func _on_options_pressed() -> void:
 
 
 func _on_back_pressed() -> void:
+	Sfx.play(&"ui_select")
 	_close_options()
 
 
@@ -156,6 +159,7 @@ func _on_lines_picked(color: Color) -> void:
 ## Every swatch is the same decision, so it takes the same two steps: show the
 ## ship the new colour, then make it the ship the next launch builds.
 func _push_livery() -> void:
+	Sfx.play(&"ui_select")
 	_preview.set_livery(_hull, _trim, _canopy, _lines, _nose)
 	GameSettings.save_livery(_hull, _trim, _canopy, _lines, _nose, settings_path)
 

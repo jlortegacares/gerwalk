@@ -247,6 +247,9 @@ func _fire_pattern() -> void:
 				_spawn_bullet(aim_at_player.rotated(Vector3.UP, offset), FAN_SPEED)
 
 	_pattern = Pattern.FAN if _pattern == Pattern.RING else Pattern.RING
+	# One report per burst, positioned at the turret: a distant gun is quieter and
+	# panned, which is the only cue the player has for where the fire is coming from.
+	Sfx.play_at(&"enemy_fire", global_position)
 
 
 func _spawn_bullet(direction: Vector3, speed: float) -> void:
@@ -301,6 +304,7 @@ func _spawn_explosion() -> void:
 	blast.shake_strength = DEATH_SHAKE
 	host.add_child(blast)
 	blast.global_position = global_position
+	Sfx.play_at(&"explosion", global_position)
 
 
 func _planar_distance_to(point: Vector3) -> float:

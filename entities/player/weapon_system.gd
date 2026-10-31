@@ -38,6 +38,8 @@ var _bombs: int = Arsenal.BOMB_START_CHARGES
 var _kills: int = 0
 ## Seconds until the next flare. The cooldown is the whole cost of the decoy.
 var _decoy_cooldown: float = 0.0
+## True while the beam is already sounding, so a held trigger ignites once.
+var _laser_sounding: bool = false
 
 
 func setup(bullet_scene: PackedScene) -> void:
@@ -71,6 +73,7 @@ func select(kind: Arsenal.Kind) -> void:
 	_kind = kind
 	_cooldown = 0.0
 	_laser_tick = 0.0
+	_laser_sounding = false
 	GlobalEventBus.player_weapon_changed.emit(Arsenal.NAMES[_kind])
 
 
@@ -104,6 +107,7 @@ func tick(
 	_beam.visible = false
 	if not wants_fire:
 		_laser_tick = 0.0
+		_laser_sounding = false
 		_tick_missiles(delta, origin, direction, wants_missile)
 		return
 
@@ -141,6 +145,9 @@ func _fire_vulcan(muzzle: Vector3, direction: Vector3) -> void:
 			Projectile.LIFETIME * _range_multiplier()
 		)
 	_cooldown = Arsenal.VULCAN_INTERVAL
+	# One burst per shot, not per pellet: five pellets of noise would read as one
+	# smear instead of a gun.
+	Sfx.play(&"vulcan")
 
 
 ## The beam stops at the first thing it meets, so the drawn length is the truth
@@ -167,6 +174,11 @@ func _fire_laser(delta: float, muzzle: Vector3, direction: Vector3) -> void:
 
 	if _laser_tick <= 0.0:
 		_laser_tick = Arsenal.LASER_TICK
+	# The beam is continuous, so it gets one ignition per trigger pull instead of a
+	# zap per frame: `_laser_sounding` is cleared the moment the trigger comes up.
+	if not _laser_sounding:
+		_laser_sounding = true
+		Sfx.play(&"laser")
 	_show_beam(muzzle, end)
 
 
@@ -205,6 +217,7 @@ func _fire_plasma(muzzle: Vector3, direction: Vector3) -> void:
 		Projectile.LIFETIME * _range_multiplier()
 	)
 	_cooldown = Arsenal.PLASMA_INTERVAL
+	Sfx.play(&"plasma")
 
 
 ## Fighter range is +40%; the same multiplier is expressed as projectile lifetime
@@ -367,6 +380,7 @@ func _sync_marks(pool: Array[Enemy]) -> void:
 		_drop_reticle(marked)
 		_marked.remove_at(index)
 
+	var fresh: int = 0
 	for enemy in pool:
 		if _marked.has(enemy):
 			continue
@@ -374,7 +388,12 @@ func _sync_marks(pool: Array[Enemy]) -> void:
 			var reticle: LockReticle = LockReticle.new()
 			reticle.name = "LockReticle"
 			enemy.add_child(reticle)
+			fresh += 1
 		_marked.append(enemy)
+	# One tone per frame, not per contact: three turrets entering the radar at once
+	# are one acquisition, and three stacked stings would read as a bug.
+	if fresh > 0:
+		Sfx.play(&"lock_tone")
 
 
 func _drop_reticle(enemy: Enemy) -> void:
@@ -460,6 +479,10 @@ func _launch_missile(
 			Arsenal.MISSILE_WEAVE_HIT_RANGE,
 			Arsenal.MISSILE_WEAVE_FADE
 		)
+		# One launch per shot, rising a little as the rack empties: a salvo is a
+		# burst of whooshes, and the pitch climb is what makes it read as a sequence
+		# instead of one long noise.
+		Sfx.play(&"missile_launch", 0.0, 1.0 + float(index) * 0.04)
 
 
 ## Empties the rack and its marks. Called on release, on cooldown and on an empty
@@ -500,6 +523,7 @@ func fire_bomb(origin: Vector3) -> bool:
 
 	_spawn_wave(origin)
 	GlobalEventBus.camera_shake_requested.emit(1.4)
+	Sfx.play_at(&"bomb", origin)
 	return true
 
 
@@ -519,6 +543,7 @@ func drop_decoy(origin: Vector3) -> bool:
 	scene.add_child(decoy)
 	decoy.global_position = origin
 	GlobalEventBus.player_decoy_changed.emit(false)
+	Sfx.play_at(&"decoy", origin)
 	return true
 
 

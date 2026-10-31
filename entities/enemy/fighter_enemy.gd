@@ -355,6 +355,9 @@ func _fire_pattern() -> void:
 			deg_to_rad(MISSILE_SPREAD_DEGREES) * (float(index) - float(SALVO - 1) * 0.5)
 		)
 		_spawn_missile(origin, _heading.rotated(Vector3.UP, spread), index)
+	# One alarm per salvo, not per shot: the pair is one threat, and the warning is
+	# the window the player has to answer it, so it belongs at the launch.
+	Sfx.play_at(&"missile_warning", global_position)
 
 
 ## The interceptor's salvo is the player's salvo in hostile paint: the pair holds its
