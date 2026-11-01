@@ -740,13 +740,30 @@ Enemies die the same way, because the blast is the game's word for "a hull came
 apart" and a kill should not be a different event from a death. The turret, the
 launcher and the interceptor all run the one `Enemy._die`: the hull and the aim
 beam are hidden on the death frame, the same `ShipExplosion` opens where the enemy
-was, the `killed` signal still reaches the arena, and the enemy frees itself. Only
+was, the kill reaches the event bus with the hull's score value, and the enemy frees
+itself. Only
 the camera kick is scaled (`Enemy.DEATH_SHAKE`, 0.35): the explosion is identical,
 but a kill is not the run ending.
 
 The panel fades in over `FADE_IN` (0.5 s) instead of cutting to its backdrop on the
 same frame. Its tint is dark enough to swallow the blast, and the countdown is
 unaffected: it starts when the death event fires, exactly as before.
+
+## Score
+
+Every kill pays what the hull was worth: a turret 100, an interceptor 200 and the
+launcher 250. The three are different fights rather than the same fight at different
+speeds — the launcher is the toughest hull and the one that forces a decision, the
+interceptor dies to one burst but the burst has to land on a moving target, and the
+turret is the baseline the other two are priced against.
+
+`Enemy._die` publishes the kill as `GlobalEventBus.enemy_killed(value)`, so the value
+travels with the event and the total does not depend on which spawn path produced the
+enemy. The arena owns the total: it adds the value and republishes
+`score_changed(total)`, and the HUD prints it zero-padded in the top-right corner.
+The arena is the run, so a respawn reloads the scene and the score starts again at
+zero — a death ends the run's score the same way it ends the run. There is no high
+score yet; it would need somewhere to persist, and the prototype has no save file.
 
 ## Audio
 
@@ -898,6 +915,7 @@ All values are named constants at the top of each script.
 | Weapon sound cues | `entities/player/weapon_system.gd` | one `Sfx.play` per shot; `_laser_sounding` gates the beam ignition; `missile_launch` pitch climbs with the salvo index |
 | Ship sound cues | `entities/player/player.gd` | `Sfx.play` on `_start_transform`, `_start_dash` and `take_damage`; `_burning` hysteresis for the ignition; `Sfx.engine()` every frame |
 | Enemy sound cues | `entities/enemy/*.gd` | `Sfx.play_at` on `_fire_pattern` (`enemy_fire`, `missile_warning`) and on `_spawn_explosion` (`explosion`) |
+| Enemy score | `entities/enemy/*.gd` | `Enemy.SCORE_VALUE` (100), `FighterEnemy.KILL_SCORE` (200), `MissileEnemy.KILL_SCORE` (250); the arena sums them into the run total |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
 | Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
@@ -996,7 +1014,9 @@ so no weapon hard-codes a cadence inside firing code.
 
 Ownership rule: the player owns its HP and its turbo reserve, and only exposes
 `take_damage()`. The HUD is a projection of `player_health_changed` and
-`player_turbo_changed`. Nothing in the UI mutates gameplay. The turbo event fires
+`player_turbo_changed`. The arena owns the run's score for the same reason: the enemy
+publishes the kill with its value, the arena adds it and republishes the total, and
+the HUD only prints it. Nothing in the UI mutates gameplay. The turbo event fires
 once per whole reserve unit rather than once per physics frame: the bar is 234 px
 wide, so a unit is under 2.5 px and the bus stays quiet.
 
@@ -1020,7 +1040,7 @@ read as a contact that was not on the scope.
 ## Checks
 
 ```sh
-# Headless gameplay assertions (movement, firing, patterns, i-frames, death)
+# Headless gameplay assertions (movement, firing, patterns, i-frames, score, death)
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . tests/smoke_test.tscn
 
 # Regenerate the sound palette from scratch (reproduces the committed WAVs byte for byte)

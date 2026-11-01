@@ -10,5 +10,8 @@ signal player_bombs_changed(current: int, maximum: int)
 signal player_missile_salvo_changed(current: int, maximum: int)
 signal player_decoy_changed(ready: bool)
 signal player_died
-signal enemy_killed
+## A hostile died, and what the kill is worth. The value travels with the event so
+## the run's score does not depend on who spawned the enemy.
+signal enemy_killed(value: int)
+signal score_changed(total: int)
 signal camera_shake_requested(strength: float)

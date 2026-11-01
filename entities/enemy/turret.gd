@@ -28,6 +28,9 @@ enum Pattern {
 
 const MAX_HP: int = 10
 
+## Points a kill is worth. The baseline threat, so the subclasses only raise it.
+const SCORE_VALUE: int = 100
+
 ## Engagement. Pursuit speed is deliberately below the ship's top speed (26.8):
 ## the player must always be able to break away instead of being towed forever.
 const AGGRO_RADIUS: float = 46.0
@@ -265,6 +268,11 @@ func current_hp() -> int:
 	return _hp
 
 
+## What the run earns for this kill. Subclasses override it with their own threat.
+func score_value() -> int:
+	return SCORE_VALUE
+
+
 func take_damage(amount: int) -> void:
 	if _state == State.DEAD:
 		return
@@ -287,6 +295,9 @@ func _die() -> void:
 		_aim_beam.visible = false
 	_spawn_explosion()
 	killed.emit()
+	# The bus event is emitted here, not forwarded by the arena: a kill counts no
+	# matter which path spawned the enemy, and the value travels with it.
+	GlobalEventBus.enemy_killed.emit(score_value())
 	queue_free()
 
 

@@ -76,6 +76,9 @@ var _spawn_timer: float = 0.0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _planet: Node3D
 var _last_player_position: Vector3 = Vector3.ZERO
+## The run's score. The arena owns it because the arena is the run: reloading the
+## scene on a death starts a fresh one at zero.
+var _score: int = 0
 
 @onready var _player: Player = %Player
 @onready var _enemies: Node3D = %Enemies
@@ -83,6 +86,7 @@ var _last_player_position: Vector3 = Vector3.ZERO
 
 func _ready() -> void:
 	add_to_group(&"arena")
+	GlobalEventBus.enemy_killed.connect(_on_enemy_killed)
 	# The planet must roll after the player has moved this physics frame, not
 	# before it, or the terrain lags one frame behind the ship and shimmers.
 	process_physics_priority = 100
@@ -269,7 +273,6 @@ func _spawn_enemy(
 
 	var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * distance
 	enemy.setup_spawn(_player.global_position + offset)
-	enemy.killed.connect(_on_enemy_killed)
 
 
 ## One roll, three buckets: the share of the launcher and the interceptor are read
@@ -283,5 +286,14 @@ func _pick_enemy_scene() -> PackedScene:
 	return ENEMY_SCENE
 
 
-func _on_enemy_killed() -> void:
-	GlobalEventBus.enemy_killed.emit()
+## Every kill pays what the hull was worth. The enemy emits the event with its own
+## value, so the total does not depend on which spawn path produced it.
+func _on_enemy_killed(value: int) -> void:
+	_score += value
+	GlobalEventBus.score_changed.emit(_score)
+
+
+## Read-only view of the run's score. The HUD reads the signal; this exists so the
+## smoke test can assert the total without parsing the label.
+func score() -> int:
+	return _score

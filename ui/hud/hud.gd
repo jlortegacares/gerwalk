@@ -17,6 +17,7 @@ const MENU_SCENE: String = "res://ui/menu/main_menu.tscn"
 @onready var _bomb_pips: Control = %BombPips
 @onready var _salvo_label: Label = %SalvoLabel
 @onready var _decoy_label: Label = %DecoyLabel
+@onready var _score_label: Label = %ScoreLabel
 @onready var _game_over: GameOver = %GameOver
 
 
@@ -28,6 +29,7 @@ func _ready() -> void:
 	GlobalEventBus.player_bombs_changed.connect(_on_player_bombs_changed)
 	GlobalEventBus.player_missile_salvo_changed.connect(_on_player_missile_salvo_changed)
 	GlobalEventBus.player_decoy_changed.connect(_on_player_decoy_changed)
+	GlobalEventBus.score_changed.connect(_on_score_changed)
 	GlobalEventBus.player_died.connect(_on_player_died)
 	_game_over.respawn_requested.connect(_restart_run)
 	_game_over.menu_requested.connect(_back_to_menu)
@@ -79,6 +81,12 @@ func _on_player_decoy_changed(ready: bool) -> void:
 	_decoy_label.modulate = (
 		Color(1.0, 1.0, 1.0, 1.0) if ready else Color(1.0, 1.0, 1.0, 0.35)
 	)
+
+
+## Zero-padded so the label keeps its width as the score climbs; a right-aligned
+## number that changes digit count reads as a jitter.
+func _on_score_changed(total: int) -> void:
+	_score_label.text = "SCORE %06d" % total
 
 
 func _on_player_died() -> void:

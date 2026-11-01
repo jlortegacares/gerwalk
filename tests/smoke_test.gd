@@ -59,6 +59,7 @@ func _ready() -> void:
 	await _test_transformation()
 	await _test_gerwalk_silhouette()
 	await _test_audio()
+	await _test_score()
 
 	_clear_enemies()
 	_clear_projectiles()
@@ -1703,6 +1704,70 @@ func _test_audio() -> void:
 	await get_tree().physics_frame
 
 
+## The run pays for every kill, and the HUD projects the total. The three hulls are
+## worth different amounts because they are different fights, not because of a
+## global multiplier: a kill is worth what the target was.
+func _test_score() -> void:
+	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
+	var label: Label = hud.get_node("%ScoreLabel") as Label
+	_check(label != null, "the HUD shows the score")
+	if label == null:
+		return
+
+	var totals: Array[int] = []
+	var listener: Callable = func(total: int) -> void: totals.append(total)
+	GlobalEventBus.score_changed.connect(listener)
+
+	_clear_enemies()
+	await get_tree().physics_frame
+
+	var turret: Enemy = _spawn_turret(Vector3(20.0, 0.0, 0.0))
+	var launcher: MissileEnemy = _spawn_missile_enemy(Vector3(0.0, 0.0, 24.0))
+	var interceptor: FighterEnemy = _spawn_fighter_enemy(Vector3(-24.0, 0.0, 0.0))
+	await get_tree().physics_frame
+
+	var before: int = _arena.score()
+	if turret != null:
+		turret.take_damage(turret.current_hp())
+		_check(
+			_arena.score() == before + turret.score_value(),
+			"a turret kill pays %d points (score %d)"
+			% [turret.score_value(), _arena.score()]
+		)
+		before = _arena.score()
+
+	if launcher != null:
+		launcher.take_damage(launcher.current_hp())
+		_check(
+			_arena.score() == before + launcher.score_value(),
+			"a launcher kill pays %d points (score %d)"
+			% [launcher.score_value(), _arena.score()]
+		)
+		before = _arena.score()
+
+	if interceptor != null:
+		interceptor.take_damage(interceptor.current_hp())
+		_check(
+			_arena.score() == before + interceptor.score_value(),
+			"an interceptor kill pays %d points (score %d)"
+			% [interceptor.score_value(), _arena.score()]
+		)
+
+	_check(
+		not totals.is_empty() and totals[totals.size() - 1] == _arena.score(),
+		"the score reaches the HUD through the bus (last %d)" % _arena.score()
+	)
+	_check(
+		label.text == "SCORE %06d" % _arena.score(),
+		"the HUD prints the run's score (%s)" % label.text
+	)
+	GlobalEventBus.score_changed.disconnect(listener)
+
+	for blast in _death_blasts():
+		blast.queue_free()
+	await get_tree().physics_frame
+
+
 func _release_all_input() -> void:
 	for action: StringName in [
 		&"move_left", &"move_right", &"move_up", &"move_down",
@@ -3045,7 +3110,7 @@ func _test_bomb(weapons: WeaponSystem) -> void:
 func _test_bomb_refill(weapons: WeaponSystem) -> void:
 	var before: int = weapons.bomb_charges()
 	for _i in Arsenal.BOMB_KILLS_PER_CHARGE:
-		GlobalEventBus.enemy_killed.emit()
+		GlobalEventBus.enemy_killed.emit(Enemy.SCORE_VALUE)
 	await get_tree().physics_frame
 	_check(
 		weapons.bomb_charges() == before + 1,
@@ -3054,7 +3119,7 @@ func _test_bomb_refill(weapons: WeaponSystem) -> void:
 	)
 
 	for _i in Arsenal.BOMB_KILLS_PER_CHARGE * Arsenal.BOMB_MAX_CHARGES:
-		GlobalEventBus.enemy_killed.emit()
+		GlobalEventBus.enemy_killed.emit(Enemy.SCORE_VALUE)
 	await get_tree().physics_frame
 	_check(
 		weapons.bomb_charges() == Arsenal.BOMB_MAX_CHARGES,

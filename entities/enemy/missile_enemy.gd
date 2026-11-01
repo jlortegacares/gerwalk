@@ -14,6 +14,9 @@ extends Enemy
 ## Tougher than a turret: killing the launcher before it commits is the counterplay,
 ## so the hull has to be worth prioritizing.
 const LAUNCHER_HP: int = 12
+## The most valuable kill: it is the toughest hull and the one that forces a
+## decision out of the player.
+const KILL_SCORE: int = 250
 
 const SALVO_MISSILES: int = 2
 ## Faster than the hover's cruise (26.8), so running away in GERWALK does not work:
@@ -37,6 +40,10 @@ const LAUNCH_RECOVER: float = 2.3
 
 const LAUNCHER_COLOR: Color = Color(0.98, 0.62, 0.25, 1.0)
 const POD_COLOR: Color = Color(0.34, 0.26, 0.22, 1.0)
+
+
+func score_value() -> int:
+	return KILL_SCORE
 
 
 func _ready() -> void:

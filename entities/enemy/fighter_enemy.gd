@@ -20,6 +20,9 @@ extends Enemy
 ## Tougher than a turret, softer than the launcher: the counterplay is a burst on
 ## the pass, so the hull has to survive one exchange but not two.
 const FIGHTER_HP: int = 8
+## Above a turret and below the launcher: the burst has to land on a moving target,
+## but the hull is the softest of the three.
+const KILL_SCORE: int = 200
 
 ## Flight model. The airspeed is a state, not the projection of the velocity: the
 ## ship accelerates into its ceiling and holds it, and only the turn is capped.
@@ -127,6 +130,10 @@ var _wingtip_material: StandardMaterial3D
 var _nozzle_anchors: Array[Vector3] = []
 var _thrust_kick: float = 0.0
 var _forward_speed: float = 0.0
+
+
+func score_value() -> int:
+	return KILL_SCORE
 
 
 func _ready() -> void:

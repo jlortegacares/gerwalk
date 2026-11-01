@@ -574,7 +574,7 @@ func _spawn_wave(origin: Vector3) -> void:
 
 ## Charges come back on kills rather than on a timer: the resource rewards staying
 ## in the fight, and a full rack stops banking progress it cannot spend.
-func _on_enemy_killed() -> void:
+func _on_enemy_killed(_value: int) -> void:
 	if _bombs >= Arsenal.BOMB_MAX_CHARGES:
 		_kills = 0
 		return
