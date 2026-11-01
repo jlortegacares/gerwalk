@@ -65,6 +65,7 @@ func _ready() -> void:
 	_clear_projectiles()
 	await get_tree().physics_frame
 
+	await _test_dash_evasion()
 	await _test_damage_and_iframes()
 	await _test_death()
 
@@ -3506,6 +3507,59 @@ func _jink_push() -> Vector2:
 	var right: Vector3 = Vector3(-heading.z, 0.0, heading.x)
 	var push: Vector3 = _player.get("_roll_velocity")
 	return Vector2(push.dot(heading), push.dot(right))
+
+
+## The dash is a jink, not a screen clear. Enemy fire that reaches the hull mid-dash
+## is evaded: no damage, no impact, and the shot keeps flying instead of being spent
+## on the ship. The same bullet outside the window still costs health, which is what
+## keeps the dash a decision instead of a free pass.
+func _test_dash_evasion() -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	_player.global_position = Vector3.ZERO
+	_player.velocity = Vector3.ZERO
+	_player.set("_hp", Player.MAX_HP)
+	_player.set("_invulnerable", 0.0)
+	_player.set("_dash_time", 0.0)
+	_player.set("_dash_cooldown", 0.0)
+	await get_tree().physics_frame
+
+	# Outside the window the shot is spent on the hit: the rule the dash is measured
+	# against, and the behaviour a player still gets by dashing too late.
+	var plain: Projectile = _spawn_enemy_bullet(
+		_player.global_position - Vector3.RIGHT * 2.5
+	)
+	for _i in 12:
+		await get_tree().physics_frame
+	_check(
+		int(_player.get("_hp")) == Player.MAX_HP - 1,
+		"a bullet still hits a ship that is not dashing (hp %d)" % int(_player.get("_hp"))
+	)
+	_check(not is_instance_valid(plain), "a plain hit spends the bullet")
+
+	# The window is held open with the burst direction zeroed, so the check is about
+	# the rule and not about the hull outrunning the shot.
+	_player.set("_hp", Player.MAX_HP)
+	_player.set("_invulnerable", 0.0)
+	_player.set("_dash_direction", Vector3.ZERO)
+	_player.set("_dash_time", 10.0)
+	var evaded: Projectile = _spawn_enemy_bullet(
+		_player.global_position - Vector3.RIGHT * 2.5
+	)
+	for _i in 12:
+		await get_tree().physics_frame
+	_check(
+		int(_player.get("_hp")) == Player.MAX_HP,
+		"a dashing ship takes no damage from the shot (hp %d)" % int(_player.get("_hp"))
+	)
+	_check(
+		evaded != null and is_instance_valid(evaded) and not evaded.is_queued_for_deletion(),
+		"the dash evades the shot instead of destroying it"
+	)
+	_player.set("_dash_time", 0.0)
+
+	_clear_projectiles()
+	await get_tree().physics_frame
 
 
 func _test_damage_and_iframes() -> void:

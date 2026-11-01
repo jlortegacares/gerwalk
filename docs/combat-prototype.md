@@ -310,7 +310,7 @@ the player needs, and the genre forgives neither. The split this build uses is
 | Shot direction | instant: the stick angle of this frame | `_aim_direction` |
 | Hull direction | 1800 deg/s, so a 180 flip lands in six frames | `VISUAL_TURN_RATE = 1800` |
 | Bank | up to 32 deg in GERWALK from lateral drift plus turn rate; a fighter rolls 50 deg into a full-rate turn | `MAX_BANK`, `YAW_BANK`, `FIGHTER_BANK`, `BANK_RATE` |
-| Dash | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one | `DASH_SPEED`, `DASH_DURATION` |
+| Dash | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one, enemy fire evaded for the whole burst | `DASH_SPEED`, `DASH_DURATION` |
 | Dash trigger | double tap the movement stick the way you want to go, any direction; Space / L3 click still works | `DOUBLE_TAP_WINDOW = 0.28`, `DOUBLE_TAP_SIMILARITY = 0.5` |
 | Camera lead | `velocity * 0.02`, about 8 px at cruise and 12 under the burner, saturating at 0.6 units | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX` |
 
@@ -357,6 +357,16 @@ gone on the first frame and the speed profile is flat. The direction is the stic
 when it is deflected past the movement deadzone and the nose when it is not, which
 means "dash where I am going" and "dash where I am looking" never need a modifier.
 
+**The dash evades fire; it does not delete it.** The window is invulnerable, and
+that used to be invisible: a bullet that touched the hull mid-dash dealt no damage
+but was still spent, so the dash read as a screen clear that quietly removed the
+shots it touched. Now `Player.is_evading()` reports the window and `Projectile`
+returns early on a dashing hull — no damage, no impact, and the shot keeps flying,
+so it can still catch the ship once the window closes. The evasion is the dash's
+own 0.12 s (0.20 s for the fighter's roll) rather than a separate timer: the ship
+that phases through a bullet is the ship that is moving through it, and a longer
+window would make the dash a defensive cooldown instead of a jink.
+
 **The dash is a double tap, and the second tap is the direction.** A tap is the
 movement vector leaving the deadzone, so the gesture is two rising edges inside
 `DOUBLE_TAP_WINDOW` (0.28 s) whose directions agree inside a 60 degree cone
@@ -395,8 +405,8 @@ games rather than two gears of the same one.
 | Wind | none: the hover holds station | a constant 7 u/s world vector |
 | Aim | mouse or right stick, instantly | the nose, and only the nose |
 | Hull turn | 1800 °/s, presentation only | 400 °/s, and it is the turn rate the game reads |
-| Dash | 3.17x burst, 0.12 s, i-frames, on a double tap of the direction | barrel roll, 55 u/s in the tapped direction over 0.20 s with a 0.45 s turn-over, heading kept; the button still repeats the last side |
-| Afterburner | 42 u/s | 60 u/s and the burst that eats incoming fire |
+| Dash | 3.17x burst, 0.12 s, i-frames and enemy fire evaded, on a double tap of the direction | barrel roll, 55 u/s in the tapped direction over 0.20 s with a 0.45 s turn-over, heading kept; the button still repeats the last side |
+| Afterburner | 42 u/s | 60 u/s |
 | Gun | free aim, 16° vulcan fan, base range | 0°, 4° fan, 1.35x muzzle speed, 1.4x range, no plasma lock |
 
 ### The GERWALK airframe
@@ -918,7 +928,7 @@ All values are named constants at the top of each script.
 | Enemy score | `entities/enemy/*.gd` | `Enemy.SCORE_VALUE` (100), `FighterEnemy.KILL_SCORE` (200), `MissileEnemy.KILL_SCORE` (250); the arena sums them into the run total |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
-| Evasion | `entities/player/player.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN` |
+| Evasion | `entities/player/player.gd`, `combat/projectile.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN`; `Player.is_evading()` gates the early return in `Projectile._on_body_entered` |
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |

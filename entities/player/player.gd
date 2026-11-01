@@ -908,6 +908,13 @@ func _tick_timers(delta: float) -> void:
 			_visual.visible = true
 
 
+## True while the hull is mid-dash or mid-roll. The dash is a jink, not a screen
+## clear: a shot that reaches the ship inside this window is evaded, so the
+## projectile keeps flying instead of being spent on an invulnerable hull.
+func is_evading() -> bool:
+	return _alive and _dash_time > 0.0
+
+
 func take_damage(amount: int, source_position: Vector3 = Vector3.ZERO) -> void:
 	if not _alive or _invulnerable > 0.0 or _dash_time > 0.0:
 		return

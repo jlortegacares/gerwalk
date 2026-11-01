@@ -453,6 +453,12 @@ func _nearest_decoy() -> Node3D:
 
 func _on_body_entered(body: Node3D) -> void:
 	if body is Player and _team == Team.ENEMY:
+		# A dashing ship phases through the shot. The dash evades, so the bullet is
+		# neither spent nor turned into an impact: it keeps flying and can still
+		# catch the ship once the window closes. `body_entered` fires once per
+		# overlap, so the pass-through never becomes a delayed hit either.
+		if (body as Player).is_evading():
+			return
 		body.take_damage(_damage, global_position)
 	elif body is Enemy and _team == Team.PLAYER:
 		body.take_damage(_damage)
