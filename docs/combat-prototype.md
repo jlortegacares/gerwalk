@@ -66,13 +66,17 @@ reuse the same mechanism rather than a second bullet class.
 
 Missiles are a radar you fly, not a clock that fires. The rack only sees inside a
 55° cone around the aim, out to 48 units, and it never launches on its own. Holding
-the missile button loads one missile every 0.3 s, up to six, and letting go fires the
-whole load at once: the hold decides how many, the radar decides who. Held time does
-not need company to count, so a lone contact takes every missile; with more contacts
-the load is spread round-robin from the nearest outwards, so three missiles over two
-turrets land 2/1 and never 3/0. Each missile still chases its own target, leaves from
-alternating wings and is angled 14° outward, so the guidance curve is visible from
-the first frame.
+the missile button loads one missile every 0.225 s, up to eight, and letting go fires
+the whole load at once: the hold decides how many, the radar decides who. The rack
+grew from six to eight without growing the hold — a full load is still 1.8 s, and the
+interval is derived from that number (`MISSILE_SALVO_LOAD_TIME / MISSILE_MAX_SALVO`)
+so the next resize keeps the commitment instead of the gap. Held time does not need
+company to count, so a lone contact takes every missile; with more contacts the load
+is spread from the nearest outwards, so three missiles over two turrets land 2/1 and
+never 3/0. Each missile still chases its own target, leaves from alternating wings
+and is angled outward in 11° steps, so the guidance curve is visible from the first
+frame. The fan cap is four pairs (44°) for the same reason: at the old 33° ceiling
+the seventh and eighth missiles would have shared a line with the fifth and sixth.
 
 The load only grows while the radar holds a contact, so a salvo cannot be pre-charged
 in empty sky and dumped the instant a turret appears. A tap shorter than one interval
@@ -111,10 +115,10 @@ overlap: a sparser one reads as a dotted line, not as smoke.
 straight: it swings its aim direction off that line by `MISSILE_WEAVE_AMPLITUDE`
 radians, at `MISSILE_WEAVE_RATE` radians per second, so it crabs sideways for half a
 cycle and then swings back. That is the Macross picture — the smoke of a salvo
-braiding in the air instead of six parallel lines — and it is why the turn rate went
+braiding in the air instead of eight parallel lines — and it is why the turn rate went
 up to 5.2: a turn rate is a turn radius, and a radius of 15 units cannot bend a path
 more than once before the shot arrives. Each missile of a salvo gets its own phase
-(`index * 2.1`), so a full rack draws three pairs of opposed curves rather than six
+(`index * 2.1`), so a full rack draws four pairs of opposed curves rather than eight
 trails in lockstep.
 
 The swing is applied to the desired heading, never to the per-frame turn step. A
@@ -135,12 +139,18 @@ shots fired twice. The angle also picks the wing: the shot leaves from the pylon
 is angling towards, so the picture and the trajectory agree. A hand's width of
 clearance keeps the shot from spawning inside the pylon.
 
-Every contact is visible. While the button is down, each turret the radar holds
-carries a mark (`combat/lock_reticle.gd`): flat on the play plane and above the
-body, because that is what an angled camera reads as a box around the unit instead
-of a line through it. The shape is the anime lock, not a ring — four corner brackets
-pointing inwards and a diamond pip on the centre. A bracket box says "this one,
-here" while leaving the target itself visible, which a closed circle does not.
+Every missile is visible, one mark each. While the button is down, each loaded missile
+rings the contact it will chase (`combat/lock_reticle.gd`): flat on the play plane and
+above the body, because that is what an angled camera reads as a box around the unit
+instead of a line through it. The shape is the anime lock, not a ring — four corner
+brackets pointing inwards and a diamond pip on the centre. A bracket box says "this
+one, here" while leaving the target itself visible, which a closed circle does not.
+
+The mark belongs to the missile, not to the radar. An empty rack rings nothing and the
+brackets appear one at a time as the hold fills, nearest contact first — the same order
+`_fire_salvo` walks — so what is on screen is exactly the load's promise. Ringing every
+contact the radar held, which is what the rack did before, showed six brackets for one
+missile and promised a spread the rack could not keep.
 
 The mark is a lock, not a decal. It arrives 1.9× wide and fades in while it snaps
 down onto the contact in 0.22 s, and the snap is an ease-out-back: the box passes its
@@ -152,7 +162,8 @@ with the turret would tilt a marker that has to stay level with the play plane. 
 reticle is parented to the turret, so it dies with its target and follows it while it
 moves, and the HUD counts the loaded missiles while the button is down. A mechanic
 whose payoff depends on how long you held a button cannot be invisible, and a salvo
-that spreads has to show what it will spread over.
+that spreads has to show what it will spread over — which is why the count and the
+brackets have to agree.
 
 The bomb is the emergency button. One charge detonates a 40-unit ring that cancels
 enemy fire inside it and pays 8 damage to every turret in range, in the same frame.
@@ -910,7 +921,7 @@ All values are named constants at the top of each script.
 | Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED`, `FIGHTER_ROLL_ANIM_TIME` |
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
-| Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load interval, max salvo, salvo cooldown, damage, turn rate, range, launch fan step and cap, weave amplitude/rate/hit range/fade) |
+| Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load time and derived load interval, max salvo, salvo cooldown, damage, turn rate, range, launch fan step and cap, weave amplitude/rate/hit range/fade); `MISSILE_SALVO_LOAD_TIME` is the commitment, the interval follows from it |
 | Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
 | Lock reticle | `combat/lock_reticle.gd` | `HALF_SIZE`, `ARM`, `THICKNESS`, `PIP`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH`, `GLOW`, `GLOW_DEPTH`, `LOCK_IN_SCALE`, `LOCK_IN_TIME`, `OVERSHOOT` |
 | Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |

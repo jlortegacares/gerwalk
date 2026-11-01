@@ -79,20 +79,25 @@ const MISSILE_RANGE: float = 48.0
 ## Half-angle of the forward radar around the aim. Wide enough to sweep a turning
 ## fight, narrow enough that the lock is still a forward decision.
 const MISSILE_RADAR_CONE_DEGREES: float = 55.0
-## Held time per loaded missile. A full rack of six is 1.8 s of commitment, and a
-## tap shorter than one interval fires nothing at all: the hold is the weapon.
-const MISSILE_SALVO_INTERVAL: float = 0.3
-const MISSILE_MAX_SALVO: int = 6
+## Held time for a whole rack. The rack is eight now and the hold is still 1.8 s:
+## the interval is derived from the load time, so growing the rack shortens the gap
+## between missiles instead of asking the player to hold longer. A tap shorter than
+## one interval fires nothing at all: the hold is the weapon.
+const MISSILE_SALVO_LOAD_TIME: float = 1.8
+const MISSILE_MAX_SALVO: int = 8
+const MISSILE_SALVO_INTERVAL: float = MISSILE_SALVO_LOAD_TIME / MISSILE_MAX_SALVO
 ## After a salvo the rack is empty for a moment, so hold-release spam cannot chain
 ## salvos faster than the hold that loads them.
 const MISSILE_SALVO_COOLDOWN: float = 0.45
 const MISSILE_LAUNCH_AHEAD: float = 0.3
 const MISSILE_LAUNCH_SIDE: float = 0.9
 ## The salvo leaves as a fan, not as a line. Missiles are numbered in pairs
-## outwards, so a load of n uses n distinct headings: 11, -11, 22, -22, 33, -33.
-## Without that, a six-missile load reads as three shots fired twice.
+## outwards, so a load of n uses n distinct headings: 11, -11, 22, -22, 33, -33,
+## 44, -44. Without that, a six-missile load reads as three shots fired twice. The
+## ceiling is four pairs because the rack tops out at eight: a lower one would make
+## the seventh and eighth missiles share a line with the fifth and sixth.
 const MISSILE_LAUNCH_ANGLE_STEP_DEGREES: float = 11.0
-const MISSILE_LAUNCH_ANGLE_MAX_DEGREES: float = 33.0
+const MISSILE_LAUNCH_ANGLE_MAX_DEGREES: float = 44.0
 ## Seconds of straight flight before a player missile starts guiding. The fan has to
 ## be readable before the shots commit, or the salvo collapses into one column on
 ## the launch frame and the spread is invisible.

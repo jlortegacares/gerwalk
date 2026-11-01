@@ -1604,7 +1604,11 @@ func _test_audio() -> void:
 		# The salvo above left the rack on cooldown, and a cooling rack never marks.
 		weapons.set("_missile_cooldown", 0.0)
 		Sfx.reset_counts()
-		weapons.tick(0.0, origin, origin, aim, false, false, true)
+		# The tone belongs to the first missile, not to the contact: an empty rack
+		# marks nothing, so the hold has to load one before anything rings.
+		weapons.tick(
+			Arsenal.MISSILE_SALVO_INTERVAL, origin, origin, aim, false, false, true
+		)
 		_check(
 			Sfx.played(&"lock_tone") == 1,
 			"the radar rings a new contact with one lock tone (got %d)"
@@ -1612,6 +1616,8 @@ func _test_audio() -> void:
 		)
 		weapons.tick(0.0, origin, origin, aim, false, false, true)
 		_check(Sfx.played(&"lock_tone") == 1, "an already held contact does not re-sting")
+		# Let the rack go, so the next block does not inherit a loaded salvo.
+		weapons.tick(0.0, origin, origin, aim, false, false, false)
 	_clear_enemies()
 	_clear_projectiles()
 	await get_tree().physics_frame
@@ -2562,7 +2568,7 @@ func _test_missile_load(weapons: WeaponSystem) -> void:
 	_clear_projectiles()
 
 
-## More hold, more missiles: one second loads three, and a lone contact takes the
+## More hold, more missiles: one second loads four, and a lone contact takes the
 ## whole salvo instead of the load waiting for company.
 func _test_missile_growth(weapons: WeaponSystem) -> void:
 	_clear_enemies()
@@ -2576,15 +2582,15 @@ func _test_missile_growth(weapons: WeaponSystem) -> void:
 	Input.action_press(&"missile")
 	await _wait_frames(60)
 	_check(
-		weapons.salvo_count() == 3,
-		"a second of hold loads three missiles (loaded %d)" % weapons.salvo_count()
+		weapons.salvo_count() == 4,
+		"a second of hold loads four missiles (loaded %d)" % weapons.salvo_count()
 	)
 
 	Input.action_release(&"missile")
 	await _wait_frames(2)
 
 	var flight: Array[Projectile] = _player_projectiles()
-	_check(flight.size() == 3, "the whole salvo leaves together (got %d)" % flight.size())
+	_check(flight.size() == 4, "the whole salvo leaves together (got %d)" % flight.size())
 	var targets: Array = []
 	for missile in flight:
 		targets.append(missile.get("_target"))
@@ -2606,12 +2612,21 @@ func _test_missile_spread(weapons: WeaponSystem) -> void:
 	await _wait_frames(2)
 
 	Input.action_press(&"missile")
-	await _wait_frames(30)
+	await _wait_frames(15)
+	_check(
+		weapons.salvo_count() == 1,
+		"a quarter second loads one missile (loaded %d)" % weapons.salvo_count()
+	)
+	_check(
+		get_tree().get_nodes_in_group(&"lock_reticle").size() == 1,
+		"one loaded missile rings one contact, not the whole radar"
+	)
+	await _wait_frames(15)
 	_check(
 		get_tree().get_nodes_in_group(&"lock_reticle").size() == 2,
-		"the radar rings both contacts"
+		"the second missile rings the second contact"
 	)
-	await _wait_frames(30)
+	await _wait_frames(15)
 	_check(
 		weapons.salvo_count() == 3,
 		"the load ignores how many contacts it is spread over (loaded %d)"
@@ -2663,7 +2678,7 @@ func _test_missile_dead_contact(weapons: WeaponSystem) -> void:
 		get_tree().get_nodes_in_group(&"lock_reticle").size() == 1,
 		"a dead contact takes its ring with it"
 	)
-	await _wait_frames(20)
+	await _wait_frames(12)
 	_check(
 		weapons.salvo_count() == 2,
 		"the load keeps growing after a contact dies (loaded %d)" % weapons.salvo_count()
@@ -2705,29 +2720,48 @@ func _test_missile_radar_cone(weapons: WeaponSystem) -> void:
 	_check(_player_projectiles().is_empty(), "an empty radar releases nothing")
 
 
-## Six is the size of the rack: more held time does not buy a seventh, and the
-## seventh turret sits past the radar range on purpose.
+## Eight is the size of the rack: more held time does not buy a ninth, and the ninth
+## turret is the one the radar drops.
 func _test_missile_cap(weapons: WeaponSystem) -> void:
 	await _wait_frames(30)
 	var aim: Vector3 = _aim()
 	var targets: Array[Enemy] = []
-	for index in 7:
-		targets.append(_spawn_enemy(_player.global_position + aim * float(14 + index * 6)))
-	_check(targets.size() == 7, "spawned seven turrets around the radar edge")
+	for index in 9:
+		targets.append(_spawn_enemy(_player.global_position + aim * float(14 + index * 4)))
+	_check(targets.size() == 9, "spawned nine turrets, eight of them on the rack")
 	await _wait_frames(2)
 
 	Input.action_press(&"missile")
 	await _wait_frames(120)
 	_check(
-		weapons.salvo_count() == 6,
-		"the rack caps at six (loaded %d)" % weapons.salvo_count()
+		weapons.salvo_count() == 8,
+		"the rack caps at eight (loaded %d)" % weapons.salvo_count()
+	)
+	_check(
+		get_tree().get_nodes_in_group(&"lock_reticle").size() == 8,
+		"a full rack rings one contact per missile"
 	)
 
 	Input.action_release(&"missile")
 	await _wait_frames(2)
+	var flight: Array[Projectile] = _player_projectiles()
+	_check(flight.size() == 8, "eight loaded missiles leave (got %d)" % flight.size())
+
+	# One target and one heading per missile: a full rack is eight separate chases,
+	# not one target hit eight times.
+	var chased: Array = []
+	var lines: Array[int] = []
+	for missile in flight:
+		chased.append(missile.get("_target"))
+		var shot: Vector3 = missile.get("_velocity")
+		lines.append(int(round(rad_to_deg(atan2(shot.x, shot.z)) / 5.0)))
 	_check(
-		_player_projectiles().size() == 6,
-		"six loaded missiles leave (got %d)" % _player_projectiles().size()
+		_unique_count(chased) == 8,
+		"every missile of a full rack chases its own contact (%d)" % _unique_count(chased)
+	)
+	_check(
+		_unique_count(lines) == 8,
+		"a full rack still leaves on eight distinct lines (%s)" % str(lines)
 	)
 
 	# The cooldown right after a salvo: holding restarts nothing.
@@ -2740,7 +2774,7 @@ func _test_missile_cap(weapons: WeaponSystem) -> void:
 	Input.action_release(&"missile")
 	await _wait_frames(2)
 	_check(
-		_player_projectiles().size() == 6,
+		_player_projectiles().size() == 8,
 		"nothing leaves while the rack cools (got %d)" % _player_projectiles().size()
 	)
 	_clear_projectiles()

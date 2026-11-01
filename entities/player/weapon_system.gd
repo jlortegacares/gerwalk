@@ -311,8 +311,8 @@ func max_salvo() -> int:
 
 ## The rack is a radar and a charge, not a clock. The radar holds every contact
 ## inside the forward cone; while the button is down one missile loads every
-## MISSILE_SALVO_INTERVAL, and letting go fires the whole load, spread over those
-## contacts from the nearest outwards. Nothing fires with the button up, and a tap
+## MISSILE_SALVO_INTERVAL, and letting go fires the whole load, one missile per
+## contact from the nearest outwards. Nothing fires with the button up, and a tap
 ## shorter than one interval loads nothing at all.
 ##
 ## The load needs contacts to grow: with an empty radar the rack stays empty, so a
@@ -336,21 +336,24 @@ func _tick_missiles(
 		_discharge()
 		return
 
+	if not pool.is_empty() and _salvo < Arsenal.MISSILE_MAX_SALVO:
+		_salvo_timer += delta
+		while (
+			_salvo_timer >= Arsenal.MISSILE_SALVO_INTERVAL
+			and _salvo < Arsenal.MISSILE_MAX_SALVO
+		):
+			_salvo_timer -= Arsenal.MISSILE_SALVO_INTERVAL
+			_salvo += 1
+			GlobalEventBus.player_missile_salvo_changed.emit(
+				_salvo, Arsenal.MISSILE_MAX_SALVO
+			)
+
+		if _salvo >= Arsenal.MISSILE_MAX_SALVO:
+			_salvo_timer = 0.0
+
+	# Marks come last, after the count has settled, so the bracket for a missile is
+	# on screen the frame that missile loads.
 	_sync_marks(pool)
-	if pool.is_empty() or _salvo >= Arsenal.MISSILE_MAX_SALVO:
-		return
-
-	_salvo_timer += delta
-	while (
-		_salvo_timer >= Arsenal.MISSILE_SALVO_INTERVAL
-		and _salvo < Arsenal.MISSILE_MAX_SALVO
-	):
-		_salvo_timer -= Arsenal.MISSILE_SALVO_INTERVAL
-		_salvo += 1
-		GlobalEventBus.player_missile_salvo_changed.emit(_salvo, Arsenal.MISSILE_MAX_SALVO)
-
-	if _salvo >= Arsenal.MISSILE_MAX_SALVO:
-		_salvo_timer = 0.0
 
 
 ## The contacts the radar holds, nearest first and capped at the rack size: the same
@@ -364,9 +367,18 @@ func _radar_pool(origin: Vector3, direction: Vector3) -> Array[Enemy]:
 	return pool
 
 
-## Rings every contact the radar holds while the button is down. The salvo is
-## spread over them, so the player has to see the spread, not only a count.
+## Rings one contact per loaded missile, nearest first: the salvo is spread over the
+## pool in that same order, so the marked contacts are exactly the ones the load will
+## chase. Marking the whole radar instead would show six brackets for one missile and
+## promise a spread the rack cannot keep.
+##
+## The count is what decides, not the pool, which is why the brackets appear one at a
+## time as the hold fills the rack.
 func _sync_marks(pool: Array[Enemy]) -> void:
+	var marks: Array[Enemy] = []
+	for index in mini(_salvo, pool.size()):
+		marks.append(pool[index])
+
 	for index in range(_marked.size() - 1, -1, -1):
 		var marked: Enemy = _marked[index]
 		# A turret can die under its own ring. A freed mark is dropped from the
@@ -375,13 +387,13 @@ func _sync_marks(pool: Array[Enemy]) -> void:
 		if not is_instance_valid(marked):
 			_marked.remove_at(index)
 			continue
-		if pool.has(marked):
+		if marks.has(marked):
 			continue
 		_drop_reticle(marked)
 		_marked.remove_at(index)
 
 	var fresh: int = 0
-	for enemy in pool:
+	for enemy in marks:
 		if _marked.has(enemy):
 			continue
 		if enemy.get_node_or_null(^"LockReticle") == null:
@@ -404,9 +416,10 @@ func _drop_reticle(enemy: Enemy) -> void:
 		reticle.queue_free()
 
 
-## The whole load leaves at once, one missile per slot, spread round-robin from the
-## nearest contact outwards: with more targets than missiles the closest ones take
-## the hits, and each missile still chases its own target.
+## The whole load leaves at once, one missile per mark: the pool is walked from the
+## nearest contact outwards and wraps when the load is longer than the radar, so a
+## lone contact still takes every missile. This is the same order `_sync_marks`
+## rings, which is what makes the brackets the load's promise.
 func _fire_salvo(pool: Array[Enemy], origin: Vector3, direction: Vector3) -> void:
 	var count: int = _salvo
 	_discharge()
