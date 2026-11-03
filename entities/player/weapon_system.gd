@@ -354,9 +354,9 @@ func _tick_missiles(
 			_salvo += 1
 			# One sting per assignment, not per frame: a long frame that loads two
 			# missiles has to sound twice, because two assignments happened. The
-			# pitch climbs with the rack, since eight identical beeps do not say
-			# "eight locks" the way a rising ladder does.
-			Sfx.play(&"lock_tone", 0.0, 1.0 + 0.07 * float(_salvo - 1))
+			# pitch stays fixed: the count of stings is the count of locks, and a
+			# ladder on top of it turns eight locks into one long rising whine.
+			Sfx.play(&"lock_tone")
 			GlobalEventBus.player_missile_salvo_changed.emit(
 				_salvo, Arsenal.MISSILE_MAX_SALVO
 			)

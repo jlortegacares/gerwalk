@@ -1525,6 +1525,87 @@ func _test_audio() -> void:
 			missing.append(String(key))
 	_check(missing.is_empty(), "the palette loads every sound (%s)" % [str(missing)])
 
+	# The mix is a table, not a vibe: every key has a level, and the levels keep the
+	# hierarchy the game needs. The generator normalises every file to the same peak,
+	# so a file's loudness is its RMS plus this table — comparing raw gains would
+	# compare nothing.
+	var unmixed: Array[String] = []
+	for key in Sfx.KEYS:
+		if not Sfx.GAIN_DB.has(key):
+			unmixed.append(String(key))
+	_check(unmixed.is_empty(), "every sound has a level in the mix (%s)" % [str(unmixed)])
+
+	var levels: Dictionary = {}
+	for key in Sfx.KEYS:
+		if key == &"engine_loop":
+			# The hum has its own level envelope; comparing it here would call the
+			# idle engine the loudest sound in the game.
+			continue
+		levels[key] = _rms_db("res://audio/sfx/%s.wav" % key) + Sfx.gain(key)
+	_check(
+		float(levels[&"ui_select"]) < float(levels[&"vulcan"]),
+		"the interface sits under the weapons (%.1f vs %.1f dB)"
+		% [float(levels[&"ui_select"]), float(levels[&"vulcan"])]
+	)
+	_check(
+		float(levels[&"ui_select"]) < float(levels[&"vulcan"]) - 6.0,
+		"the interface sits at least 6 dB under the gun"
+	)
+	_check(
+		float(levels[&"vulcan"]) < float(levels[&"explosion"]),
+		"the blast is louder than the gun (%.1f vs %.1f dB)"
+		% [float(levels[&"explosion"]), float(levels[&"vulcan"])]
+	)
+	_check(
+		float(levels[&"bomb"]) >= float(levels[&"explosion"]),
+		"the bomb is not quieter than an ordinary blast (%.1f vs %.1f dB)"
+		% [float(levels[&"bomb"]), float(levels[&"explosion"])]
+	)
+	_check(
+		float(levels[&"missile_warning"]) > float(levels[&"explosion"]),
+		"the alarm cuts through the blasts (%.1f vs %.1f dB)"
+		% [float(levels[&"missile_warning"]), float(levels[&"explosion"])]
+	)
+
+	# The room is part of the palette: a dry bus reads as a folder of samples.
+	var sfx_bus: int = AudioServer.get_bus_index(&"SFX")
+	_check(
+		sfx_bus >= 0 and AudioServer.get_bus_effect_count(sfx_bus) >= 1,
+		"the SFX bus carries the room"
+	)
+
+	# Positional audio has to cover the fight, not only the ship. Enemies spawn at
+	# 85-110 units and despawn at 190, so a reach shorter than the despawn ring makes
+	# an edge kill happen in silence; and an explosion that falls off with distance
+	# is buried under the engine exactly where most kills land.
+	_check(
+		Sfx.SPATIAL_REACH >= Arena.DESPAWN_DISTANCE,
+		"positional sounds outlive the enemy despawn (%.0f vs %.0f)"
+		% [Sfx.SPATIAL_REACH, Arena.DESPAWN_DISTANCE]
+	)
+	_check(
+		Sfx.SPATIAL_FLAT.has(&"explosion"),
+		"a kill keeps its level across the arena instead of fading into the engine"
+	)
+
+	# A repeated shot must not be the same sample twelve times a second. The jitter is
+	# deterministic, so this sequence is the same on every run instead of a coin flip.
+	Sfx.reset_counts()
+	var shots: Array[float] = []
+	for _i in 8:
+		Sfx.play(&"vulcan")
+		shots.append(Sfx.pitch(&"vulcan"))
+	_check(
+		_unique_count(shots) >= 5,
+		"the gunpod varies its pitch between shots (%d of 8 distinct)"
+		% _unique_count(shots)
+	)
+	var in_band: bool = true
+	for value in shots:
+		if value < 0.95 or value > 1.05:
+			in_band = false
+	_check(in_band, "the jitter stays inside its band (%s)" % [str(shots)])
+
 	# An explosion has to be heard on a laptop speaker, not only felt on a sub. The
 	# blasts carry the kill, so most of their energy must live in the bright band
 	# instead of under 300 Hz where a small speaker reproduces nothing.
@@ -1688,6 +1769,21 @@ func _test_audio() -> void:
 			"the launcher warns before its salvo (got %d)"
 			% Sfx.played(&"missile_warning")
 		)
+		# The blast belongs to the base class, so every hostile has to die with it:
+		# a subclass that forgot to inherit `_die` would die silently, and the suite
+		# only ever killed the turret.
+		var blasts_before: int = _death_blasts().size()
+		Sfx.reset_counts()
+		launcher.take_damage(launcher.current_hp())
+		_check(
+			Sfx.played(&"explosion") == 1,
+			"a dying launcher asks for its explosion (got %d)"
+			% Sfx.played(&"explosion")
+		)
+		_check(
+			_death_blasts().size() == blasts_before + 1,
+			"a dying launcher leaves its blast in the world"
+		)
 	await get_tree().physics_frame
 
 	var interceptor: FighterEnemy = _spawn_fighter_enemy(Vector3(-26.0, 0.0, 0.0))
@@ -1699,6 +1795,18 @@ func _test_audio() -> void:
 			Sfx.played(&"missile_warning") == 1,
 			"the interceptor warns before its salvo (got %d)"
 			% Sfx.played(&"missile_warning")
+		)
+		Sfx.reset_counts()
+		var blasts_before: int = _death_blasts().size()
+		interceptor.take_damage(interceptor.current_hp())
+		_check(
+			Sfx.played(&"explosion") == 1,
+			"a dying interceptor asks for its explosion (got %d)"
+			% Sfx.played(&"explosion")
+		)
+		_check(
+			_death_blasts().size() == blasts_before + 1,
+			"a dying interceptor leaves its blast in the world"
 		)
 
 	_clear_enemies()
@@ -3106,7 +3214,7 @@ func _test_lock_reticle() -> void:
 ## The number on each box is the missiles that contact will take, not the order it
 ## was locked: the salvo is spread round-robin over the pool, so the picture
 ## promises the split `_fire_salvo` will actually produce. Every assignment stings
-## once, climbing a step, so a full rack is eight sounds and not one.
+## once, at the same pitch, so a full rack is eight sounds and not one.
 func _test_lock_scan(weapons: WeaponSystem) -> void:
 	_clear_projectiles()
 	_clear_enemies()
@@ -3148,6 +3256,7 @@ func _test_lock_scan(weapons: WeaponSystem) -> void:
 		Sfx.played(&"lock_tone") == 2,
 		"every assignment stings once (%d)" % Sfx.played(&"lock_tone")
 	)
+	var first_pitch: float = Sfx.pitch(&"lock_tone")
 	_check(
 		_tally_texts() == ["×1", "×1"],
 		"each marked contact shows the one missile it will take (%s)"
@@ -3169,10 +3278,10 @@ func _test_lock_scan(weapons: WeaponSystem) -> void:
 		"a full rack stings once per assignment (%d)" % Sfx.played(&"lock_tone")
 	)
 	_check(
-		is_equal_approx(
-			Sfx.pitch(&"lock_tone"), 1.0 + 0.07 * float(Arsenal.MISSILE_MAX_SALVO - 1)
-		),
-		"the sting climbs one step per missile (%.2f)" % Sfx.pitch(&"lock_tone")
+		is_equal_approx(first_pitch, 1.0)
+		and is_equal_approx(Sfx.pitch(&"lock_tone"), first_pitch),
+		"the sting keeps one pitch for the whole rack (%.2f -> %.2f)"
+		% [first_pitch, Sfx.pitch(&"lock_tone")]
 	)
 	_check(
 		_tally_texts() == ["×2", "×3", "×3"],
@@ -4018,6 +4127,26 @@ func _count_projectiles(team: int) -> int:
 		if child is Projectile and int(child.get("_team")) == team:
 			total += 1
 	return total
+
+
+## The RMS of a committed WAV in decibels. The mix table is checked against the files
+## that ship, not against the table's own arithmetic: peak normalisation means two
+## files at the same peak can still differ by 15 dB of loudness, and that gap is
+## exactly what the mixer exists to close.
+func _rms_db(path: String) -> float:
+	var wav: Dictionary = _wav_pcm(path)
+	if wav.is_empty():
+		return -120.0
+	var pcm: PackedByteArray = wav["data"]
+	var frames: int = pcm.size() >> 1
+	if frames == 0:
+		return -120.0
+	var total: float = 0.0
+	for i in frames:
+		var sample: float = float(pcm.decode_s16(i * 2)) / 32768.0
+		total += sample * sample
+	var rms: float = sqrt(total / float(frames))
+	return 20.0 * log(maxf(rms, 0.000001)) / log(10.0)
 
 
 ## Share of a committed WAV's energy above `cutoff` Hz, as a one-pole high-pass.

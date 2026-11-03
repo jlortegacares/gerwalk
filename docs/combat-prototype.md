@@ -169,9 +169,10 @@ Every new missile re-runs the lock-in on its own target, even when that target i
 one already locked: the animation belongs to the assignment, not to the active target,
 so one contact fed eight times announces eight locks instead of one.
 
-**Every assignment stings once**, climbing 7% per missile: the tone moved from the mark
-sync to the load loop, so a long frame that loads two missiles sounds twice, and eight
-identical beeps do not say "eight locks" the way a rising ladder does.
+**Every assignment stings once, at the same pitch.** The tone moved from the mark sync
+to the load loop, so a long frame that loads two missiles sounds twice; the count of
+stings is the count of locks, and a pitch ladder on top of it would turn eight locks
+into one long rising whine.
 
 The mark is a lock, not a decal. It arrives 1.9× wide and fades in while it snaps
 down onto the contact in 0.22 s, and the snap is an ease-out-back: the box passes its
@@ -817,12 +818,21 @@ The game has a voice, and it is ours. Every sound in `audio/sfx/` is synthesized
 `tools/generate_sfx.gd`; nothing is sampled, ripped or downloaded from the anime.
 "Inspired by Macross" is a character brief, not a source: the ship hums like a
 turbine, the gunpod is a hard dry burst, a missile leaves the rail with an airy
-whoosh, the lock answers with a rising two-pip sting, the transformation is servos
-and a clunk, and an incoming guided shot is a two-tone alarm that must never be
-mistaken for the player's own weapons. Re-running the generator reproduces every
-WAV byte for byte, because its noise source is a seeded LCG instead of `randf()`.
-Each sound seeds that LCG from its own name, so editing one builder never rewrites
-the noise of the effects listed after it.
+whoosh that opens bright and closes dark, the lock answers with a two-pip sting and a
+held confirmation in the grain of a 1990s console, the transformation is servos and
+hydraulics over two clunks, and an incoming
+guided shot is a two-tone alarm that must never be mistaken for the player's own
+weapons. Re-running the generator reproduces every WAV byte for byte, because its
+noise source is a seeded LCG instead of `randf()`. Each sound seeds that LCG from
+its own name, so editing one builder never rewrites the noise of the effects listed
+after it.
+
+Timbre is layered, because one noise burst reads as a clap. A gunpod is a crack, a
+charge and a metallic ring; an explosion is a crack, a fireball, a sub and debris.
+The primitives are small: `_tone` for a gliding wave, `_noise` for filtered noise
+whose cutoff can sweep — a whoosh is a band moving through the spectrum, not a fixed
+hiss — and `_ring` for inharmonic metal. The ring ratios are deliberately not
+integers: integer ratios read as a musical note, and a hull does not ring in tune.
 
 The palette is one place, `common/sfx.gd`, autoloaded as `Sfx`. Callers name a
 sound and never touch a player node:
@@ -837,10 +847,40 @@ The non-positional side is a fixed pool of `VOICES` (16) players that steals the
 oldest voice; a held trigger therefore cannot grow the scene. The positional side
 creates an `AudioStreamPlayer3D` per event and frees it when the stream finishes,
 capped at `MAX_SPATIAL` (24); past the cap it falls back to the flat pool rather
-than dropping the sound. Everything routes through a `SFX` bus under `Master`, and
+than dropping the sound.
+
+**Positional audio has to cover the fight, not only the ship.** Enemies spawn at
+85-110 units and despawn at 190, so `SPATIAL_REACH` is 220: a reach shorter than the
+despawn ring makes an edge kill happen in silence. And an explosion that falls off
+with distance is buried under the engine exactly where most kills land, so the keys
+in `SPATIAL_FLAT` (`explosion`) keep their level across the arena and follow only
+their direction. Panning still places the blast; the falloff is what is skipped.
+
+**Peak is not a mix.** The generator normalises every file to the same peak, which
+says nothing about loudness: the first pass had the lock tone about 14 dB above the
+explosion and the menu blip above the bomb. `GAIN_DB` is the actual mix, one level
+per key, and the suite checks it against the files that ship instead of against the
+table's arithmetic: the interface sits more than 6 dB under the gun, the blast is
+louder than the gun, the bomb is not quieter than an ordinary blast, and the
+incoming-shot alarm cuts through the blasts. `KEYS` and `GAIN_DB` are checked against
+each other, so a new sound cannot ship without a level.
+
+**A repeated shot is not a looped sample.** `PITCH_JITTER` moves each play a few
+percent either way, from a deterministic sequence so the test can assert it without
+flaking. The keys that carry information are absent on purpose: the lock tone and
+the alarm have to be the same pitch every time or they stop meaning anything.
+
+**Eight missiles are one event.** `play` and `play_at` track recent plays per key
+inside `STACK_WINDOW` and duck a stack by its power sum (`-10 log10 n`), so a full
+salvo keeps the level of one whoosh instead of summing eight full-level copies into
+the limiter.
+
+Everything routes through a `SFX` bus under `Master`. The bus carries a short
+`AudioEffectReverb` (`wet 0.12`, 18 ms predelay): every sound happens in the same
+sky, and a fully dry palette reads as a folder of samples instead of a place.
 `Master` carries an `AudioEffectHardLimiter` so a full salvo plus an explosion sums
-without clipping. Bus and limiter are built in `_ready` instead of a `.tres`: one
-fewer asset to drift out of sync with the code that names the bus.
+without clipping. Bus, room and limiter are built in `_ready` instead of a `.tres`:
+one fewer asset to drift out of sync with the code that names the bus.
 
 Cue discipline is part of the design, because the cheap version of every one of
 these is a machine gun of noise:
@@ -850,7 +890,9 @@ these is a machine gun of noise:
   so `_laser_sounding` latches on the pull and clears on release; a zap per frame
   would be a wall of hiss.
 - **One launch sound per missile**, with the pitch climbing `index * 0.04`, so a
-  salvo reads as a sequence of whooshes instead of one long noise.
+  salvo reads as a sequence of whooshes instead of one long noise. The stack window
+  ducks the eight copies that leave in the same frame, because the sequence is in the
+  pitch, not in the level.
 - **One lock tone per acquisition frame**, not per contact: three turrets entering
   the radar at once are one acquisition.
 - **One warning per enemy salvo**, fired at the launch. The warning window is the
@@ -866,12 +908,14 @@ these is a machine gun of noise:
 The blasts are tuned by band, not by taste. An explosion that puts most of its
 energy under 300 Hz is silent on a laptop speaker even at full volume: there is no
 driver left to move it. `_explosion` therefore carries the hit in a bright crack
-around 6.5 kHz over a mid body around 2.3 kHz, and the sub only adds weight
-underneath. The same builder voices the ship's own death, pitched down.
+that sweeps from about 7 kHz down to 3.6 kHz over a mid body that opens from 2.4 kHz
+to 900 Hz, and the sub only adds weight underneath. The same builder voices the
+ship's own death, pitched down.
 
 Headless runs have no audio device, so the test asserts the wiring instead of
 pretending to hear it: `Sfx.played(key)` counts plays per key, `Sfx.has(key)` proves
-the palette is complete, and `Sfx.engine_active()` proves the hum starts and stops
+the palette is complete, `Sfx.gain(key)` plus the committed WAVs prove the mix, and
+`Sfx.engine_active()` proves the hum starts and stops
 with the ship. `reset_counts()` scopes each assertion so one event cannot satisfy
 another's. The one check that looks at the signal itself reads
 `audio/sfx/explosion.wav` and `player_death.wav` from disk and fails if less than 30%
@@ -955,9 +999,9 @@ All values are named constants at the top of each script.
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Decoy | `combat/arsenal.gd`, `combat/decoy.gd` | `DECOY_COOLDOWN`; `LIFETIME`, `CAPTURE_RADIUS` |
-| Audio palette and mixing | `common/sfx.gd` | `VOICES`, `MAX_SPATIAL`, `SPATIAL_UNIT`, `SPATIAL_REACH`, `ENGINE_REST_DB`, `ENGINE_TOP_DB`, `SFX_BUS`, and the loaded `KEYS` |
-| Sound synthesis | `tools/generate_sfx.gd` | `RATE`, `PEAK`, `SHAPE_SINE/SAW/SQUARE`, one builder per key in `_catalogue()`; each sound seeds the noise from its name, so the WAVs are reproducible and one builder cannot shift the others |
-| Blast spectrum | `tools/generate_sfx.gd` | `_explosion` crack (~6.5 kHz), body (~2.3 kHz), sub and rumble; the suite requires at least 30% of the energy above 1 kHz |
+| Audio palette and mixing | `common/sfx.gd` | `VOICES`, `MAX_SPATIAL`, `SPATIAL_UNIT`, `SPATIAL_REACH` (covers the despawn ring), `SPATIAL_FLAT` (kills keep their level), `ENGINE_REST_DB`, `ENGINE_TOP_DB`, `SFX_BUS`, `GAIN_DB` (the mix), `PITCH_JITTER` (per-sound variation), `STACK_WINDOW` (same-key ducking), the bus reverb (`wet 0.12`, 18 ms), and the loaded `KEYS` |
+| Sound synthesis | `tools/generate_sfx.gd` | `RATE`, `PEAK`, `SHAPE_SINE/SAW/SQUARE`, `FILTER_LOW/HIGH`, `_tone`, `_noise` (with a cutoff sweep), `_ring` (inharmonic metal), `_crush` (sample-and-hold and quantisation, the console grain of the lock tone), one builder per key in `_catalogue()`; each sound seeds the noise from its name, so the WAVs are reproducible and one builder cannot shift the others |
+| Blast spectrum | `tools/generate_sfx.gd` | `_explosion` crack sweeping ~7 kHz to 3.6 kHz, body opening 2.4 kHz to 900 Hz, sub and rumble; the suite requires at least 30% of the energy above 1 kHz |
 | Weapon sound cues | `entities/player/weapon_system.gd` | one `Sfx.play` per shot; `_laser_sounding` gates the beam ignition; `missile_launch` pitch climbs with the salvo index |
 | Ship sound cues | `entities/player/player.gd` | `Sfx.play` on `_start_transform`, `_start_dash` and `take_damage`; `_burning` hysteresis for the ignition; `Sfx.engine()` every frame |
 | Enemy sound cues | `entities/enemy/*.gd` | `Sfx.play_at` on `_fire_pattern` (`enemy_fire`, `missile_warning`) and on `_spawn_explosion` (`explosion`) |
@@ -1001,7 +1045,7 @@ All values are named constants at the top of each script.
 
 ```
 common/global_event_bus.gd      lifecycle signals only (< 15 events)
-common/sfx.gd                   autoload: palette, SFX bus + limiter, 2D voice pool, 3D events, engine hum
+common/sfx.gd                   autoload: palette, mix, bus + room + limiter, 2D voice pool, 3D events, engine hum
 tools/generate_sfx.gd           deterministic synthesizer that writes audio/sfx/*.wav
 audio/sfx/*.wav                 the committed palette (generated, never sampled)
 common/hit_spark.*              self-freeing 3D impact flash
@@ -1230,7 +1274,8 @@ actions, so it exercises the same path a player does.
 
 - **Bullets are one node each.** At 400 concurrent bullets this will need a
   pooled manager or `PhysicsServer3D` (NFR-05). Not measured yet.
-- **No audio.** Hit and dash feedback are visual only.
+- **No music or voice.** The palette is effects only: no soundtrack, no announcer,
+  no dialogue. The ship, the weapons and the interface are the whole voice.
 - **The afterburner outruns everything on purpose.** `BOOST_SPEED` (42) sits far
   above `PURSUIT_SPEED` (24) and above the launcher's missile (33), so a full
   reserve buys a clean disengage. The reserve is the price; if escaping stops
