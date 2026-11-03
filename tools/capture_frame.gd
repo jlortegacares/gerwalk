@@ -26,7 +26,9 @@ extends Node
 ## fan is read once the missiles have opened it out.
 ## `--lock N` is the same hold without the release: the rack is still loaded and the
 ## marks are up, which is how the lock reticle is reviewed. A short N catches the
-## lock-in, a long one the settled spin.
+## lock-in, a long one the settled spin. Add `--contacts N` to spread N turrets
+## across the radar: the scan only reads against several, because the rack walks
+## them nearest first and that order has to be visible.
 ## `--roll N` (with `--fighter 1`) starts a left barrel roll and captures N frames
 ## into it, which is how the slower turn-over and the roll's own side are
 ## reviewed. Add `--close` to read the hull coming over at the game camera's
@@ -218,13 +220,37 @@ func _ready() -> void:
 			await get_tree().physics_frame
 		var aim: Vector3 = ship.get("_aim_direction")
 		var turret_scene: PackedScene = load("res://entities/enemy/turret.tscn")
-		var turret: Node3D = turret_scene.instantiate() as Node3D
-		arena.add_child(turret)
-		turret.global_position = ship.global_position + aim * 40.0
-		# The radar only needs a contact in the group; a turret that shoots would
-		# blink the ship through its i-frames and spoil the frame.
-		turret.set_process(false)
-		turret.set_physics_process(false)
+		# `--contacts N` spreads N turrets across the radar instead of one. The scan
+		# is only reviewable against several contacts: the distances differ on
+		# purpose, so nearest-first order and left-to-right order disagree and the
+		# capture shows which one the rack follows. The default is the old single
+		# contact at 40 units, straight down the aim.
+		var contact_count: int = maxi(int(_argument("contacts", "1")), 1)
+		# An explicit contact count makes the radar exact. The arena spawns one enemy
+		# on load, and leaving it in turns a 3-contact 3/3/2 split into a 4-contact
+		# 2/2/2 one. The default path is untouched, so the old single-contact capture
+		# stays identical.
+		if _argument("contacts", "") != "":
+			var enemies: Node3D = arena.get_node("%Enemies") as Node3D
+			for child in enemies.get_children():
+				child.queue_free()
+			for _i in 2:
+				await get_tree().physics_frame
+		var distances: Array[float] = [40.0, 30.0, 22.0, 34.0, 26.0, 18.0, 36.0, 20.0]
+		var bearings: Array[float] = [0.0, 14.0, -14.0, 24.0, -24.0, 8.0, -8.0, 16.0]
+		for index in contact_count:
+			var turret: Node3D = turret_scene.instantiate() as Node3D
+			arena.add_child(turret)
+			var heading: Vector3 = aim.rotated(
+				Vector3.UP, deg_to_rad(bearings[index % bearings.size()])
+			)
+			turret.global_position = (
+				ship.global_position + heading * distances[index % distances.size()]
+			)
+			# The radar only needs a contact in the group; a turret that shoots would
+			# blink the ship through its i-frames and spoil the frame.
+			turret.set_process(false)
+			turret.set_physics_process(false)
 		for _i in 2:
 			await get_tree().physics_frame
 		Input.action_press(&"missile")

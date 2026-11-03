@@ -56,6 +56,9 @@ var _engine_on: bool = false
 ## Plays per key. The smoke test reads it to assert which sound an event asked for:
 ## without an audio device, the wiring is the only observable it has.
 var _counts: Dictionary = {}
+## The pitch of the last play per key. The lock ladder is a sound that changes
+## without changing key, so the count alone cannot prove it climbed.
+var _pitches: Dictionary = {}
 
 
 func _ready() -> void:
@@ -111,6 +114,7 @@ func _load_palette() -> void:
 func play(key: StringName, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	if not _note(key):
 		return
+	_pitches[key] = pitch
 	_play_flat(key, volume_db, pitch)
 
 
@@ -122,6 +126,7 @@ func play_at(
 ) -> void:
 	if not _note(key):
 		return
+	_pitches[key] = pitch
 	var host: Node = get_tree().current_scene
 	if host == null or _spatial >= MAX_SPATIAL:
 		_play_flat(key, volume_db, pitch)
@@ -175,6 +180,13 @@ func played(key: StringName = &"") -> int:
 
 func reset_counts() -> void:
 	_counts.clear()
+	_pitches.clear()
+
+
+## The pitch of the last play of `key`, or 0 when it never played. The lock ladder
+## rises per acquired contact, and this is how the smoke test sees that climb.
+func pitch(key: StringName) -> float:
+	return float(_pitches.get(key, 0.0))
 
 
 ## Whether a key is in the loaded palette. The smoke test asserts the palette is

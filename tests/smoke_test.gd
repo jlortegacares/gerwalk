@@ -2557,6 +2557,7 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	await _test_missile_wings(weapons)
 	await _test_missile_weave()
 	await _test_lock_reticle()
+	await _test_lock_scan(weapons)
 
 	Input.action_release(&"missile")
 	_clear_projectiles()
@@ -3060,6 +3061,113 @@ func _test_lock_reticle() -> void:
 	await get_tree().process_frame
 
 
+## The lock is a scan, not a paint job. The rack walks the contacts one at a time,
+## so only the newest lock is still being acquired and every earlier one has
+## settled back: that is what reads as a single reticle moving down the pool
+## instead of eight boxes appearing at once.
+##
+## The number on each box is the missiles that contact will take, not the order it
+## was locked: the salvo is spread round-robin over the pool, so the picture
+## promises the split `_fire_salvo` will actually produce. Every assignment stings
+## once, climbing a step, so a full rack is eight sounds and not one.
+func _test_lock_scan(weapons: WeaponSystem) -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	Input.action_release(&"missile")
+	await _wait_frames(30)
+	# The previous block leaves the rack cooling, and a cooling rack never marks.
+	weapons.set("_missile_cooldown", 0.0)
+
+	var aim: Vector3 = _aim()
+	var spawned: Array[Enemy] = []
+	for index in 3:
+		spawned.append(
+			_spawn_enemy(_player.global_position + aim * float(16 + index * 5))
+		)
+	await _wait_frames(2)
+	# Nearest first, the order the rack spreads the salvo over. Computed from the
+	# contacts instead of assumed from the spawn loop, so the check follows the
+	# radar and not the test's own order.
+	var by_distance: Array[Enemy] = spawned.duplicate()
+	by_distance.sort_custom(
+		func(a: Enemy, b: Enemy) -> bool:
+			return (
+				a.global_position.distance_squared_to(_player.global_position)
+				< b.global_position.distance_squared_to(_player.global_position)
+			)
+	)
+
+	Sfx.reset_counts()
+	Input.action_press(&"missile")
+	var guard: int = 0
+	while weapons.salvo_count() < 2 and guard < 120:
+		await get_tree().physics_frame
+		guard += 1
+	_check(
+		weapons.salvo_count() == 2,
+		"the scan loads one missile per contact (loaded %d)" % weapons.salvo_count()
+	)
+	_check(
+		Sfx.played(&"lock_tone") == 2,
+		"every assignment stings once (%d)" % Sfx.played(&"lock_tone")
+	)
+	_check(
+		_tally_texts() == ["×1", "×1"],
+		"each marked contact shows the one missile it will take (%s)"
+		% str(_tally_texts())
+	)
+
+	# Fill the rack. Three contacts over eight missiles is a 3/3/2 round-robin, so
+	# the box showing ×2 is the one the salvo only chases twice.
+	guard = 0
+	while weapons.salvo_count() < Arsenal.MISSILE_MAX_SALVO and guard < 240:
+		await get_tree().physics_frame
+		guard += 1
+	_check(
+		weapons.salvo_count() == Arsenal.MISSILE_MAX_SALVO,
+		"the hold fills the whole rack (%d)" % weapons.salvo_count()
+	)
+	_check(
+		Sfx.played(&"lock_tone") == Arsenal.MISSILE_MAX_SALVO,
+		"a full rack stings once per assignment (%d)" % Sfx.played(&"lock_tone")
+	)
+	_check(
+		is_equal_approx(
+			Sfx.pitch(&"lock_tone"), 1.0 + 0.07 * float(Arsenal.MISSILE_MAX_SALVO - 1)
+		),
+		"the sting climbs one step per missile (%.2f)" % Sfx.pitch(&"lock_tone")
+	)
+	_check(
+		_tally_texts() == ["×2", "×3", "×3"],
+		"the marks show the 3/3/2 split the salvo will produce (%s)"
+		% str(_tally_texts())
+	)
+
+	var acquired: int = 0
+	var settled: int = 0
+	for node in get_tree().get_nodes_in_group(&"lock_reticle"):
+		var reticle: LockReticle = node as LockReticle
+		if reticle.scale.x > 0.95:
+			acquired += 1
+		elif reticle.scale.x < 0.9:
+			settled += 1
+	_check(
+		acquired == 1,
+		"only the newest lock is still being acquired (%d of 3)" % acquired
+	)
+	_check(settled == 2, "the earlier locks have settled back (%d of 3)" % settled)
+	_check(
+		weapons.get("_active_mark") == by_distance[1],
+		"the scan ends on the contact the last missile takes"
+	)
+
+	Input.action_release(&"missile")
+	await _wait_frames(2)
+	_clear_projectiles()
+	_clear_enemies()
+	await get_tree().physics_frame
+
+
 func _wait_frames(count: int) -> void:
 	for _i in count:
 		await get_tree().physics_frame
@@ -3071,6 +3179,19 @@ func _unique_count(values: Array) -> int:
 		if not seen.has(value):
 			seen.append(value)
 	return seen.size()
+
+
+## The tally each lock box shows, sorted. That text is the only thing on screen
+## that promises how many missiles a contact will take, so the smoke test reads it
+## the way the player does.
+func _tally_texts() -> Array[String]:
+	var texts: Array[String] = []
+	for node in get_tree().get_nodes_in_group(&"lock_reticle"):
+		var reticle: LockReticle = node as LockReticle
+		var label: Label3D = reticle.get_node_or_null(^"LockNumber") as Label3D
+		texts.append("?" if label == null else label.text)
+	texts.sort()
+	return texts
 
 
 ## The shape is the weapon's identity on screen, so it is owned by the weapon style

@@ -133,8 +133,8 @@ the paint.
 **Missiles leave from the wings.** Each shot is born on the hardpoint of the wing it
 is angling towards. The point is read from the wing bone's own span axis, so the
 sweep carries it: a folded wing launches from where the wing actually is, not from a
-fixed offset in the hull. The load fans out in pairs — 11, -11, 22, -22, up to 33
-degrees — so every missile of a full rack has a heading of its own instead of three
+fixed offset in the hull. The load fans out in pairs — 11, -11, 22, -22, up to 44
+degrees — so every missile of a full rack has a heading of its own instead of four
 shots fired twice. The angle also picks the wing: the shot leaves from the pylon it
 is angling towards, so the picture and the trajectory agree. A hand's width of
 clearance keeps the shot from spawning inside the pylon.
@@ -151,6 +151,26 @@ brackets appear one at a time as the hold fills, nearest contact first — the s
 `_fire_salvo` walks — so what is on screen is exactly the load's promise. Ringing every
 contact the radar held, which is what the rack did before, showed six brackets for one
 missile and promised a spread the rack could not keep.
+
+**The lock is a scan, not a paint job.** This is the multi-lock read the Macross games
+lean on, VF-X2 included: one reticle that walks the contacts, not a field of boxes that
+appears at once. Only the newest lock is being acquired — it snaps in and breathes —
+while every earlier one settles at `HELD_SCALE` and `HELD_GLOW` and stops moving. The
+eye therefore follows a single box down the pool, and the salvo reads as a sequence of
+acquisitions instead of one mass lock.
+
+**The number on each box is how many missiles that contact will take**, not the order it
+was locked. The salvo is spread round-robin over the pool — `_fire_salvo` walks
+`pool[index % pool.size()]` — so eight missiles over three contacts is 3/3/2, and the
+box reading `×2` is the contact the rack only chases twice. A tally is the honest
+promise: a fire-order rank would tell you who is first, not who is fed. The tally is
+recomputed every sync, because a nearer contact entering the radar reshuffles the split.
+A contact that receives another missile takes the scan back and re-runs its lock-in, so
+an extra assignment is visible instead of a silent counter bump.
+
+**Every assignment stings once**, climbing 7% per missile: the tone moved from the mark
+sync to the load loop, so a long frame that loads two missiles sounds twice, and eight
+identical beeps do not say "eight locks" the way a rising ladder does.
 
 The mark is a lock, not a decal. It arrives 1.9× wide and fades in while it snaps
 down onto the contact in 0.22 s, and the snap is an ease-out-back: the box passes its
@@ -923,7 +943,7 @@ All values are named constants at the top of each script.
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load time and derived load interval, max salvo, salvo cooldown, damage, turn rate, range, launch fan step and cap, weave amplitude/rate/hit range/fade); `MISSILE_SALVO_LOAD_TIME` is the commitment, the interval follows from it |
 | Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
-| Lock reticle | `combat/lock_reticle.gd` | `HALF_SIZE`, `ARM`, `THICKNESS`, `PIP`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH`, `GLOW`, `GLOW_DEPTH`, `LOCK_IN_SCALE`, `LOCK_IN_TIME`, `OVERSHOOT` |
+| Lock reticle | `combat/lock_reticle.gd` | `HALF_SIZE`, `ARM`, `THICKNESS`, `PIP`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH`, `GLOW`, `GLOW_DEPTH`, `LOCK_IN_SCALE`, `LOCK_IN_TIME`, `OVERSHOOT`, `HELD_SCALE`, `HELD_GLOW` |
 | Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |
 | Death countdown | `ui/hud/game_over.gd` | `RESPAWN_SECONDS`, `FADE_IN` |
 | Death blast | `common/ship_explosion.gd` | `LIFETIME`, `CORE_*`, `FIRE_*`, `DEBRIS_DURATION`, `SPARK_LIFETIME`, `SMOKE_LIFETIME` |
@@ -1109,6 +1129,13 @@ the scene file.
     -- --lock 4 --out /tmp/gerwalk_lock_in.png
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --lock 40 --out /tmp/gerwalk_lock_settled.png
+
+# Review the scan: several contacts across the radar. The rack walks them nearest
+# first, so only the newest box is still being acquired while the rest sit settled
+# behind it, and each box shows the missiles that contact will take. Three contacts
+# over a full rack is the 3/3/2 split, which a fourth contact would hide.
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --lock 120 --contacts 3 --out /tmp/gerwalk_scan.png
 
 # Review the braid: the same salvo held longer, so the shots have woven a full wave
 # and the trails read as curves instead of a fan of straight lines.

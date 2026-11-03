@@ -25,6 +25,10 @@ var _salvo: int = 0
 ## Enemies carrying a reticle right now, always a subset of the radar pool, so a
 ## mark can follow the radar without leaving a stale ring behind.
 var _marked: Array[Enemy] = []
+## The contact the scan is on: the newest lock, the only box still moving. Every
+## earlier mark is settled, which is what makes the salvo read as one reticle
+## walking the pool instead of eight boxes appearing together.
+var _active_mark: Enemy = null
 
 ## Fighter mode is a profile, not a different arsenal: the same three archetypes
 ## keep their identity and only lose the freedom to point anywhere but forward.
@@ -344,6 +348,11 @@ func _tick_missiles(
 		):
 			_salvo_timer -= Arsenal.MISSILE_SALVO_INTERVAL
 			_salvo += 1
+			# One sting per assignment, not per frame: a long frame that loads two
+			# missiles has to sound twice, because two assignments happened. The
+			# pitch climbs with the rack, since eight identical beeps do not say
+			# "eight locks" the way a rising ladder does.
+			Sfx.play(&"lock_tone", 0.0, 1.0 + 0.07 * float(_salvo - 1))
 			GlobalEventBus.player_missile_salvo_changed.emit(
 				_salvo, Arsenal.MISSILE_MAX_SALVO
 			)
@@ -367,17 +376,31 @@ func _radar_pool(origin: Vector3, direction: Vector3) -> Array[Enemy]:
 	return pool
 
 
-## Rings one contact per loaded missile, nearest first: the salvo is spread over the
-## pool in that same order, so the marked contacts are exactly the ones the load will
-## chase. Marking the whole radar instead would show six brackets for one missile and
-## promise a spread the rack cannot keep.
+## Rings the contacts the load will chase, nearest first, and writes on each one the
+## number of missiles it will take. The salvo is spread round-robin over the pool
+## (`_fire_salvo` walks `pool[index % pool.size()]`), so the tally is that same walk:
+## each contact takes one per pass and the earlier ones take the extra when the load
+## does not divide evenly. Showing the count instead of a rank is what makes the box
+## promise the split the salvo will actually produce — eight over three is 3/3/2,
+## and the box reading ×2 is the contact the rack only chases twice.
 ##
 ## The count is what decides, not the pool, which is why the brackets appear one at a
 ## time as the hold fills the rack.
+##
+## Only the newest box is being acquired; the rest settle. The scan is the point: a
+## multi-lock that paints every contact at once reads as a field of boxes, while one
+## box walking the pool reads as the rack filling one contact at a time. A contact
+## that receives another missile takes the scan back, so an extra assignment is
+## visible instead of a silent counter bump.
 func _sync_marks(pool: Array[Enemy]) -> void:
+	var tally: Dictionary = {}
 	var marks: Array[Enemy] = []
-	for index in mini(_salvo, pool.size()):
-		marks.append(pool[index])
+	if not pool.is_empty():
+		for index in _salvo:
+			var target: Enemy = pool[index % pool.size()]
+			tally[target] = int(tally.get(target, 0)) + 1
+			if not marks.has(target):
+				marks.append(target)
 
 	for index in range(_marked.size() - 1, -1, -1):
 		var marked: Enemy = _marked[index]
@@ -392,7 +415,6 @@ func _sync_marks(pool: Array[Enemy]) -> void:
 		_drop_reticle(marked)
 		_marked.remove_at(index)
 
-	var fresh: int = 0
 	for enemy in marks:
 		if _marked.has(enemy):
 			continue
@@ -400,15 +422,50 @@ func _sync_marks(pool: Array[Enemy]) -> void:
 			var reticle: LockReticle = LockReticle.new()
 			reticle.name = "LockReticle"
 			enemy.add_child(reticle)
-			fresh += 1
 		_marked.append(enemy)
-	# One tone per frame, not per contact: three turrets entering the radar at once
-	# are one acquisition, and three stacked stings would read as a bug.
-	if fresh > 0:
-		Sfx.play(&"lock_tone")
+
+	# The scan sits on the contact the last missile takes. When it moves, the box it
+	# leaves settles and the new one is acquired again; a contact that already had a
+	# mark and just received another missile is re-acquired too, which is what makes
+	# the extra assignment read on screen.
+	var active: Enemy = null
+	if not pool.is_empty() and _salvo > 0:
+		active = pool[(_salvo - 1) % pool.size()]
+	if active != _active_mark:
+		_settle_active_mark()
+		_active_mark = active
+		if active != null and is_instance_valid(active):
+			var box: LockReticle = (
+				active.get_node_or_null(^"LockReticle") as LockReticle
+			)
+			if box != null:
+				box.acquire()
+
+	# The tally is recomputed every sync because the pool order can change under it:
+	# a nearer contact entering the radar reshuffles who takes which missile, and the
+	# picture has to agree with what `_fire_salvo` will do.
+	for enemy in marks:
+		if not is_instance_valid(enemy):
+			continue
+		var box: LockReticle = enemy.get_node_or_null(^"LockReticle") as LockReticle
+		if box != null:
+			box.set_missiles(int(tally.get(enemy, 0)))
+
+
+## Hands the scan to a new contact: the box that had it settles where it stands.
+func _settle_active_mark() -> void:
+	if _active_mark != null and is_instance_valid(_active_mark):
+		var reticle: LockReticle = (
+			_active_mark.get_node_or_null(^"LockReticle") as LockReticle
+		)
+		if reticle != null:
+			reticle.hold()
+	_active_mark = null
 
 
 func _drop_reticle(enemy: Enemy) -> void:
+	if enemy == _active_mark:
+		_active_mark = null
 	if not is_instance_valid(enemy):
 		return
 	var reticle: Node = enemy.get_node_or_null(^"LockReticle")
@@ -509,6 +566,7 @@ func _discharge() -> void:
 		if is_instance_valid(enemy):
 			_drop_reticle(enemy)
 		_marked.remove_at(index)
+	_active_mark = null
 	_salvo_timer = 0.0
 	if _salvo == 0:
 		return
