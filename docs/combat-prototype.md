@@ -1058,10 +1058,18 @@ where it happens to drift. The backdrop is nearly opaque for a reason: at the
 first pass's 0.55 a turret flying under the corner showed through the disk and
 read as a contact that was not on the scope.
 
+The left column is one readout per row, top to bottom: salvo, decoy, mode, weapon,
+then the bars and pips. Each row owns a 24 px band with a 2 px gap, and the smoke
+test asserts the resolved rects never intersect. The decoy row once sat on the mode
+row's offsets, so `DECOY READY` printed over `GERWALK`; a layout mistake is only
+visible in the geometry, which is why the test reads the live controls instead of
+the scene file.
+
 ## Checks
 
 ```sh
-# Headless gameplay assertions (movement, firing, patterns, i-frames, score, death)
+# Headless gameplay assertions (movement, firing, patterns, i-frames, score, HUD
+# layout, death)
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . tests/smoke_test.tscn
 
 # Regenerate the sound palette from scratch (reproduces the committed WAVs byte for byte)

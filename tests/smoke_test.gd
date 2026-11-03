@@ -59,6 +59,7 @@ func _ready() -> void:
 	await _test_transformation()
 	await _test_gerwalk_silhouette()
 	await _test_audio()
+	await _test_hud_layout()
 	await _test_score()
 
 	_clear_enemies()
@@ -1709,6 +1710,56 @@ func _test_audio() -> void:
 	for blast in _death_blasts():
 		blast.queue_free()
 	await get_tree().physics_frame
+
+
+## The left of the HUD is one column of readouts, so every row has to own its band.
+## Two controls sharing a rect draw on top of each other, which is exactly how
+## DECOY READY ended up printed over GERWALK: the decoy row was laid out at the
+## mode row's offsets instead of the next slot down the stack.
+##
+## The rects are read from the live nodes rather than from the scene file, because
+## the bug was a layout mistake and only the resolved geometry catches it. A
+## degenerate rect would make every intersection trivially false, so the heights are
+## checked first: the test has to fail for the right reason.
+func _test_hud_layout() -> void:
+	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
+	var names: Array[String] = [
+		"%SalvoLabel",
+		"%DecoyLabel",
+		"%ModeLabel",
+		"%WeaponLabel",
+		"%TurboBar",
+		"%HealthBar",
+		"%BombPips",
+	]
+	var labels: Array[String] = []
+	var rects: Array[Rect2] = []
+	for name in names:
+		var control: Control = hud.get_node(name) as Control
+		_check(control != null, "the HUD has a %s readout" % name)
+		if control == null:
+			return
+		labels.append(name)
+		rects.append(control.get_global_rect())
+
+	var flat: Array[String] = []
+	for index in rects.size():
+		if rects[index].size.y <= 0.0:
+			flat.append(labels[index])
+	_check(
+		flat.is_empty(),
+		"every readout has a band of its own (%s)" % ", ".join(flat)
+	)
+
+	var clashes: Array[String] = []
+	for index in rects.size():
+		for other in range(index + 1, rects.size()):
+			if rects[index].intersects(rects[other]):
+				clashes.append("%s over %s" % [labels[index], labels[other]])
+	_check(
+		clashes.is_empty(),
+		"no two readouts share a band (%s)" % ", ".join(clashes)
+	)
 
 
 ## The run pays for every kill, and the HUD projects the total. The three hulls are
