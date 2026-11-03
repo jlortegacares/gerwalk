@@ -15,11 +15,12 @@ extends MeshInstance3D
 ## down onto the contact, overshooting slightly before it settles. That squeeze is
 ## what reads as a lock instead of a zoom.
 ##
-## A lock has two states. The one the scan is on right now is being acquired: it
-## snaps in wide and breathes. Every lock the rack already holds is settled — same
-## box, calmer and a touch smaller — because only one reticle should be moving at a
-## time. That is the multi-lock read: one box walking the contacts, leaving held
-## locks behind it.
+## A lock has two states. The one the scan is on right now is being acquired: a
+## frame spins into place around it, a burst leaves the contact and the box snaps
+## down with a flash. Every lock the rack already holds is settled — same box, calmer
+## and a touch smaller — with only a faint frame turning slowly, because the eye
+## should follow the newest lock, not read the whole salvo as one flat field. That is
+## the multi-lock read: one box walking the contacts, leaving held locks behind it.
 
 const HALF_SIZE: float = 2.6
 const ARM: float = 1.05
@@ -31,6 +32,35 @@ const PULSE_SPEED: float = 6.0
 const PULSE_DEPTH: float = 0.035
 const GLOW: float = 1.9
 const GLOW_DEPTH: float = 0.5
+
+## The outer scan frame: a thin square that spins into place while the lock closes,
+## so the acquisition reads as a targeting computer sweeping the contact instead of
+## a box that only grows.
+const SCAN_HALF: float = HALF_SIZE * 1.22
+const SCAN_THICKNESS: float = 0.09
+const SCAN_SPIN: float = PI * 0.5
+const SCAN_ALPHA: float = 0.85
+
+## The burst: a square that leaves the contact and fades as the lock closes. It is
+## the punctuation that says the acquisition finished.
+const BURST_HALF: float = HALF_SIZE * 1.02
+const BURST_THICKNESS: float = 0.07
+const BURST_SCALE: float = 1.8
+const BURST_TIME: float = 0.3
+
+## The flash: emission spikes on arrival and decays, so the new lock is the
+## brightest thing on screen for a heartbeat.
+const FLASH_GLOW: float = 2.4
+const FLASH_DECAY: float = 14.0
+
+## A settled lock keeps a faint frame turning, slowly enough to read as tracking
+## and not as another acquisition.
+const HELD_SCAN_ALPHA: float = 0.22
+const HELD_SPIN_SPEED: float = 0.7
+
+## The tally pops when it grows, so an extra missile is visible on the number too.
+const LABEL_POP: float = 0.35
+const LABEL_POP_DECAY: float = 9.0
 
 ## A settled lock. Smaller and dimmer than the one being acquired, so the eye goes
 ## to the newest box instead of reading the whole salvo as one flat field.
@@ -48,19 +78,30 @@ var _age: float = 0.0
 var _material: StandardMaterial3D
 var _held: bool = false
 var _number_label: Label3D = null
+var _scan: MeshInstance3D = null
+var _burst: MeshInstance3D = null
+var _label_pop: float = 0.0
 
 
 func _ready() -> void:
 	add_to_group(&"lock_reticle")
 	position.y = HEIGHT
 	_build_box()
+	_build_effects()
 	# The first frame is the widest one; `_process` closes from here.
 	scale = Vector3.ONE * LOCK_IN_SCALE
 	transparency = 1.0
 
 
+## Whether the box is settled. The salvo sync reads it to avoid re-holding a mark
+## that already settled, which would restart the faint frame's slow turn.
+func is_held() -> bool:
+	return _held
+
+
 ## Settles the box: an earlier lock, waiting for the salvo. It keeps its place on
-## the contact and stops competing with the one the scan is on now.
+## the contact and stops competing with the one the scan is on now. The faint frame
+## keeps turning, so a held lock reads as tracking instead of a dead sticker.
 func hold() -> void:
 	_held = true
 	_age = LOCK_IN_TIME
@@ -68,12 +109,18 @@ func hold() -> void:
 	transparency = 0.0
 	if _material != null:
 		_material.emission_energy_multiplier = GLOW * HELD_GLOW
+	if _scan != null:
+		_scan.visible = true
+		_scan.rotation.y = 0.0
+		_scan.transparency = 1.0 - HELD_SCAN_ALPHA
+	if _burst != null:
+		_burst.visible = false
 
 
 ## Takes the box back from settled and runs the lock-in again. The scan feeds a
 ## contact round-robin, so a box that receives another missile is being acquired
-## once more: it snaps and breathes like the newest lock, which is what makes the
-## extra assignment visible instead of a silent counter bump.
+## once more: it snaps, flashes and throws a burst like the newest lock, which is
+## what makes the extra assignment visible instead of a silent counter bump.
 func acquire() -> void:
 	_held = false
 	_age = 0.0
@@ -81,6 +128,14 @@ func acquire() -> void:
 	transparency = 1.0
 	if _material != null:
 		_material.emission_energy_multiplier = GLOW
+	if _scan != null:
+		_scan.visible = true
+		_scan.rotation.y = 0.0
+		_scan.transparency = 1.0
+	if _burst != null:
+		_burst.visible = true
+		_burst.scale = Vector3.ONE
+		_burst.transparency = 0.0
 
 
 ## The missiles this contact will take, counted from one. It is a tally, not a
@@ -105,6 +160,9 @@ func set_missiles(value: int) -> void:
 	var text: String = "×%d" % value
 	if _number_label.text != text:
 		_number_label.text = text
+		# The tally grew: pop the number so the extra missile is visible on the
+		# counter too, not only on the box.
+		_label_pop = 1.0
 
 
 func _build_box() -> void:
@@ -140,12 +198,58 @@ func _build_box() -> void:
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
+## The two extra meshes: a frame that spins into place while the lock closes and a
+## square that bursts out of the contact as it does. They share the box material, so
+## the arrival flash lights them with it.
+func _build_effects() -> void:
+	_scan = MeshInstance3D.new()
+	_scan.name = "ScanFrame"
+	_scan.mesh = _build_outline(SCAN_HALF, SCAN_THICKNESS)
+	_scan.material_override = _material
+	_scan.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_scan.transparency = 1.0
+	add_child(_scan)
+
+	_burst = MeshInstance3D.new()
+	_burst.name = "Burst"
+	_burst.mesh = _build_outline(BURST_HALF, BURST_THICKNESS)
+	_burst.material_override = _material
+	_burst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_burst.transparency = 1.0
+	add_child(_burst)
+
+
+## A thin square outline in the local XZ plane: the scan frame and the burst are
+## the same shape at different sizes, so one builder serves both.
+func _build_outline(half: float, thickness: float) -> ImmediateMesh:
+	var outline: ImmediateMesh = ImmediateMesh.new()
+	outline.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var corners: Array[Vector3] = [
+		Vector3(-half, 0.0, -half),
+		Vector3(half, 0.0, -half),
+		Vector3(half, 0.0, half),
+		Vector3(-half, 0.0, half),
+	]
+	for index in corners.size():
+		var a: Vector3 = corners[index]
+		var b: Vector3 = corners[(index + 1) % corners.size()]
+		var centre: Vector3 = (a + b) * 0.5
+		var along: Vector3 = (b - a).normalized()
+		_bar(outline, centre, along, (b - a).length() * 0.5, thickness)
+	outline.surface_end()
+	return outline
+
+
 ## One arm of a bracket: a quad centred on `centre`, running `half` either way
-## along `along` and THICKNESS across it, in the local XZ plane.
+## along `along` and `thickness` across it, in the local XZ plane.
 func _bar(
-	box: ImmediateMesh, centre: Vector3, along: Vector3, half: float
+	box: ImmediateMesh,
+	centre: Vector3,
+	along: Vector3,
+	half: float,
+	thickness: float = THICKNESS
 ) -> void:
-	var across: Vector3 = Vector3(-along.z, 0.0, along.x) * (THICKNESS * 0.5)
+	var across: Vector3 = Vector3(-along.z, 0.0, along.x) * (thickness * 0.5)
 	var tip: Vector3 = along * half
 	box.surface_add_vertex(centre - tip - across)
 	box.surface_add_vertex(centre - tip + across)
@@ -172,10 +276,33 @@ func _pip(box: ImmediateMesh) -> void:
 
 
 func _process(delta: float) -> void:
-	if _held:
-		# A settled lock does not move: the salvo will, not the box.
-		return
 	_age += delta
+	_decay_label(delta)
+	if _held:
+		_settle()
+		return
+	_lock_in()
+
+
+## A held lock: the box rests, the frame keeps turning faintly. The salvo will
+## move, not the mark, so the box must not compete with the one being acquired.
+func _settle() -> void:
+	scale = Vector3.ONE * HELD_SCALE
+	transparency = 0.0
+	if _material != null:
+		_material.emission_energy_multiplier = GLOW * HELD_GLOW
+	if _scan != null:
+		_scan.visible = true
+		_scan.rotation.y = _age * HELD_SPIN_SPEED
+		_scan.transparency = 1.0 - HELD_SCAN_ALPHA
+	if _burst != null:
+		_burst.visible = false
+
+
+## The acquisition: the box snaps down, the frame spins into place, the burst
+## leaves the contact and the flash decays. Each of the four carries one beat of
+## the arrival, so the lock reads as a system taking the target, not a box growing.
+func _lock_in() -> void:
 	var closing: float = clampf(_age / LOCK_IN_TIME, 0.0, 1.0)
 	# The fade is a plain ease-out, but the size uses an ease-out-back: the box has
 	# to pass its resting size and squeeze to read as a snap.
@@ -190,7 +317,32 @@ func _process(delta: float) -> void:
 		* lerpf(LOCK_IN_SCALE, 1.0, snap)
 		* (1.0 + breathe * PULSE_DEPTH)
 	)
-	_material.emission_energy_multiplier = GLOW + breathe * GLOW_DEPTH
+	# The flash is the arrival: brightest the frame the lock starts and gone in a
+	# heartbeat, so the new contact is the one the eye lands on.
+	var flash: float = FLASH_GLOW * exp(-_age * FLASH_DECAY)
+	_material.emission_energy_multiplier = GLOW + breathe * GLOW_DEPTH + flash
+
+	if _scan != null:
+		_scan.visible = true
+		_scan.rotation.y = SCAN_SPIN * snap
+		# sin(pi*t) appears and disappears at the ends, so the frame never pops.
+		_scan.transparency = 1.0 - sin(PI * closing) * SCAN_ALPHA
+
+	if _burst != null:
+		var burst_t: float = clampf(_age / BURST_TIME, 0.0, 1.0)
+		_burst.visible = burst_t < 1.0
+		var burst_ease: float = 1.0 - pow(1.0 - burst_t, 3.0)
+		_burst.scale = Vector3.ONE * lerpf(1.0, BURST_SCALE, burst_ease)
+		_burst.transparency = burst_t
+
+
+## Pops the tally when it grows, then lets it settle. A number that changes without
+## a beat is easy to miss while the box is already moving.
+func _decay_label(delta: float) -> void:
+	if _number_label == null:
+		return
+	_label_pop = maxf(_label_pop - delta * LABEL_POP_DECAY, 0.0)
+	_number_label.scale = Vector3.ONE * (1.0 + _label_pop * LABEL_POP)
 
 
 ## Ease-out-back: overshoots past 1 and settles, which is the snap.

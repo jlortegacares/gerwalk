@@ -165,8 +165,9 @@ was locked. The salvo is spread round-robin over the pool — `_fire_salvo` walk
 box reading `×2` is the contact the rack only chases twice. A tally is the honest
 promise: a fire-order rank would tell you who is first, not who is fed. The tally is
 recomputed every sync, because a nearer contact entering the radar reshuffles the split.
-A contact that receives another missile takes the scan back and re-runs its lock-in, so
-an extra assignment is visible instead of a silent counter bump.
+Every new missile re-runs the lock-in on its own target, even when that target is the
+one already locked: the animation belongs to the assignment, not to the active target,
+so one contact fed eight times announces eight locks instead of one.
 
 **Every assignment stings once**, climbing 7% per missile: the tone moved from the mark
 sync to the load loop, so a long frame that loads two missiles sounds twice, and eight
@@ -176,14 +177,18 @@ The mark is a lock, not a decal. It arrives 1.9× wide and fades in while it sna
 down onto the contact in 0.22 s, and the snap is an ease-out-back: the box passes its
 resting size, squeezes, and only then settles. That overshoot is what reads as a lock
 instead of a zoom, and it is why the test drives `_process` frame by frame — a single
-sample after the fact would miss the squeeze. Once settled it breathes on its
-emission instead of spinning: the box is not rotationally symmetric, but rotating it
-with the turret would tilt a marker that has to stay level with the play plane. The
-reticle is parented to the turret, so it dies with its target and follows it while it
-moves, and the HUD counts the loaded missiles while the button is down. A mechanic
-whose payoff depends on how long you held a button cannot be invisible, and a salvo
-that spreads has to show what it will spread over — which is why the count and the
-brackets have to agree.
+sample after the fact would miss the squeeze. The acquisition is four beats, not one:
+the box snaps, a thin outer frame spins into place (`SCAN_SPIN`), a square bursts out
+of the contact and fades (`BURST_TIME`), and the emission spikes and decays
+(`FLASH_GLOW`). The frame is what can turn — a square outline reads the same through a
+quarter turn — while the bracket box stays level with the play plane. A settled lock
+rests at `HELD_SCALE` and keeps only a faint frame turning slowly, so it reads as
+tracking without competing with the contact being acquired. The tally pops when it
+grows, so an extra missile is visible on the number too. The reticle is parented to the
+turret, so it dies with its target and follows it while it moves, and the HUD counts
+the loaded missiles while the button is down. A mechanic whose payoff depends on how
+long you held a button cannot be invisible, and a salvo that spreads has to show what
+it will spread over — which is why the count and the brackets have to agree.
 
 The bomb is the emergency button. One charge detonates a 40-unit ring that cancels
 enemy fire inside it and pays 8 damage to every turret in range, in the same frame.
@@ -943,7 +948,7 @@ All values are named constants at the top of each script.
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load time and derived load interval, max salvo, salvo cooldown, damage, turn rate, range, launch fan step and cap, weave amplitude/rate/hit range/fade); `MISSILE_SALVO_LOAD_TIME` is the commitment, the interval follows from it |
 | Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
-| Lock reticle | `combat/lock_reticle.gd` | `HALF_SIZE`, `ARM`, `THICKNESS`, `PIP`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH`, `GLOW`, `GLOW_DEPTH`, `LOCK_IN_SCALE`, `LOCK_IN_TIME`, `OVERSHOOT`, `HELD_SCALE`, `HELD_GLOW` |
+| Lock reticle | `combat/lock_reticle.gd` | `HALF_SIZE`, `ARM`, `THICKNESS`, `PIP`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH`, `GLOW`, `GLOW_DEPTH`, `LOCK_IN_SCALE`, `LOCK_IN_TIME`, `OVERSHOOT`, `HELD_SCALE`, `HELD_GLOW`, `HELD_SCAN_ALPHA`, `HELD_SPIN_SPEED`, `SCAN_HALF`, `SCAN_THICKNESS`, `SCAN_SPIN`, `SCAN_ALPHA`, `BURST_HALF`, `BURST_THICKNESS`, `BURST_SCALE`, `BURST_TIME`, `FLASH_GLOW`, `FLASH_DECAY`, `LABEL_POP`, `LABEL_POP_DECAY` |
 | Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |
 | Death countdown | `ui/hud/game_over.gd` | `RESPAWN_SECONDS`, `FADE_IN` |
 | Death blast | `common/ship_explosion.gd` | `LIFETIME`, `CORE_*`, `FIRE_*`, `DEBRIS_DURATION`, `SPARK_LIFETIME`, `SMOKE_LIFETIME` |

@@ -2558,6 +2558,7 @@ func _test_missiles(weapons: WeaponSystem) -> void:
 	await _test_missile_weave()
 	await _test_lock_reticle()
 	await _test_lock_scan(weapons)
+	await _test_lock_reacquires_per_missile(weapons)
 
 	Input.action_release(&"missile")
 	_clear_projectiles()
@@ -3038,6 +3039,25 @@ func _test_lock_reticle() -> void:
 		% vertices.size()
 	)
 
+	# The acquisition is more than a resize: a frame spins in, a burst leaves the
+	# contact and a flash decays. Each one is driven by `_process`, so the test
+	# samples them the way the screen does.
+	var scan: MeshInstance3D = reticle.get_node_or_null(^"ScanFrame") as MeshInstance3D
+	var burst: MeshInstance3D = reticle.get_node_or_null(^"Burst") as MeshInstance3D
+	_check(scan != null and burst != null, "the lock has a scan frame and a burst")
+	reticle.call("_process", 1.0 / 60.0)
+	var start_spin: float = scan.rotation.y
+	var start_burst: float = burst.scale.x
+	var start_flash: float = (reticle.material_override as StandardMaterial3D).emission_energy_multiplier
+	_check(
+		start_flash > LockReticle.GLOW,
+		"the lock arrives with a flash (%.2f)" % start_flash
+	)
+	_check(
+		scan.transparency < 1.0,
+		"the scan frame is drawn while the lock closes (%.2f)" % scan.transparency
+	)
+
 	# Driven frame by frame instead of by wall clock: the snap is an overshoot, and
 	# a single sample after the fact misses the squeeze that makes it read as a snap.
 	var lowest: float = reticle.scale.x
@@ -3055,6 +3075,23 @@ func _test_lock_reticle() -> void:
 	_check(
 		reticle.transparency <= 0.05,
 		"the mark is fully drawn once the lock has closed (%.2f)" % reticle.transparency
+	)
+	_check(
+		scan.rotation.y > start_spin,
+		"the scan frame spins into place (%.2f -> %.2f)" % [start_spin, scan.rotation.y]
+	)
+	_check(
+		burst.scale.x > start_burst,
+		"the burst leaves the contact (%.2f -> %.2f)" % [start_burst, burst.scale.x]
+	)
+	_check(
+		(reticle.material_override as StandardMaterial3D).emission_energy_multiplier
+		< start_flash,
+		"the arrival flash decays"
+	)
+	_check(
+		scan.transparency > 0.5,
+		"the scan frame is gone once the lock settles (%.2f)" % scan.transparency
 	)
 
 	host.queue_free()
@@ -3159,6 +3196,62 @@ func _test_lock_scan(weapons: WeaponSystem) -> void:
 	_check(
 		weapons.get("_active_mark") == by_distance[1],
 		"the scan ends on the contact the last missile takes"
+	)
+
+	Input.action_release(&"missile")
+	await _wait_frames(2)
+	_clear_projectiles()
+	_clear_enemies()
+	await get_tree().physics_frame
+
+
+## One contact, several missiles. The lock-in belongs to the assignment, not to the
+## active target: with a single contact the scan never moves, so a target-only rule
+## would announce the first missile and leave the other seven silent and still.
+func _test_lock_reacquires_per_missile(weapons: WeaponSystem) -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	Input.action_release(&"missile")
+	await _wait_frames(30)
+	weapons.set("_missile_cooldown", 0.0)
+
+	var aim: Vector3 = _aim()
+	_spawn_enemy(_player.global_position + aim * 18.0)
+	await _wait_frames(2)
+
+	Sfx.reset_counts()
+	Input.action_press(&"missile")
+	var guard: int = 0
+	while weapons.salvo_count() < 2 and guard < 120:
+		await get_tree().physics_frame
+		guard += 1
+
+	var reticle: LockReticle = null
+	for node in get_tree().get_nodes_in_group(&"lock_reticle"):
+		reticle = node as LockReticle
+	_check(reticle != null, "the single contact carries a lock")
+	_check(
+		reticle.scale.x > 1.2,
+		"the second missile re-runs the lock on the same contact (%.2f)"
+		% reticle.scale.x
+	)
+	_check(
+		_tally_texts() == ["×2"],
+		"the single contact shows the two missiles it will take (%s)"
+		% str(_tally_texts())
+	)
+
+	guard = 0
+	while weapons.salvo_count() < 3 and guard < 120:
+		await get_tree().physics_frame
+		guard += 1
+	_check(
+		reticle.scale.x > 1.2,
+		"the third missile re-runs the lock again (%.2f)" % reticle.scale.x
+	)
+	_check(
+		Sfx.played(&"lock_tone") == 3,
+		"each of the three assignments stings once (%d)" % Sfx.played(&"lock_tone")
 	)
 
 	Input.action_release(&"missile")

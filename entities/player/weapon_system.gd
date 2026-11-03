@@ -29,6 +29,10 @@ var _marked: Array[Enemy] = []
 ## earlier mark is settled, which is what makes the salvo read as one reticle
 ## walking the pool instead of eight boxes appearing together.
 var _active_mark: Enemy = null
+## The salvo count already announced. The reticle animation is per assignment, so
+## the sync needs to know which missiles are new this frame: a single contact fed
+## eight times has to re-run the lock eight times, not once.
+var _synced_salvo: int = 0
 
 ## Fighter mode is a profile, not a different arsenal: the same three archetypes
 ## keep their identity and only lose the freedom to point anywhere but forward.
@@ -425,21 +429,31 @@ func _sync_marks(pool: Array[Enemy]) -> void:
 		_marked.append(enemy)
 
 	# The scan sits on the contact the last missile takes. When it moves, the box it
-	# leaves settles and the new one is acquired again; a contact that already had a
-	# mark and just received another missile is re-acquired too, which is what makes
-	# the extra assignment read on screen.
+	# leaves settles and the new one is acquired.
 	var active: Enemy = null
 	if not pool.is_empty() and _salvo > 0:
 		active = pool[(_salvo - 1) % pool.size()]
 	if active != _active_mark:
 		_settle_active_mark()
 		_active_mark = active
-		if active != null and is_instance_valid(active):
-			var box: LockReticle = (
-				active.get_node_or_null(^"LockReticle") as LockReticle
-			)
-			if box != null:
-				box.acquire()
+		_acquire(active)
+
+	# Every new missile re-runs the lock on its own target, even when that target is
+	# the contact the previous missile already locked. The animation belongs to the
+	# assignment, not to the active target: one contact fed eight times has to
+	# announce eight locks, which is the whole point of the scan.
+	if not pool.is_empty() and _salvo > _synced_salvo:
+		for index in range(_synced_salvo, _salvo):
+			_acquire(pool[index % pool.size()])
+		_synced_salvo = _salvo
+		# Only the last assignment keeps moving. A long frame that loads two missiles
+		# must not leave two boxes acquiring, so everything else settles now.
+		for enemy in marks:
+			if enemy == _active_mark or not is_instance_valid(enemy):
+				continue
+			var box: LockReticle = enemy.get_node_or_null(^"LockReticle") as LockReticle
+			if box != null and not box.is_held():
+				box.hold()
 
 	# The tally is recomputed every sync because the pool order can change under it:
 	# a nearer contact entering the radar reshuffles who takes which missile, and the
@@ -450,6 +464,15 @@ func _sync_marks(pool: Array[Enemy]) -> void:
 		var box: LockReticle = enemy.get_node_or_null(^"LockReticle") as LockReticle
 		if box != null:
 			box.set_missiles(int(tally.get(enemy, 0)))
+
+
+## Runs the lock-in on a contact's box, if the mark exists and the contact is alive.
+func _acquire(enemy: Enemy) -> void:
+	if not is_instance_valid(enemy):
+		return
+	var box: LockReticle = enemy.get_node_or_null(^"LockReticle") as LockReticle
+	if box != null:
+		box.acquire()
 
 
 ## Hands the scan to a new contact: the box that had it settles where it stands.
@@ -567,6 +590,7 @@ func _discharge() -> void:
 			_drop_reticle(enemy)
 		_marked.remove_at(index)
 	_active_mark = null
+	_synced_salvo = 0
 	_salvo_timer = 0.0
 	if _salvo == 0:
 		return
