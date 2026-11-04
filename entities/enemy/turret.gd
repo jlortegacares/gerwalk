@@ -135,17 +135,17 @@ func _physics_process(delta: float) -> void:
 		State.ROAM:
 			_tick_roam(delta)
 		State.ENGAGED:
-			_tick_engaged(delta)
+			_tick_engaged()
 			if _timer <= 0.0:
 				_enter_telegraph()
 		State.TELEGRAPH:
-			_tick_engaged(delta)
+			_tick_engaged()
 			_tick_telegraph()
 			if _timer <= 0.0:
 				_fire_pattern()
 				_enter_recover()
 		State.RECOVER:
-			_tick_engaged(delta)
+			_tick_engaged()
 			if _timer <= 0.0:
 				_enter_telegraph()
 
@@ -159,7 +159,7 @@ func _tick_roam(delta: float) -> void:
 		_pick_roam_target()
 		return
 
-	global_position += to_target.normalized() * ROAM_SPEED * delta
+	_move_step(to_target.normalized() * ROAM_SPEED)
 
 
 func _pick_roam_target() -> void:
@@ -172,7 +172,7 @@ func _pick_roam_target() -> void:
 ## Holding the ring: chase when far, back off when the player dashes in, strafe
 ## in between. Steering in world space (instead of recomputing the position from
 ## the ship) is what makes the leash possible at all.
-func _tick_engaged(delta: float) -> void:
+func _tick_engaged() -> void:
 	var offset: Vector3 = _player.global_position - global_position
 	offset.y = 0.0
 	var distance: float = offset.length()
@@ -188,7 +188,16 @@ func _tick_engaged(delta: float) -> void:
 	else:
 		step = Vector3(-to_player.z, 0.0, to_player.x) * (STRAFE_SPEED * _strafe_direction)
 
-	global_position += step * delta
+	_move_step(step)
+
+
+## The planet has no world colliders, so moving the body by hand and moving it
+## through `move_and_slide` are the same thing there. The city does have walls, and
+## a turret that teleported its position would tunnel through a tower instead of
+## sliding along it. One helper keeps both scenarios on the same path.
+func _move_step(step: Vector3) -> void:
+	velocity = Vector3(step.x, 0.0, step.z)
+	move_and_slide()
 
 
 func _enter_engaged() -> void:
