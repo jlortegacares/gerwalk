@@ -1,11 +1,13 @@
 class_name ShipExplosion
 extends Node3D
-## The death blast: a white core, a fireball, debris, sparks and smoke.
-## Self-freeing, no pooling at prototype scale.
+## The death blast: a white core, a shockwave ring, a fireball, debris, sparks and
+## smoke. Self-freeing, no pooling at prototype scale.
 ##
 ## The ship uses it when it dies and every enemy uses it too, so the blast is the
 ## one thing in the game that means "a hull came apart". Only the camera kick is
-## scaled: a kill is not the run ending.
+## scaled: a kill is not the run ending. The ring is the same `ShockWave` a missile
+## impact leaves, so a hit and a death read as the same kind of event at different
+## magnitudes.
 ##
 ## Built in code for the same reason as `HitSpark`: the meshes are placeholders, so
 ## this node disappears behind a scene swap when real art lands. It is one node with
@@ -38,6 +40,12 @@ const DEBRIS_COLOR: Color = Color(0.3, 0.29, 0.31, 1.0)
 ## Each fireball lobe is a fraction of the stop above, so the three of them read as
 ## a shape with a hot middle instead of three discs of the same size.
 const FIRE_LOBES: Array[float] = [1.0, 0.72, 0.5]
+## The wave is the missile's, sized to stay near the fireball while it opens. A
+## ring that outgrows the fire by too much reads as a targeting circle drawn around
+## a small explosion instead of as the blast pushing outward, but a ring that only
+## hugs the fire is lost at gameplay range. The fire, the smoke and the debris are
+## what carry "a hull came apart"; the ring only has to read from the camera.
+const WAVE_SCALE: float = 1.1
 
 ## Read by `_ready`, so it has to be set before the node enters the tree.
 var shake_strength: float = 1.0
@@ -45,6 +53,7 @@ var shake_strength: float = 1.0
 
 func _ready() -> void:
 	_add_core()
+	_add_wave()
 	_add_fireball()
 	_add_debris()
 	_add_sparks()
@@ -66,6 +75,16 @@ func _add_core() -> void:
 	tween.set_parallel(true)
 	tween.tween_property(flash, "scale", Vector3.ONE * (CORE_END / CORE_START), CORE_DURATION)
 	tween.tween_property(flash, "transparency", 1.0, CORE_DURATION)
+
+
+## The ring is the same wave a missile impact leaves, scaled up and without its own
+## flash: `_add_core` already owns the white on this frame, and two flashes fighting
+## for the same pixels only wash the blast out.
+func _add_wave() -> void:
+	var wave: ShockWave = ShockWave.new()
+	wave.flash_enabled = false
+	wave.scale = Vector3.ONE * WAVE_SCALE
+	add_child(wave)
 
 
 ## Three overlapping blobs with a small offset each, so the fireball has a shape

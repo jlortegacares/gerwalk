@@ -1,3 +1,4 @@
+class_name HitSpark
 extends Node3D
 ## Short-lived impact flash in 3D. Self-freeing, no pooling at prototype scale.
 ##

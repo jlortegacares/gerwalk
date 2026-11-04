@@ -483,9 +483,19 @@ func _on_area_entered(area: Area3D) -> void:
 	queue_free()
 
 
+## The impact is where a weapon shows its character: a bullet leaves a spark, a
+## missile leaves a detonation. The wave is a world node, not a child, because the
+## shot is freed on this frame and the effect has to outlive it.
 func _spawn_impact() -> void:
-	if impact_scene == null:
+	var host: Node = get_tree().current_scene
+	if host == null:
 		return
-	var impact: Node3D = impact_scene.instantiate()
-	get_tree().current_scene.add_child(impact)
+	var impact: Node3D
+	if _style == Style.MISSILE:
+		impact = ShockWave.new()
+	else:
+		if impact_scene == null:
+			return
+		impact = impact_scene.instantiate()
+	host.add_child(impact)
 	impact.global_position = global_position

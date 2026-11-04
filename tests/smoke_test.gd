@@ -37,6 +37,7 @@ func _ready() -> void:
 	await _test_missile_enemy()
 	await _test_fighter_enemy()
 	await _test_enemy_death_blast()
+	await _test_missile_impact_blast()
 	await _test_afterburner()
 	await _test_exhaust_trail()
 	_test_airframe_lighting()
@@ -2261,8 +2262,93 @@ func _test_enemy_death_blast() -> void:
 				is_equal_approx(blast.shake_strength, Enemy.DEATH_SHAKE),
 				"the %s blast kicks the camera less than the ship's" % kind
 			)
+			_check(
+				_wave_of(blast) != null,
+				"the %s death leaves its shockwave" % kind
+			)
 			blast.queue_free()
 
+	await get_tree().physics_frame
+
+
+## A missile is a detonation, not a hit: its impact has to leave the shockwave, and
+## the gunpod has to keep its spark. The blast is a world node that outlives the
+## shot, so it is counted in the scene root the way the death blast is.
+func _test_missile_impact_blast() -> void:
+	_clear_projectiles()
+	_clear_enemies()
+	# Any effect still leaving an earlier test is cleared first: this check is about
+	# the one impact it produces, not about the leftovers of the previous one.
+	for spark in _hit_sparks():
+		spark.queue_free()
+	for blast in _impact_waves():
+		blast.queue_free()
+	# The wall sits away from the ship so the missile cannot meet the player on the
+	# way in and the check stays about the impact.
+	_player.global_position = Vector3(0.0, 0.0, 90.0)
+	_player.velocity = Vector3.ZERO
+	await get_tree().physics_frame
+
+	# The wall is a body of the same kind the enemies are: the projectile's Area3D
+	# detects a CharacterBody3D, and the check has to exercise the same pairing the
+	# gun does in the fight. It carries both the player and the enemy layers so the
+	# enemy missile and the player's dart can each meet it, exactly as they would
+	# meet a real hull.
+	var wall: CharacterBody3D = CharacterBody3D.new()
+	wall.collision_layer = (
+		(1 << Projectile.LAYER_PLAYER) | (1 << Projectile.LAYER_ENEMY)
+	)
+	wall.collision_mask = 0
+	var box: BoxShape3D = BoxShape3D.new()
+	box.size = Vector3(6.0, 6.0, 6.0)
+	var shape: CollisionShape3D = CollisionShape3D.new()
+	shape.shape = box
+	wall.add_child(shape)
+	add_child(wall)
+	wall.global_position = Vector3(0.0, 0.0, -18.0)
+	await get_tree().physics_frame
+
+	var missile: Projectile = _spawn_enemy_missile(Vector3.ZERO, wall)
+	for _i in 90:
+		await get_tree().physics_frame
+		if not is_instance_valid(missile):
+			break
+
+	var blasts: Array[ShockWave] = _impact_waves()
+	_check(
+		blasts.size() == 1,
+		"a missile impact leaves one shockwave (%d)" % blasts.size()
+	)
+	if blasts.size() == 1:
+		_check(
+			blasts[0].global_position.distance_to(Vector3(0.0, 0.0, -15.0)) < 2.0,
+			"the shockwave opens where the missile met the hull"
+		)
+	_check(
+		_hit_sparks().is_empty(),
+		"the missile impact replaces the bullet spark"
+	)
+
+	await get_tree().create_timer(ShockWave.RING_TIME + 0.2).timeout
+	_check(_impact_waves().is_empty(), "the shockwave frees itself")
+
+	# The same wall, hit by the gunpod, must keep the old spark: the wave belongs to
+	# the missile, not to every impact in the game.
+	_spawn_player_bullet(Vector3.ZERO, Vector3(0.0, 0.0, -1.0))
+	for _i in 90:
+		await get_tree().physics_frame
+		if not _hit_sparks().is_empty():
+			break
+	_check(
+		_hit_sparks().size() == 1,
+		"a bullet impact keeps its spark (%d)" % _hit_sparks().size()
+	)
+	_check(
+		_impact_waves().is_empty(),
+		"a bullet impact does not leave the missile shockwave"
+	)
+
+	wall.queue_free()
 	await get_tree().physics_frame
 
 
@@ -3760,6 +3846,39 @@ func _death_blasts() -> Array[ShipExplosion]:
 	return found
 
 
+## Impact effects also live in the scene root, not under the shot that produced them,
+## so counting them is how a missile detonation is told apart from a bullet spark.
+func _impact_waves() -> Array[ShockWave]:
+	var found: Array[ShockWave] = []
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return found
+	for child in scene.get_children():
+		if child is ShockWave:
+			found.append(child)
+	return found
+
+
+## The death wave rides inside the death blast, so it frees with it. Looking for it
+## as a child is what tells "the ring was added" apart from "some ring is around".
+func _wave_of(blast: ShipExplosion) -> ShockWave:
+	for child in blast.get_children():
+		if child is ShockWave:
+			return child
+	return null
+
+
+func _hit_sparks() -> Array[HitSpark]:
+	var found: Array[HitSpark] = []
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return found
+	for child in scene.get_children():
+		if child is HitSpark:
+			found.append(child)
+	return found
+
+
 func _player_projectiles() -> Array[Projectile]:
 	var found: Array[Projectile] = []
 	for child in get_children():
@@ -4037,6 +4156,10 @@ func _test_death() -> void:
 		blasts.size() == 1
 		and blasts[0].global_position.distance_to(_player.global_position) < 0.01,
 		"the explosion starts where the ship died"
+	)
+	_check(
+		blasts.size() == 1 and _wave_of(blasts[0]) != null,
+		"the ship's death leaves its shockwave"
 	)
 
 	# The panel waits for the blast to open, so the screen is still clear on the

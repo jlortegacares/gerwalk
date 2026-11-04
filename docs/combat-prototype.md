@@ -191,6 +191,28 @@ the loaded missiles while the button is down. A mechanic whose payoff depends on
 long you held a button cannot be invisible, and a salvo that spreads has to show what
 it will spread over — which is why the count and the brackets have to agree.
 
+**A detonation is a flash and a ring, not a hit.** `common/shock_wave.gd` opens where
+the shot landed: an additive white flash that peaks in 0.13 s, and a ring on the play
+plane that leaves fast and settles over 0.42 s, cooling from white-hot to orange as it
+travels. Both layers expand on `sqrt`, so the eye reads a shockwave instead of a growing
+UI circle. The ring is a torus whose inner radius is recomputed every frame against the
+current scale, so the band keeps a 0.30-unit thickness in world space instead of
+fattening with the ring — a scaled torus alone turns a shockwave into a painted hoop by
+the time it reaches the edge. The flash holds near full for its first third before it
+falls: a straight fade spends the whole pop on the first frame and leaves a grey smudge
+where the white should have been.
+
+Two callers use the wave, at two sizes, because a hit and a death have to read as the
+same kind of event. `Projectile._spawn_impact` picks it when `_style == Style.MISSILE`
+and leaves the short `HitSpark` to the gunpod, so a bullet hit and a detonation never
+read the same. `ShipExplosion` adds one to every hull that comes apart — the player and
+every enemy — scaled by `WAVE_SCALE` and with `flash_enabled` off, because that blast
+already opens with its own white core and two flashes on one frame wash each other out.
+The death ring is sized to stay near the fireball while it opens: a ring that outgrows
+the fire reads as a targeting circle around a small explosion, and one that only hugs it
+is lost at gameplay range. Like every impact effect it is a world node, because the shot
+frees itself on the frame it lands and the ring has to outlive it.
+
 The bomb is the emergency button. One charge detonates a 40-unit ring that cancels
 enemy fire inside it and pays 8 damage to every turret in range, in the same frame.
 The rack holds 5 and starts at 3; every 12 kills refunds one charge, and a full rack
@@ -1007,6 +1029,7 @@ All values are named constants at the top of each script.
 | Enemy sound cues | `entities/enemy/*.gd` | `Sfx.play_at` on `_fire_pattern` (`enemy_fire`, `missile_warning`) and on `_spawn_explosion` (`explosion`) |
 | Enemy score | `entities/enemy/*.gd` | `Enemy.SCORE_VALUE` (100), `FighterEnemy.KILL_SCORE` (200), `MissileEnemy.KILL_SCORE` (250); the arena sums them into the run total |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
+| Detonation wave | `common/shock_wave.gd` | `FLASH_START`, `FLASH_END`, `FLASH_TIME`, `RING_HOT`, `RING_COOL`, `RING_START`, `RING_END_RADIUS`, `RING_TIME`, `RING_BAND`; `Projectile._spawn_impact` picks it for `Style.MISSILE`, `ShipExplosion` adds it to every hull death with `WAVE_SCALE` (1.1) and `flash_enabled` off |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
 | Evasion | `entities/player/player.gd`, `combat/projectile.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN`; `Player.is_evading()` gates the early return in `Projectile._on_body_entered` |
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
@@ -1049,6 +1072,7 @@ common/sfx.gd                   autoload: palette, mix, bus + room + limiter, 2D
 tools/generate_sfx.gd           deterministic synthesizer that writes audio/sfx/*.wav
 audio/sfx/*.wav                 the committed palette (generated, never sampled)
 common/hit_spark.*              self-freeing 3D impact flash
+common/shock_wave.gd            detonation: white flash + shockwave ring, presentation only; shared by missile impacts and hull deaths
 combat/arsenal.gd               weapon catalogue: every number a player feels
 combat/projectile.*             one shared bullet, team decides layers + shape, guidance and interception here
 combat/smoke_puff.gd            self-freeing trail puff, added to the scene, not the shot
