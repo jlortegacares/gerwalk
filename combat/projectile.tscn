@@ -9,7 +9,6 @@ radius = 0.5
 [node name="Projectile" type="Area3D"]
 collision_layer = 4
 collision_mask = 9
-monitorable = false
 script = ExtResource("1_projectile")
 impact_scene = ExtResource("2_spark")
 

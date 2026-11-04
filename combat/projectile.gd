@@ -144,10 +144,11 @@ func setup(
 		# the warning that it is guided, can be shaken off and can be shot down.
 		if _style == Style.MISSILE:
 			collision_layer = 1 << LAYER_ENEMY_MISSILE
-			# A bullet is not monitorable because nothing should ever detect one. A
-			# missile is the opposite: it is a target, so the player's fire has to be
-			# able to see it.
-			monitorable = true
+			# Every projectile is monitorable. A moving area only finds a static body
+			# -- a city tower -- when it is registered in the query broadphase, and a
+			# bullet has to stop at a wall. The missile's difference is the layer and
+			# the group: they are what the player's fire can see and what the
+			# interception check can name.
 			add_to_group(&"enemy_missile")
 			_build_visual(size, color)
 		else:
@@ -461,6 +462,12 @@ func _on_body_entered(body: Node3D) -> void:
 			return
 		body.take_damage(_damage, global_position)
 	elif body is Enemy and _team == Team.PLAYER:
+		body.take_damage(_damage)
+	elif body is Building and _team == Team.PLAYER:
+		# Only player fire chips a tower. Enemy fire is absorbed by the wall, which
+		# is what makes a street a corridor instead of a shooting gallery: the
+		# return fire dies at the corner. The impact still plays for both teams,
+		# because a wall that swallows a shot without a spark reads as a bug.
 		body.take_damage(_damage)
 
 	_spawn_impact()
