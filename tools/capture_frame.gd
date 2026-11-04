@@ -46,8 +46,16 @@ extends Node
 ## about where the fireball opens.
 ## `--interceptor N --kill 1` ends the interceptor hold with a lethal hit, which is
 ## how an enemy death blast is reviewed.
+## `--city 1` loads the city district instead of the planet, which is how the
+## street grid, the towers and the night lighting are reviewed. Add `--nofire 1`
+## to hold the trigger, since a vulcan stream washes the streets out and starts
+## demolishing whatever it hits. `--ruin 1` collapses the tower nearest the ship
+## right before the capture, which is how the rubble and the opened street are
+## reviewed; `--chip N` leaves that tower N damage into its demolition instead, so
+## the crack pass and the health bar can be seen mid-fight.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
+const CITY_SCENE: String = "res://levels/city/city.tscn"
 const DEFAULT_OUTPUT: String = "/tmp/gerwalk_frame.png"
 const WARMUP_FRAMES: int = 170
 
@@ -71,21 +79,43 @@ func _ready() -> void:
 	var death: bool = _argument("death", "0") == "1"
 	var death_delay: int = int(_argument("death-delay", "2"))
 	var kill_subject: bool = _argument("kill", "0") == "1"
+	var no_fire: bool = _argument("nofire", "0") == "1"
+	var ruin: bool = _argument("ruin", "0") == "1"
+	var chip: int = int(_argument("chip", "0"))
+	var city: bool = _argument("city", "0") == "1"
 
-	var arena: Node = load(ARENA_SCENE).instantiate()
+	var arena: Node = load(CITY_SCENE if city else ARENA_SCENE).instantiate()
 	add_child(arena)
 
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 
-	Input.action_press(&"aim_right")
+	# `--px F` / `--pz F` place the ship on the play plane before the warmup. A city
+	# frame often needs a specific street: the sight line only passes through a
+	# tower when the ship flies the half of the road nearest the camera-side block,
+	# so the ghosting rule cannot be reviewed from a crossing.
+	var place_x: String = _argument("px", "")
+	var place_z: String = _argument("pz", "")
+	if not place_x.is_empty() or not place_z.is_empty():
+		var placed: Player = arena.get_node("%Player") as Player
+		placed.global_position = Vector3(
+			float(place_x) if not place_x.is_empty() else 0.0,
+			0.0,
+			float(place_z) if not place_z.is_empty() else 0.0
+		)
+
+	# Aiming right also holds the trigger, so `--nofire` has to leave the stick
+	# alone: a city capture that streams bullets starts demolishing the street it
+	# is meant to show, and the kill score hides the frame's subject.
+	if not no_fire:
+		Input.action_press(&"aim_right")
 	if weapon != "1":
 		Input.action_press("weapon_" + weapon)
 		await get_tree().physics_frame
 		Input.action_release("weapon_" + weapon)
 	# The vulcan stream would hide the missiles leaving the wings, and it also
 	# kills the turret the rack needs, so a missile capture flies unarmed.
-	if missile_frames == 0 and lock_frames == 0:
+	if missile_frames == 0 and lock_frames == 0 and not no_fire:
 		Input.action_press(&"fire")
 
 	if fighter_frames > 0:
@@ -322,6 +352,19 @@ func _ready() -> void:
 		for _i in death_delay:
 			await get_tree().physics_frame
 
+	# A demolition is a decision, not a frame: `--ruin 1` takes a whole tower down
+	# so the rubble and the street it opens are reviewed, and `--chip N` leaves one
+	# N damage into its demolition so the crack pass and the health bar show. The
+	# gun is released first, or the stream finishes the job on its own.
+	if ruin or chip > 0:
+		Input.action_release(&"fire")
+		Input.action_release(&"aim_right")
+		var nearest: Building = _nearest_building(arena, ship.global_position)
+		if nearest != null:
+			nearest.take_damage(Building.MAX_HP if ruin else chip)
+			for _i in 6:
+				await get_tree().physics_frame
+
 	await RenderingServer.frame_post_draw
 	var image: Image = get_viewport().get_texture().get_image()
 	var error: Error = image.save_png(output_path)
@@ -331,6 +374,27 @@ func _ready() -> void:
 		printerr("Could not save frame: ", error_string(error))
 
 	get_tree().quit(0 if error == OK else 1)
+
+
+## The tower nearest a point, planar distance. Only the city has buildings, so a
+## planet capture with `--ruin` simply finds nothing.
+func _nearest_building(level: Node, point: Vector3) -> Building:
+	if not level.has_method("buildings"):
+		return null
+	var nearest: Building = null
+	var best: float = INF
+	for node in level.call("buildings") as Array:
+		var building: Building = node as Building
+		if building == null:
+			continue
+		var distance: float = Vector2(
+			building.global_position.x - point.x,
+			building.global_position.z - point.z
+		).length()
+		if distance < best:
+			best = distance
+			nearest = building
+	return nearest
 
 
 func _argument(name: String, fallback: String) -> String:

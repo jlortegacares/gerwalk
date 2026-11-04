@@ -71,6 +71,8 @@ func _ready() -> void:
 	await _test_damage_and_iframes()
 	await _test_death()
 
+	await _test_city_scene()
+
 	_report()
 
 
@@ -99,6 +101,7 @@ func _test_main_menu() -> void:
 	await get_tree().process_frame
 
 	var start_button: Button = menu.get_node("%StartButton") as Button
+	var city_button: Button = menu.get_node("%CityButton") as Button
 	var options_button: Button = menu.get_node("%OptionsButton") as Button
 	var options: Control = menu.get_node("%Options") as Control
 	var back_button: Button = menu.get_node("%BackButton") as Button
@@ -109,11 +112,16 @@ func _test_main_menu() -> void:
 	var lines_row: HBoxContainer = menu.get_node("%LinesRow") as HBoxContainer
 	var preview: LiveryPreview = menu.get_node("%Preview") as LiveryPreview
 	_check(start_button != null, "the menu offers a start button")
+	_check(city_button != null, "the menu offers a second scenario")
 	_check(options_button != null, "the menu offers an options button")
 	_check(options != null, "the menu carries an options panel")
 	_check(
 		ResourceLoader.exists(MainMenu.ARENA_SCENE),
 		"the start button points at a scene that exists"
+	)
+	_check(
+		ResourceLoader.exists(MainMenu.CITY_SCENE),
+		"the second scenario points at a scene that exists"
 	)
 	if options == null:
 		menu.queue_free()
@@ -4324,6 +4332,156 @@ func _wav_pcm(path: String) -> Dictionary:
 		else:
 			file.seek(file.get_position() + size + (size & 1))
 	return {}
+
+
+## The second scenario: a district of streets and towers. It is a separate scene,
+## so the arena is retired first. Two live players would both answer `%Player`, and
+## two streamers would fill one world with contacts from two levels.
+func _test_city_scene() -> void:
+	if _arena != null:
+		_arena.queue_free()
+		_arena = null
+	_player = null
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	var packed: PackedScene = load(City.SCENE_PATH)
+	_check(packed != null, "the city scene loads")
+	if packed == null:
+		return
+
+	var city: City = packed.instantiate() as City
+	add_child(city)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	var player: Player = city.get_node("%Player") as Player
+	var enemies: Node3D = city.get_node("%Enemies") as Node3D
+	var buildings: Node3D = city.get_node("%Buildings") as Node3D
+	var hud: CanvasLayer = city.get_node("%HUD") as CanvasLayer
+	_check(player != null, "the city exposes a Player")
+	_check(enemies != null, "the city exposes an Enemies container")
+	_check(buildings != null, "the city exposes a Buildings container")
+	_check(hud != null, "the city carries the HUD")
+
+	var towers: Array[Building] = city.buildings()
+	_check(towers.size() >= 40, "the district is built (%d towers)" % towers.size())
+	if towers.is_empty():
+		city.queue_free()
+		return
+
+	# The streets are the level because the geometry is real. Both halves matter: the
+	# ship starts on a road, and a tower stands where a road is not.
+	_check(
+		city.is_street(player.global_position),
+		"the ship starts on a street instead of inside a block"
+	)
+	_check(
+		not city.is_street(towers[0].global_position),
+		"a tower stands on a block, not on a street"
+	)
+	for child in enemies.get_children():
+		var spawned: Enemy = child as Enemy
+		if spawned == null:
+			continue
+		_check(
+			city.is_street(spawned.global_position),
+			"an encounter starts on a street, not inside a tower"
+		)
+
+	# A tower is a wall. The vertical ray is the cheapest proof that the box is a
+	# real collider on the layer the ship and every projectile already use.
+	var tower: Building = towers[0]
+	var ray_from: Vector3 = tower.global_position + Vector3(0.0, 60.0, 0.0)
+	var ray_to: Vector3 = tower.global_position
+	_check(_world_hit(ray_from, ray_to) == tower, "a tower is solid from above")
+	_check(
+		Building.MAX_HP >= Enemy.MAX_HP * 10,
+		"a demolition costs at least ten turrets' worth of fire (%d HP)" % Building.MAX_HP
+	)
+
+	# The price is the design: one hit short of the last, the tower is still a wall.
+	var score_before: int = city.score()
+	tower.take_damage(Building.MAX_HP - 1)
+	_check(tower.current_hp() == 1, "a tower survives all but its last hit")
+	_check(not tower.is_destroyed(), "the last hit is the one that brings it down")
+	_check(_world_hit(ray_from, ray_to) == tower, "a damaged tower still blocks the street")
+
+	tower.take_damage(1)
+	_check(tower.is_destroyed(), "the last hit demolishes the tower")
+	_check(
+		city.score() == score_before + Building.SCORE_VALUE,
+		"a demolition pays its own score (+%d)" % Building.SCORE_VALUE
+	)
+	# The collision change is deferred out of the `body_entered` callback, so the
+	# street only opens on the next physics step.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_check(
+		_world_hit(ray_from, ray_to) == null,
+		"a demolished tower stops blocking, so the street opens"
+	)
+
+	# Player fire is what chips a tower. The shot is built the way the vulcan builds
+	# one and aimed at a second tower's side face.
+	var target: Building = towers[1]
+	var shot_from: Vector3 = target.global_position + Vector3(
+		0.0, 0.0, -(target.footprint().y * 0.5 + 5.0)
+	)
+	var bullet: Projectile = _spawn_player_bullet(shot_from, Vector3(0.0, 0.0, 1.0))
+	for _i in 30:
+		await get_tree().physics_frame
+		if target.current_hp() < Building.MAX_HP:
+			break
+	_check(
+		target.current_hp() == Building.MAX_HP - 1,
+		"a player shot damages a tower (%d HP left)" % target.current_hp()
+	)
+	if is_instance_valid(bullet):
+		bullet.queue_free()
+
+	# Camera occlusion. The camera sits 65 units up, so the sight line only crosses a
+	# tower when the ship flies the half of the street nearest the camera-side block;
+	# the ship is placed there instead of being flown there, because the rule is
+	# about geometry and not about speed.
+	var occluder: Building = towers[2]
+	var probe: Vector3 = Vector3(
+		occluder.global_position.x,
+		0.0,
+		occluder.global_position.z - occluder.footprint().y * 0.5 - 4.0
+	)
+	_check(city.is_street(probe), "the occlusion probe is somewhere the ship can fly")
+	player.global_position = probe
+	for _i in 10:
+		await get_tree().physics_frame
+	var camera: Camera3D = player.camera
+	var on_the_line: Array[Building] = city.occluders_between(
+		camera.global_position, player.global_position
+	)
+	_check(
+		on_the_line.has(occluder),
+		"a tower between the camera and the ship is found"
+	)
+	_check(
+		occluder.is_ghosted(),
+		"the tower on the sight line is dithered out instead of hiding the ship"
+	)
+
+	city.queue_free()
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+
+## The first thing a world-layer ray meets, or null. Buildings are the only bodies
+## on that layer, which is why the mask is the whole test.
+func _world_hit(from: Vector3, to: Vector3) -> Object:
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
+		from, to, 1 << Building.LAYER_WORLD
+	)
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	var hit: Dictionary = get_viewport().world_3d.direct_space_state.intersect_ray(query)
+	return hit.get("collider") as Object
 
 
 func _check(condition: bool, description: String) -> void:
