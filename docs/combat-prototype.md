@@ -12,9 +12,10 @@ decision D-03.
 ./run.sh
 ```
 
-Opens `ui/menu/main_menu.tscn`, the boot menu: **START** loads the arena,
-**OPTIONS** opens the fullscreen toggle, the livery picker and the controls
-reference. Engine pinned to **Godot 4.7.2 stable, Forward+**.
+Opens `ui/menu/main_menu.tscn`, the boot menu: **PLANET** loads the arena,
+**CITY** loads the night district, **OPTIONS** opens the fullscreen toggle, the
+livery picker and the controls reference. Engine pinned to
+**Godot 4.7.2 stable, Forward+**.
 `./run.sh --editor` opens the editor instead; `./run.sh --headless` runs without a
 window and is what CI uses.
 
@@ -779,6 +780,90 @@ own missiles lock it. The turret's roam/orbit state machine, its hull and its
 bullet patterns are all replaced; what survives from the base is the hit flash,
 the damage bookkeeping and the `killed` signal.
 
+## The city
+
+The second scenario is the planet's opposite, so it reuses every rule and changes
+only what the walls do. `levels/city/city.tscn` is its own scene — the boot menu
+offers it as a separate run, not a mode of the arena — and the play plane, the
+ship, the weapons and the HUD are the same nodes the planet uses. What the district
+adds is geometry: a tower is one `StaticBody3D` box on the world collision layer,
+which is the layer the ship's capsule and every projectile already collide with.
+The streets are the level because the walls are real, not because a level script
+forbids anything.
+
+The grid is 8 x 8 blocks of 26 units with 12-unit streets (`PITCH` 38), and the
+tower is inset by a 2.5-unit sidewalk on each side, so the curb the ground shader
+paints and the wall the ship hits are the same line. The camera shows roughly
+128 x 72 units of the plane, which makes a block a third of the screen and a street
+a sixth: the tightest grid that still lets a 2-unit-wide ship turn around. The
+outer ring is filled to the full pitch instead of the footprint, so neighbouring
+perimeter blocks touch and the district has no street-sized gap to leak through;
+one interior block in seven is left empty as a plaza, because a district of solid
+cells reads as a maze and the open corners are where a fight has room. The grid is
+placed so the crossing between blocks 3 and 4 is the world origin, and the ship
+starts there.
+
+The look is one environment built in code: near-black background, a cool moon at
+0.75 energy, dark ambient, and a little bloom so the lit windows read as the
+district's own light. The towers sample their windows and their damage cracks from
+world space in `entities/city/building.gdshader`; the ground paints asphalt,
+pavement, curb and dashed centre lines from world coordinates in
+`levels/city/city_ground.gdshader`. Both are procedural for the same reason: a
+texture would need UVs that survive a demolition, and the shaders already have the
+one coordinate that does.
+
+### Demolition
+
+`Building.MAX_HP` is 300 against a turret's 10: about 8.5 s of sustained vulcan
+fire, 15 s of laser, or nine full missile salvos. That price is the design — a
+tower is a wall you can remove, not cover you clear while flying past — and a
+demolition pays `SCORE_VALUE` (150) when it lands. Only player fire chips a tower.
+Enemy fire is absorbed by the wall, which is what makes a street a corridor instead
+of a shooting gallery: the return fire dies at the corner. The impact still plays
+for both teams, because a wall that swallows a shot without a spark reads as a bug.
+
+The health bar appears on the first hit and lingers `BAR_LINGER` (2.5 s) after the
+last one, so a cost that high shows progress instead of reading as an invulnerable
+wall. The hit flash is squared and short (`HIT_FLASH_TIME` 0.12 s, `pow(x, 2.6)`):
+a tower covers a third of the screen, and a linear fade keeps the whole wall white
+for a tenth of a second, which reads as a rendering fault instead of a hit.
+
+When the last hit lands the tower stops being a wall and becomes a ruin: the
+collision shape is disabled with `set_deferred` (the change happens inside a
+`body_entered` callback), the mesh is hidden, and rubble is spawned with no
+collider. The collapse reuses `ShipExplosion`, scaled by the footprint
+(`BLAST_SCALE_PER_UNIT` 0.11, clamped 1.6 to 3.4), so a 21-unit tower gets a 2.3x
+blast and a 38-unit perimeter block the 3.4 cap. The street opens where the wall
+was.
+
+### Camera occlusion
+
+The camera hangs 65 units up, so a tower within roughly ten units of the ship on
+the camera side hides it. The city traces the sight line from the camera to the
+ship every physics frame and dithers out every tower on it with a screen-space
+Bayer pattern (`GHOST_AMOUNT` 0.86) instead of alpha blending. A blended tower would
+leave the transparent queue and stop writing depth, which lets one building sort
+over another; the dither keeps the opaque pass and the sort order intact, and it
+only removes enough of the wall to see the ship, so the tower still reads as a
+tower.
+
+### Encounter streaming
+
+Encounters stream the way the planet's do, with one change: a spawn snaps to the
+nearest street crossing (`_nearest_street_centre`), because a turret appearing
+inside a tower would have to be seen through it, and a launcher that starts a fight
+behind a wall has no line to telegraph down. A crossing can land much closer than
+the requested distance, so the bearings are retried below
+`MIN_SPAWN_SEPARATION` (40) before the nearest one is accepted. The district is
+about 300 units across, so the despawn ring is 170 instead of the planet's 190,
+which would reach past the wall.
+
+Enemies had to learn about walls too. The turret and the launcher used to move by
+assigning `global_position`, which tunnels through a tower; both now steer through
+`Enemy._move_step()` into `move_and_slide()`, and the planet behaves exactly as
+before because it has no world colliders. The interceptor already flew through
+`move_and_slide`.
+
 ## Death and the next run
 
 Death is a five-second question, not a game over: **SIGNAL LOST** takes the
@@ -996,6 +1081,13 @@ that ships.
    answer to "how do I get there". If it reads as a speed toggle, the mode has no
    reason to exist and the numbers are the wrong place to fix it.
 
+9. **Does a level with walls change the fight, or only the route?** The city
+   makes every street a corridor: enemy fire dies at the corner, a turret cannot
+   orbit through a block, and the only shortcut through a wall costs about eight
+   seconds of sustained fire. The open question is whether that cost reads as a
+   decision or as a wall you never bother to break. The sight-line dither exists
+   so the answer is not hidden behind the tower the ship is flying past.
+
 ## Tuning knobs
 
 All values are named constants at the top of each script.
@@ -1051,6 +1143,14 @@ All values are named constants at the top of each script.
 | Planet scale and lap length | `levels/arena/arena.gd` | `PLANET_RADIUS` (lap = `2 * PI * PLANET_RADIUS`), `PLANET_SEGMENTS`, `PLANET_RINGS` |
 | Islands and sea level | `levels/arena/planet_surface.gdshader` | `SEA_LEVEL`, `REGION_SCALE` (continents), `ISLAND_SCALE` (islands), `COAST_SCALE` (shoreline) |
 | City districts | `levels/arena/planet_surface.gdshader` | `CITY_CELL` (density), `CITY_HALF` (district size), `CITY_BLOCK`, `CITY_ROAD`, `CITY_ROOF` (street and roof scale), `CITY_LIT` (share of lit roofs) |
+| City grid | `levels/city/city.gd` | `BLOCK` (26), `STREET` (12), `PITCH` (38), `SIDEWALK` (2.5), `FOOTPRINT` (21), `BLOCKS` (8), `START_CELL`, `GRID_ORIGIN`; the outer ring is filled to the full pitch |
+| City skyline and plazas | `levels/city/city.gd` | `TOWER_HEIGHT_MIN/MAX`, `PERIMETER_HEIGHT_MIN/MAX`, `PLAZA_CHANCE` (0.14), `LAYOUT_SEED` |
+| City encounters | `levels/city/city.gd` | `MAX_ENEMIES`, `SPAWN_INTERVAL`, `FIRST_SPAWN_DISTANCE/ANGLE`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `MIN_SPAWN_SEPARATION` (40), `SPAWN_ATTEMPTS`, `DESPAWN_DISTANCE` (170), `SPAWN_SEED`, `MISSILE_ENEMY_SHARE`, `FIGHTER_ENEMY_SHARE` |
+| City camera occlusion | `levels/city/city.gd`, `entities/city/building.gd` | `MAX_OCCLUDERS`, `WORLD_MASK`; `GHOST_AMOUNT` (0.86) is how much of the wall the dither removes |
+| Night lighting | `levels/city/city.gd` | `_build_environment()`: background and ambient colours/energy, moon rotation/energy/colour, `glow_intensity`, `glow_bloom`, `glow_hdr_threshold` |
+| Tower price and look | `entities/city/building.gd` | `MAX_HP` (300), `SCORE_VALUE` (150), `HIT_FLASH_TIME` (0.12), `BAR_LINGER`, `BAR_*`, `BLAST_SCALE_PER_UNIT` (0.11), `BLAST_SCALE_MIN/MAX`, `COLLAPSE_SHAKE`, `RUBBLE_*` |
+| Tower surface | `entities/city/building.gdshader` | `concrete`, `glass`, `lit_window`, `roof_color`, `ember_color`; the `damage`, `flash` and `ghost` uniforms are driven from `building.gd` |
+| Street surface | `levels/city/city_ground.gdshader` | `grid_origin`, `block`, `street`, `pitch`, `sidewalk`, `asphalt`, `pavement`, `curb`, `line` |
 | Ground height | `levels/arena/arena.gd` | `GROUND_Y` |
 | Surface look | `levels/arena/planet_surface.gdshader` | noise scales, palette stops, contour count and strength |
 | Camera framing | `entities/player/player.tscn` | `CameraRig` position, pitch, `Camera3D.fov` |
@@ -1085,9 +1185,13 @@ entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -
 entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
 entities/enemy/fighter_enemy.gd interceptor: the player's airframe and flight model, a missile pass and a break
 ui/hud/                         event-fed bars; the radar polls the enemy group for bearings
-ui/menu/                        boot menu: start, the display and livery settings, the controls reference
+ui/menu/                        boot menu: the planet and the city, the display and livery settings, the controls reference
 ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
+levels/city/city.gd             night district: block grid, street-snapped streaming, sight-line occlusion, score
+levels/city/city_ground.gdshader asphalt, pavement, curb and centre lines painted from world coordinates
+entities/city/building.gd       tower: HP, hit flash, health bar, rubble, scaled collapse, dither ghost
+entities/city/building.gdshader world-space windows, damage cracks and the Bayer ghost
 ```
 
 Enemies, bullets and props are still built in code (`_build_visual()`) instead of
@@ -1095,6 +1199,20 @@ being serialised into the `.tscn` files, and placeholder geometry remains a swap
 target: when the pre-rendered pipeline lands (D-02) each entity can drop in a mesh
 or a sprite without touching the scene graph or the collision shapes. The player
 is no longer a placeholder.
+
+The city is one scene with one script, the same shape as the arena: `city.gd` owns
+the grid, the environment, the ground, the streaming and the score, and the
+`.tscn` only wires the player, the HUD and the two containers. Each tower is a
+`Building` node built by `build()`, because a district is placement data rather
+than authored content: changing `BLOCKS` or `PLAZA_CHANCE` must not mean editing 64
+nodes. The two levels never coexist — the menu loads one or the other — which is
+what lets both use the same `%Player` and `%Enemies` contract.
+
+One collision detail is worth keeping in mind when touching projectiles: in Godot
+4.7 a moving `Area3D` with `monitorable = false` does not detect a `StaticBody3D`,
+so a bullet flew through every tower. Projectiles are monitorable now. Nothing in
+the game should ever detect one, so the only cost is the broadphase registration
+the wall test needs.
 
 The player airframe is model geometry now. `PlayerModel` instantiates the imported
 VF-1S, scales and yaws it into the capsule's slot, hides the deployed gear and the
@@ -1240,6 +1358,26 @@ the scene file.
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --interceptor 40 --kill 1 --death-delay 8 --out /tmp/gerwalk_enemy_death.png
 
+# Review the city: the street grid and the night lighting. `--nofire` keeps the
+# vulcan off, because a stream washes the streets out and starts demolishing
+# whatever it hits.
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --city 1 --nofire 1 --out /tmp/city_start.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --city 1 --nofire 1 --travel 150 --out /tmp/city_travel.png
+
+# Review the sight line: the camera only loses the ship when it flies the half of
+# the street nearest the camera-side block, so the frame places the ship there.
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --city 1 --nofire 1 --px 19 --pz 5 --out /tmp/city_ghost.png
+
+# Review a demolition: `--chip N` leaves the nearest tower N damage into its
+# demolition (cracks and health bar), `--ruin 1` takes it all the way down.
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --city 1 --nofire 1 --chip 240 --out /tmp/city_chip.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --city 1 --nofire 1 --ruin 1 --out /tmp/city_ruin.png
+
 # Review a hull detail close up, and split a dark patch into its three causes:
 # `--nosmoke` removes the wake, `--noshadow` the sun's shadow map, `--sunrot`
 # swings the sun around the ship
@@ -1267,6 +1405,15 @@ actions, so it exercises the same path a player does.
   so the only thing that moves is the shader's object-space pattern. Dark terrain
   plus slow movement makes the scroll hard to read; the isolines exist partly for
   that reason.
+- **The city is a closed district.** The outer ring is solid, so a run is contained
+  by the perimeter: the only way out is to demolish a perimeter block, and the
+  ground plane continues past it without content. That is deliberate for a
+  prototype, but it means the district has no approach and no exit.
+- **The sight-line dither hides the wall, not the ship.** It only fires when the
+  line from the camera crosses a tower, which at a crossing it does not: the ship
+  is occluded only when it flies the half of the street nearest the camera-side
+  block. The alternative — a camera that swings — was rejected because it breaks
+  the planar aim the whole control scheme depends on.
 
 - **The laser does not pierce.** It stops at the first body it meets, which keeps
   the drawn beam honest; a piercing beam is a different weapon and needs its own
