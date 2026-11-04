@@ -1,10 +1,10 @@
 class_name MainMenu
 extends Control
-## Boot scene. It owns the two destinations the game has before a run: the arena,
-## and a settings panel.
+## Boot scene. It owns the destinations the game has before a run -- the planet
+## arena, the city district -- and a settings panel.
 ##
 ## The window mode is the one display option the build honours, so it is applied
-## here and nowhere else: the arena inherits it, and `GameSettings` restores it on
+## here and nowhere else: the level inherits it, and `GameSettings` restores it on
 ## the next launch. The livery is the one option the player sees in flight, so it
 ## is previewed on a live copy of the airframe instead of on a colour chip: a chip
 ## does not say how a colour will land on the panels, the glass or the lines.
@@ -13,6 +13,7 @@ extends Control
 ## people who have not read the docs.
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
+const CITY_SCENE: String = "res://levels/city/city.tscn"
 
 ## One palette, offered five times. The hull, the nose, the stripe, the glass and
 ## the lines are the same decision -- what colour is this ship -- so they get the
@@ -44,6 +45,7 @@ var _canopy: Color = GameSettings.DEFAULT_CANOPY
 var _lines: Color = GameSettings.DEFAULT_LINES
 
 @onready var _start_button: Button = %StartButton
+@onready var _city_button: Button = %CityButton
 @onready var _options_button: Button = %OptionsButton
 @onready var _options: Control = %Options
 @onready var _fullscreen: CheckButton = %Fullscreen
@@ -60,6 +62,7 @@ func _ready() -> void:
 	_options.visible = false
 
 	_start_button.pressed.connect(_on_start_pressed)
+	_city_button.pressed.connect(_on_city_pressed)
 	_options_button.pressed.connect(_on_options_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
 	_fullscreen.toggled.connect(_on_fullscreen_toggled)
@@ -97,9 +100,20 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _on_start_pressed() -> void:
 	Sfx.play(&"ui_select")
-	var error: Error = get_tree().change_scene_to_file(ARENA_SCENE)
+	_open_scene(ARENA_SCENE)
+
+
+func _on_city_pressed() -> void:
+	Sfx.play(&"ui_select")
+	_open_scene(CITY_SCENE)
+
+
+## Both destinations are one decision -- which run to start -- so they take the
+## same path and report a missing scene the same way.
+func _open_scene(path: String) -> void:
+	var error: Error = get_tree().change_scene_to_file(path)
 	if error != OK:
-		push_error("Could not open %s: %s" % [ARENA_SCENE, error_string(error)])
+		push_error("Could not open %s: %s" % [path, error_string(error)])
 
 
 func _on_options_pressed() -> void:
