@@ -13,9 +13,10 @@ decision D-03.
 ```
 
 Opens `ui/menu/main_menu.tscn`, the boot menu: **PLANET** loads the arena,
-**CITY** loads the night district, **OPTIONS** opens the fullscreen toggle, the
-livery picker and the controls reference. Engine pinned to
-**Godot 4.7.2 stable, Forward+**.
+**CITY** loads the night district, **CONTINUE** (offered once a save exists)
+reopens the last scenario, **PILOT** shows the level and the five tracks, and
+**OPTIONS** opens the fullscreen toggle, the livery picker and the controls
+reference. Engine pinned to **Godot 4.7.2 stable, Forward+**.
 `./run.sh --editor` opens the editor instead; `./run.sh --headless` runs without a
 window and is what CI uses.
 
@@ -916,8 +917,52 @@ travels with the event and the total does not depend on which spawn path produce
 enemy. The arena owns the total: it adds the value and republishes
 `score_changed(total)`, and the HUD prints it zero-padded in the top-right corner.
 The arena is the run, so a respawn reloads the scene and the score starts again at
-zero — a death ends the run's score the same way it ends the run. There is no high
-score yet; it would need somewhere to persist, and the prototype has no save file.
+zero — a death ends the run's score the same way it ends the run. The score itself
+is per-run and is not saved; the persistent record is the pilot's kill count, which
+is what the progression reads (see below).
+
+## Pilot progression
+
+The pilot has a level from 1 to 100, earned by killing enemies: one enemy, one
+kill. The level is not stored; it is derived from the kill total, so a save can
+never hold a level that disagrees with the kills that paid for it.
+`GameProgress.kills_for_level(L)` is `ceil(0.045 * (L - 1)^2 + 0.55 * (L - 1))`,
+which puts level 2 at the first kill, level 10 at 9, level 50 at 135 and level 100
+at 496.
+
+Every level improves the ship automatically across five tracks. There are no
+points to spend and no upgrade screen:
+
+| Track | Cap at level 100 | What it changes |
+|-------|------------------|-----------------|
+| THRUSTERS | +20% speed | cruise, afterburner, dash and both fighter speeds; a maxed GERWALK is 32.2, still below the interceptor's 34 |
+| ARMOR | +8 HP | 6 -> 14; the health bar grows its segments with `maximum` |
+| REACTOR | +80% capacity, +60% recharge | the burner lasts longer and comes back sooner; the drain rate is unchanged |
+| AUTOLOADER | -15% interval | vulcan, laser tick and plasma cadence |
+| GUNNERY | -20% spread, +20% lock cone, +20% range | tighter vulcan fan, wider plasma lock, longer laser |
+
+Damage is deliberately not scaled. The enemies do not scale either — a turret is
+10 HP, a launcher 40, an interceptor 30 at every level — so raising damage would
+turn every fight into a formality. The tracks make the ship handle better, not hit
+harder.
+
+`PilotStats` turns the level into those multipliers. `Player._apply_pilot_stats()`
+reads them once in `_ready` and hands the same object to `WeaponSystem`, so a
+level-up mid-run only moves the HUD: the ship keeps the numbers it started with
+until the next run. That is the rule that stops a lucky kill from changing the
+fight already in progress.
+
+The save is `user://progress.cfg`, and it holds only `total_kills`,
+`last_scenario` and a `version`. It is written on every kill and when a run
+starts, which is cheap because a kill is seconds apart. A missing or corrupt file
+reads as a level-1 pilot and is left on disk for inspection. The menu's CONTINUE
+button reopens `last_scenario`; it appears only when the file exists, and the
+PILOT panel shows the level, the kills and every track, with a two-press RESET.
+
+The HUD prints the level in the top-left and draws a bar of progress to the next
+one; at level 100 the label reads `MAX` and the bar is full. Both come from
+`pilot_progress_changed(total_kills, level, kills_into_level, kills_for_next)`,
+which `GameProgress.register_kill()` emits after each write.
 
 ## Audio
 
@@ -1126,6 +1171,9 @@ All values are named constants at the top of each script.
 | Evasion | `entities/player/player.gd`, `combat/projectile.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN`; `Player.is_evading()` gates the early return in `Projectile._on_body_entered` |
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
+| Pilot level curve and save | `common/game_progress.gd` | `MAX_LEVEL` (100), the two `kills_for_level()` coefficients, `CONFIG_PATH`, `VERSION`; the level is derived, never stored |
+| Pilot stat tracks | `common/pilot_stats.gd` | `SPEED_GAIN`, `HP_GAIN`, `TURBO_CAPACITY_GAIN`, `TURBO_RECHARGE_GAIN`, `INTERVAL_GAIN`, `VULCAN_SPREAD_GAIN`, `PLASMA_CONE_GAIN`, `LASER_RANGE_GAIN`; each is the whole budget of its track at level 100 |
+| Level readout | `ui/hud/level_bar.gd` | `BAR_SIZE`, `FILLED_COLOR`; the label text is built in `hud.gd` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
 | Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows the measured acceleration in `_update_smoke()`, so the nozzles are clean at a steady throttle |
 | Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`, `WINGTIP_SPEED_FLOOR`, `WING_TIP_L`, `WING_TIP_R`; a ribbon rebuilt each frame from `wing_tips()`, which carries the measured mesh tip in the posed wing bone's frame, faded in by `_wingtip_vapour()` from the FIGHTER airspeed and wiped entirely outside FIGHTER |
@@ -1168,6 +1216,8 @@ All values are named constants at the top of each script.
 
 ```
 common/global_event_bus.gd      lifecycle signals only (< 15 events)
+common/game_progress.gd         persistent pilot record: kill curve, save/load, scenario memory, reset
+common/pilot_stats.gd           the five tracks a level buys, as multipliers on the tuned bases
 common/sfx.gd                   autoload: palette, mix, bus + room + limiter, 2D voice pool, 3D events, engine hum
 tools/generate_sfx.gd           deterministic synthesizer that writes audio/sfx/*.wav
 audio/sfx/*.wav                 the committed palette (generated, never sampled)
@@ -1184,8 +1234,8 @@ entities/player/weapon_system.gd  primaries, missiles, the bomb and the decoy, s
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
 entities/enemy/fighter_enemy.gd interceptor: the player's airframe and flight model, a missile pass and a break
-ui/hud/                         event-fed bars; the radar polls the enemy group for bearings
-ui/menu/                        boot menu: the planet and the city, the display and livery settings, the controls reference
+ui/hud/                         event-fed bars (health, turbo, pilot level); the radar polls the enemy group for bearings
+ui/menu/                        boot menu: the planet and the city, CONTINUE and the pilot panel, the display and livery settings, the controls reference
 ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
 levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
 levels/city/city.gd             night district: block grid, street-snapped streaming, sight-line occlusion, score
@@ -1279,8 +1329,8 @@ the scene file.
 ## Checks
 
 ```sh
-# Headless gameplay assertions (movement, firing, patterns, i-frames, score, HUD
-# layout, death)
+# Headless gameplay assertions (movement, firing, patterns, i-frames, score, pilot
+# progression, HUD layout, death)
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . tests/smoke_test.tscn
 
 # Regenerate the sound palette from scratch (reproduces the committed WAVs byte for byte)
