@@ -7,6 +7,9 @@ const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
 ## Every settings round trip uses this file, never the real `user://settings.cfg`:
 ## a test must not overwrite the choices of whoever runs it.
 const TEST_SETTINGS: String = "user://test-settings.cfg"
+## The same rule for the pilot record: the suite runs at level 1 and must never
+## earn (or erase) levels on the machine that runs it.
+const TEST_PROGRESS: String = "user://test-progress.cfg"
 
 var _failures: Array[String] = []
 var _arena: Arena = null
@@ -15,6 +18,11 @@ var _died_count: int = 0
 
 
 func _ready() -> void:
+	# The arena reads and writes the pilot record in its own `_ready`, so the
+	# scratch path is installed before the scene enters the tree.
+	GameProgress.use_path(TEST_PROGRESS)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS))
+
 	GlobalEventBus.player_died.connect(func() -> void: _died_count += 1)
 
 	_arena = load(ARENA_SCENE).instantiate()
@@ -28,6 +36,7 @@ func _ready() -> void:
 	_check(_player is CharacterBody3D, "player is a CharacterBody3D")
 
 	_test_player_is_centered()
+	await _test_pilot_progression()
 	await _test_main_menu()
 	await _test_livery_paint()
 	await _test_movement()
@@ -72,6 +81,10 @@ func _ready() -> void:
 	await _test_death()
 
 	await _test_city_scene()
+
+	# The scratch record is cleared too: a suite run must not leave a save behind
+	# that the next run, or a real player, could read as progress.
+	GameProgress.instance().reset()
 
 	_report()
 
@@ -323,6 +336,49 @@ func _test_main_menu() -> void:
 		),
 		"a missing file falls back to the factory nose"
 	)
+
+	# The pilot panel and CONTINUE. The arena that is already running wrote a save
+	# when it started, so the no-save state is tested by removing the file first.
+	var continue_button: Button = menu.get_node("%ContinueButton") as Button
+	var pilot_button: Button = menu.get_node("%PilotButton") as Button
+	var pilot: Control = menu.get_node("%Pilot") as Control
+	var pilot_level: Label = menu.get_node("%Level") as Label
+	var pilot_tracks: Label = menu.get_node("%Tracks") as Label
+	var reset_button: Button = menu.get_node("%ResetButton") as Button
+	var pilot_back: Button = menu.get_node("%PilotBackButton") as Button
+	_check(continue_button != null, "the menu offers a continue button")
+	_check(pilot_button != null, "the menu offers a pilot panel")
+	_check(pilot != null and not pilot.visible, "the pilot panel starts hidden")
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS))
+	GameProgress.use_path(TEST_PROGRESS)
+	menu.refresh()
+	_check(not continue_button.visible, "continue is hidden without a save")
+
+	GameProgress.instance().total_kills = 37
+	GameProgress.instance().remember_scenario(City.SCENE_PATH)
+	menu.refresh()
+	_check(continue_button.visible, "continue appears once a save exists")
+
+	pilot_button.pressed.emit()
+	await get_tree().process_frame
+	_check(pilot.visible, "the pilot button opens the panel")
+	_check(
+		pilot_level.text == "LEVEL %d" % GameProgress.level_for_kills(37),
+		"the panel shows the level (%s)" % pilot_level.text
+	)
+	_check(pilot_tracks.text.contains("THRUSTERS"), "the panel lists the five tracks")
+
+	reset_button.pressed.emit()
+	_check(continue_button.visible, "the first reset press only arms the button")
+	reset_button.pressed.emit()
+	_check(not FileAccess.file_exists(TEST_PROGRESS), "the second reset press clears the save")
+	_check(not continue_button.visible, "continue disappears after a reset")
+	_check(pilot_level.text == "LEVEL 1", "the panel returns to level 1")
+
+	pilot_back.pressed.emit()
+	await get_tree().process_frame
+	_check(not pilot.visible, "the pilot back button closes the panel")
 
 	menu.queue_free()
 	await get_tree().process_frame
@@ -683,6 +739,137 @@ func _test_player_is_centered() -> void:
 	var projected: Vector2 = camera.unproject_position(_player.global_position)
 	var offset: float = projected.distance_to(centre)
 	_check(offset < 1.0, "player projects to the screen centre (off by %.2f px)" % offset)
+
+
+## The pilot record is the one piece of state that survives a session, so it is
+## tested as a model: the curve, the two save fields, the corrupt-file fallback and
+## the kill hook. The suite ends this check on level 1 again, because every later
+## speed, HP and turbo assertion was written against the base constants.
+func _test_pilot_progression() -> void:
+	_check(GameProgress.kills_for_level(1) == 0, "level 1 starts at zero kills")
+	_check(GameProgress.kills_for_level(100) == 496, "level 100 is 496 kills")
+
+	var monotonic: bool = true
+	for level in range(2, GameProgress.MAX_LEVEL + 1):
+		if GameProgress.kills_for_level(level) < GameProgress.kills_for_level(level - 1):
+			monotonic = false
+	_check(monotonic, "no level costs fewer kills than the one before it")
+
+	# The ceiling can make two levels share a threshold, so the inverse is "the
+	# threshold reaches at least this level, and one kill short does not".
+	for level in [2, 10, 50, 99, 100]:
+		var threshold: int = GameProgress.kills_for_level(level)
+		_check(
+			GameProgress.level_for_kills(threshold) >= level,
+			"the curve reaches level %d at its own threshold" % level
+		)
+		_check(
+			GameProgress.level_for_kills(threshold - 1) < level,
+			"one kill short of level %d is a lower level" % level
+		)
+	_check(GameProgress.level_for_kills(0) == 1, "zero kills is level 1")
+	_check(GameProgress.level_for_kills(10000) == 100, "the level caps at 100")
+
+	var base: PilotStats = PilotStats.new(1)
+	_check(is_equal_approx(base.speed_multiplier(), 1.0), "level 1 adds no speed")
+	_check(base.max_hp(Player.MAX_HP) == Player.MAX_HP, "level 1 adds no HP")
+	_check(is_equal_approx(base.turbo_capacity_multiplier(), 1.0), "level 1 adds no turbo")
+	_check(is_equal_approx(base.primary_interval_multiplier(), 1.0), "level 1 adds no rate")
+
+	var maxed: PilotStats = PilotStats.new(100)
+	_check(is_equal_approx(maxed.speed_multiplier(), 1.2), "level 100 is +20% speed")
+	_check(maxed.max_hp(Player.MAX_HP) == Player.MAX_HP + 8, "level 100 is +8 HP")
+	_check(is_equal_approx(maxed.turbo_capacity_multiplier(), 1.8), "level 100 is +80% turbo")
+	_check(is_equal_approx(maxed.turbo_recharge_multiplier(), 1.6), "level 100 is +60% recharge")
+	_check(is_equal_approx(maxed.primary_interval_multiplier(), 0.85), "level 100 is -15% interval")
+	_check(is_equal_approx(maxed.vulcan_spread_multiplier(), 0.8), "level 100 is -20% spread")
+	_check(is_equal_approx(maxed.plasma_cone_multiplier(), 1.2), "level 100 is +20% lock cone")
+	_check(is_equal_approx(maxed.laser_range_multiplier(), 1.2), "level 100 is +20% laser range")
+	_check(
+		Player.MAX_SPEED * maxed.speed_multiplier() < 34.0,
+		"a maxed GERWALK still cannot outrun an interceptor"
+	)
+
+	# Only kills and scenario are stored; the level comes back derived.
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS))
+	var record: GameProgress = GameProgress.instance()
+	record.total_kills = 37
+	record.remember_scenario(City.SCENE_PATH)
+	GameProgress.use_path(TEST_PROGRESS)
+	var reloaded: GameProgress = GameProgress.instance()
+	_check(reloaded.total_kills == 37, "the kill count survives a reload")
+	_check(reloaded.last_scenario == City.SCENE_PATH, "the last scenario survives a reload")
+	_check(
+		reloaded.level() == GameProgress.level_for_kills(37),
+		"the level is derived from the count, not stored"
+	)
+	var config: ConfigFile = ConfigFile.new()
+	_check(config.load(TEST_PROGRESS) == OK, "the progress file is a config file")
+	_check(
+		int(config.get_value(GameProgress.SECTION, GameProgress.VERSION_KEY, 0))
+		== GameProgress.VERSION,
+		"the save carries its version"
+	)
+
+	# A corrupt file is a new pilot, and it is left on disk for inspection.
+	var broken: FileAccess = FileAccess.open(TEST_PROGRESS, FileAccess.WRITE)
+	if broken != null:
+		broken.store_string("this is not a config file")
+		broken.close()
+	GameProgress.use_path(TEST_PROGRESS)
+	var recovered: GameProgress = GameProgress.instance()
+	_check(recovered.total_kills == 0, "a corrupt save falls back to level 1")
+	_check(recovered.last_scenario.is_empty(), "a corrupt save has no scenario")
+	_check(FileAccess.file_exists(TEST_PROGRESS), "the corrupt file is kept for inspection")
+
+	# One enemy, one kill on the record, one event on the bus. The planet's own
+	# population is left alone: the arena spawns its opening turret before this test
+	# runs, and the streaming spawner is what later tests expect to find.
+	GameProgress.use_path(TEST_PROGRESS)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS))
+	var events: Array[int] = []
+	var listener: Callable = func(
+		total: int, _level: int, _into: int, _next: int
+	) -> void: events.append(total)
+	GlobalEventBus.pilot_progress_changed.connect(listener)
+
+	var turret: Enemy = _spawn_turret(Vector3(18.0, 0.0, 0.0))
+	await get_tree().physics_frame
+	if turret != null:
+		turret.take_damage(turret.current_hp())
+	_check(GameProgress.instance().total_kills == 1, "an enemy kill reaches the pilot record")
+	_check(
+		not events.is_empty() and events[events.size() - 1] == 1,
+		"the kill reaches the HUD through the bus"
+	)
+	GlobalEventBus.pilot_progress_changed.disconnect(listener)
+
+	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
+	var level_label: Label = hud.get_node("%LevelLabel") as Label
+	_check(
+		level_label != null and level_label.text.begins_with("PILOT LV 2"),
+		"the HUD shows the level a kill earned (%s)" % (level_label.text if level_label else "")
+	)
+
+	# Stats are captured when the run starts, so the same method the player calls
+	# in `_ready` is what proves the caps reach the ship and the guns.
+	GameProgress.instance().total_kills = 496
+	_player._apply_pilot_stats()
+	_check(
+		is_equal_approx(float(_player.get("_max_speed")), Player.MAX_SPEED * 1.2),
+		"a maxed pilot starts faster"
+	)
+	_check(int(_player.get("_max_hp")) == Player.MAX_HP + 8, "a maxed pilot starts tougher")
+	_check(
+		is_equal_approx(float(_player.get("_turbo_max")), Player.TURBO_MAX * 1.8),
+		"a maxed pilot starts with a bigger tank"
+	)
+	_check(_player._weapons._stats.level == 100, "the weapons take the pilot's level too")
+
+	# Back to the baseline every later assertion assumes.
+	GameProgress.instance().reset()
+	_player._apply_pilot_stats()
+	_check(int(_player.get("_max_hp")) == Player.MAX_HP, "the suite returns to level 1")
 
 
 func _test_movement() -> void:
@@ -1841,6 +2028,8 @@ func _test_audio() -> void:
 func _test_hud_layout() -> void:
 	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
 	var names: Array[String] = [
+		"%LevelLabel",
+		"%LevelBar",
 		"%SalvoLabel",
 		"%DecoyLabel",
 		"%ModeLabel",
@@ -4338,6 +4527,10 @@ func _wav_pcm(path: String) -> Dictionary:
 ## so the arena is retired first. Two live players would both answer `%Player`, and
 ## two streamers would fill one world with contacts from two levels.
 func _test_city_scene() -> void:
+	# The suite has been killing enemies for minutes, and a new scene captures the
+	# pilot's level on its own `_ready`. Reset first so the city's player is built
+	# on the same level-1 baseline as the arena's.
+	GameProgress.instance().reset()
 	if _arena != null:
 		_arena.queue_free()
 		_arena = null
