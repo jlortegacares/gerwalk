@@ -19,6 +19,8 @@ extends Node3D
 ## own and are spawned ahead of the ship, so travelling is how the player finds
 ## them and leaving them behind is how the planet stays worth crossing.
 
+const SCENE_PATH: String = "res://levels/arena/arena.tscn"
+
 ## A lap is 2 * PI * PLANET_RADIUS, so this single number is "how much planet
 ## there is to cross". At 1600 a lap is about 10053 units, roughly 6 minutes at
 ## GERWALK cruise and 3.5 at FIGHTER cruise.
@@ -87,6 +89,9 @@ var _score: int = 0
 func _ready() -> void:
 	add_to_group(&"arena")
 	GlobalEventBus.enemy_killed.connect(_on_enemy_killed)
+	# A run remembers where it started, so CONTINUE can reopen it. The level owns
+	# this fact; the menu only reads it.
+	GameProgress.instance().remember_scenario(SCENE_PATH)
 	# The planet must roll after the player has moved this physics frame, not
 	# before it, or the terrain lags one frame behind the ship and shimmers.
 	process_physics_priority = 100

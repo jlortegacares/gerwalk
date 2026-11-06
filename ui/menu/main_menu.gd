@@ -43,11 +43,22 @@ var _nose: Color = GameSettings.DEFAULT_NOSE
 var _trim: Color = GameSettings.DEFAULT_TRIM
 var _canopy: Color = GameSettings.DEFAULT_CANOPY
 var _lines: Color = GameSettings.DEFAULT_LINES
+## The reset button is destructive, so it asks twice. The arm lives on the panel,
+## not on a timer: closing the panel disarms it, which is the cancel.
+var _reset_armed: bool = false
 
 @onready var _start_button: Button = %StartButton
 @onready var _city_button: Button = %CityButton
+@onready var _continue_button: Button = %ContinueButton
+@onready var _pilot_button: Button = %PilotButton
 @onready var _options_button: Button = %OptionsButton
 @onready var _options: Control = %Options
+@onready var _pilot: Control = %Pilot
+@onready var _pilot_level: Label = %Level
+@onready var _pilot_kills: Label = %Kills
+@onready var _pilot_tracks: Label = %Tracks
+@onready var _reset_button: Button = %ResetButton
+@onready var _pilot_back_button: Button = %PilotBackButton
 @onready var _fullscreen: CheckButton = %Fullscreen
 @onready var _back_button: Button = %BackButton
 @onready var _preview: LiveryPreview = %Preview
@@ -60,12 +71,19 @@ var _lines: Color = GameSettings.DEFAULT_LINES
 
 func _ready() -> void:
 	_options.visible = false
+	_pilot.visible = false
 
 	_start_button.pressed.connect(_on_start_pressed)
 	_city_button.pressed.connect(_on_city_pressed)
+	_continue_button.pressed.connect(_on_continue_pressed)
+	_pilot_button.pressed.connect(_on_pilot_pressed)
 	_options_button.pressed.connect(_on_options_pressed)
+	_pilot_back_button.pressed.connect(_on_pilot_back_pressed)
+	_reset_button.pressed.connect(_on_reset_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
 	_fullscreen.toggled.connect(_on_fullscreen_toggled)
+
+	refresh()
 
 	var fullscreen: bool = GameSettings.load_fullscreen(settings_path)
 	GameSettings.apply_fullscreen(fullscreen)
@@ -90,12 +108,54 @@ func _ready() -> void:
 	_start_button.grab_focus()
 
 
+## Repaints the pilot readout and decides whether CONTINUE is offered. Public
+## because the panel calls it after a reset and the smoke suite calls it after
+## writing a save; nothing in the run loop needs it.
+func refresh() -> void:
+	var progress: GameProgress = GameProgress.instance()
+	var stats: PilotStats = PilotStats.new(progress.level())
+
+	_continue_button.visible = GameProgress.has_save()
+	_pilot_level.text = "LEVEL %d" % progress.level()
+	_pilot_kills.text = "%d KILLS   ·   %s" % [
+		progress.total_kills,
+		"MAX LEVEL" if progress.kills_to_next() <= 0 else "%d TO NEXT" % progress.kills_to_next(),
+	]
+	_pilot_tracks.text = _track_report(stats)
+	_disarm_reset()
+
+
+## One line per track, with the bonus the level has already bought. A level-1
+## pilot reads five zeroes, which is the honest answer and the reason the panel is
+## read-only: there is nothing to choose.
+func _track_report(stats: PilotStats) -> String:
+	var speed: int = roundi((stats.speed_multiplier() - 1.0) * 100.0)
+	var armor: int = stats.max_hp(0)
+	var capacity: int = roundi((stats.turbo_capacity_multiplier() - 1.0) * 100.0)
+	var recharge: int = roundi((stats.turbo_recharge_multiplier() - 1.0) * 100.0)
+	var interval: int = roundi((1.0 - stats.primary_interval_multiplier()) * 100.0)
+	var spread: int = roundi((1.0 - stats.vulcan_spread_multiplier()) * 100.0)
+	var cone: int = roundi((stats.plasma_cone_multiplier() - 1.0) * 100.0)
+	var reach: int = roundi((stats.laser_range_multiplier() - 1.0) * 100.0)
+	return "\n".join([
+		"THRUSTERS    +%d%% SPEED" % speed,
+		"ARMOR        +%d HP" % armor,
+		"REACTOR      +%d%% TURBO   +%d%% RECHARGE" % [capacity, recharge],
+		"AUTOLOADER   -%d%% INTERVAL" % interval,
+		"GUNNERY      -%d%% SPREAD   +%d%% LOCK   +%d%% RANGE" % [spread, cone, reach],
+	])
+
+
 ## Escape is the way out of the panel, the same way it is out of every other panel
 ## a player has ever opened.
 func _unhandled_input(event: InputEvent) -> void:
-	if _options.visible and event.is_action_pressed(&"ui_cancel"):
-		get_viewport().set_input_as_handled()
-		_close_options()
+	if event.is_action_pressed(&"ui_cancel"):
+		if _pilot.visible:
+			get_viewport().set_input_as_handled()
+			_close_pilot()
+		elif _options.visible:
+			get_viewport().set_input_as_handled()
+			_close_options()
 
 
 func _on_start_pressed() -> void:
@@ -106,6 +166,18 @@ func _on_start_pressed() -> void:
 func _on_city_pressed() -> void:
 	Sfx.play(&"ui_select")
 	_open_scene(CITY_SCENE)
+
+
+## CONTINUE reopens the scenario the last run started. The path comes from the
+## save, so a future scenario only has to call `remember_scenario` to be
+## resumable; an unknown path falls back to the planet rather than to a dead
+## button.
+func _on_continue_pressed() -> void:
+	Sfx.play(&"ui_select")
+	var scene: String = GameProgress.instance().last_scenario
+	if scene.is_empty() or not ResourceLoader.exists(scene):
+		scene = ARENA_SCENE
+	_open_scene(scene)
 
 
 ## Both destinations are one decision -- which run to start -- so they take the
@@ -138,6 +210,41 @@ func _on_back_pressed() -> void:
 func _close_options() -> void:
 	_options.visible = false
 	_options_button.grab_focus()
+
+
+## The pilot panel is read-only except for the reset, which is the one action that
+## belongs to the record rather than to a run.
+func _on_pilot_pressed() -> void:
+	Sfx.play(&"ui_select")
+	refresh()
+	_pilot.visible = true
+	_pilot_back_button.grab_focus()
+
+
+func _on_pilot_back_pressed() -> void:
+	Sfx.play(&"ui_select")
+	_close_pilot()
+
+
+func _close_pilot() -> void:
+	_pilot.visible = false
+	_disarm_reset()
+	_pilot_button.grab_focus()
+
+
+func _on_reset_pressed() -> void:
+	Sfx.play(&"ui_select")
+	if not _reset_armed:
+		_reset_armed = true
+		_reset_button.text = "PRESS AGAIN TO CONFIRM"
+		return
+	GameProgress.instance().reset()
+	refresh()
+
+
+func _disarm_reset() -> void:
+	_reset_armed = false
+	_reset_button.text = "RESET PROGRESS"
 
 
 func _on_fullscreen_toggled(enabled: bool) -> void:

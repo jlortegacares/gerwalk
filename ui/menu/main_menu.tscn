@@ -131,6 +131,21 @@ horizontal_alignment = 1
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
 
+[node name="ContinueButton" type="Button" parent="Center/Menu"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "CONTINUE"
+
 [node name="StartButton" type="Button" parent="Center/Menu"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(320, 0)
@@ -158,6 +173,20 @@ theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
 theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
 theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
 text = "CITY"
+
+[node name="PilotButton" type="Button" parent="Center/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "PILOT"
 
 [node name="OptionsButton" type="Button" parent="Center/Menu"]
 unique_name_in_owner = true
@@ -438,6 +467,115 @@ theme_override_colors/font_color = Color(1, 1, 1, 0.6)
 text = "R / Start"
 
 [node name="BackButton" type="Button" parent="Options/Center/Panel/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "BACK"
+
+[node name="Pilot" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Backdrop" type="ColorRect" parent="Pilot"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.023529412, 0.03137255, 0.047058824, 1)
+
+[node name="Center" type="CenterContainer" parent="Pilot"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Pilot/Center"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="Margin" type="MarginContainer" parent="Pilot/Center/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 32
+
+[node name="Body" type="VBoxContainer" parent="Pilot/Center/Panel/Margin"]
+custom_minimum_size = Vector2(420, 0)
+layout_mode = 2
+theme = SubResource("Theme_body")
+theme_override_constants/separation = 14
+
+[node name="Heading" type="Label" parent="Pilot/Center/Panel/Margin/Body"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_font_sizes/font_size = 30
+text = "PILOT"
+
+[node name="Level" type="Label" parent="Pilot/Center/Panel/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_font_sizes/font_size = 22
+text = "LEVEL 1"
+
+[node name="Kills" type="Label" parent="Pilot/Center/Panel/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_font_sizes/font_size = 15
+text = "0 KILLS"
+
+[node name="Rule" type="HSeparator" parent="Pilot/Center/Panel/Margin/Body"]
+layout_mode = 2
+
+[node name="TracksTitle" type="Label" parent="Pilot/Center/Panel/Margin/Body"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.5)
+theme_override_font_sizes/font_size = 13
+text = "TRACKS"
+
+[node name="Tracks" type="Label" parent="Pilot/Center/Panel/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 15
+text = "THRUSTERS   +0.0% SPEED"
+
+[node name="Rule2" type="HSeparator" parent="Pilot/Center/Panel/Margin/Body"]
+layout_mode = 2
+
+[node name="ResetButton" type="Button" parent="Pilot/Center/Panel/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.72, 0.34, 0.95)
+theme_override_colors/font_hover_color = Color(1, 0.85, 0.55, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "RESET PROGRESS"
+
+[node name="PilotBackButton" type="Button" parent="Pilot/Center/Panel/Margin/Body"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 0.92)

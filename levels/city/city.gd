@@ -94,6 +94,9 @@ var _occluders: Array[Building] = []
 
 func _ready() -> void:
 	GlobalEventBus.enemy_killed.connect(_on_enemy_killed)
+	# The city is resumable for the same reason the planet is: the level remembers
+	# which scenario the run started, and the menu reads it.
+	GameProgress.instance().remember_scenario(SCENE_PATH)
 	_build_environment()
 	_build_ground()
 	_build_city()
