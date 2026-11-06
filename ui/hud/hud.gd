@@ -18,6 +18,8 @@ const MENU_SCENE: String = "res://ui/menu/main_menu.tscn"
 @onready var _salvo_label: Label = %SalvoLabel
 @onready var _decoy_label: Label = %DecoyLabel
 @onready var _score_label: Label = %ScoreLabel
+@onready var _level_label: Label = %LevelLabel
+@onready var _level_bar: Control = %LevelBar
 @onready var _game_over: GameOver = %GameOver
 
 
@@ -30,9 +32,15 @@ func _ready() -> void:
 	GlobalEventBus.player_missile_salvo_changed.connect(_on_player_missile_salvo_changed)
 	GlobalEventBus.player_decoy_changed.connect(_on_player_decoy_changed)
 	GlobalEventBus.score_changed.connect(_on_score_changed)
+	GlobalEventBus.pilot_progress_changed.connect(_on_pilot_progress_changed)
 	GlobalEventBus.player_died.connect(_on_player_died)
 	_game_over.respawn_requested.connect(_restart_run)
 	_game_over.menu_requested.connect(_back_to_menu)
+
+	# The record already exists when the run starts, and no kill may happen before
+	# the first frame, so reading it here is the run's opening state instead of
+	# waiting for a signal that only fires on the next kill.
+	_show_pilot(GameProgress.instance())
 
 
 ## The countdown and the buttons both end a run the same way: the arena is rebuilt
@@ -87,6 +95,29 @@ func _on_player_decoy_changed(ready: bool) -> void:
 ## number that changes digit count reads as a jitter.
 func _on_score_changed(total: int) -> void:
 	_score_label.text = "SCORE %06d" % total
+
+
+## The level and its progress are one readout: the label names the rank, the bar
+## says how far the next one is. At the cap there is no next rank, so the label says
+## MAX and the bar fills.
+func _on_pilot_progress_changed(
+	total_kills: int, level: int, kills_into_level: int, kills_for_next: int
+) -> void:
+	_render_pilot(total_kills, level, kills_into_level, kills_for_next)
+
+
+func _show_pilot(progress: GameProgress) -> void:
+	_render_pilot(
+		progress.total_kills, progress.level(), progress.kills_into(), progress.kills_to_next()
+	)
+
+
+func _render_pilot(
+	total_kills: int, level: int, kills_into_level: int, kills_for_next: int
+) -> void:
+	var next_text: String = "MAX" if kills_for_next <= 0 else "%d TO NEXT" % kills_for_next
+	_level_label.text = "PILOT LV %d   %d KILLS   %s" % [level, total_kills, next_text]
+	_level_bar.set_progress(kills_into_level, kills_for_next)
 
 
 func _on_player_died() -> void:
