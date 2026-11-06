@@ -213,6 +213,22 @@ var camera: Camera3D
 
 var _weapons: WeaponSystem
 
+## The run's numbers. They are the base constants scaled by the pilot's level, and
+## they are captured once in `_ready`: a level earned mid-fight must not change the
+## ship under the player, so the next run is what carries the new numbers.
+var _stats: PilotStats = PilotStats.new()
+var _max_speed: float = MAX_SPEED
+var _boost_speed: float = BOOST_SPEED
+var _dash_speed: float = DASH_SPEED
+var _fighter_speed: float = FIGHTER_SPEED
+var _fighter_boost_speed: float = FIGHTER_BOOST_SPEED
+var _fighter_stall_speed: float = FIGHTER_STALL_SPEED
+var _fighter_drag: float = FIGHTER_DRAG
+var _transform_drag: float = TRANSFORM_DRAG
+var _max_hp: int = MAX_HP
+var _turbo_max: float = TURBO_MAX
+var _turbo_recharge: float = TURBO_RECHARGE_PER_SECOND
+
 var _hp: int = MAX_HP
 var _aim_direction: Vector3 = Vector3.RIGHT
 var _invulnerable: float = 0.0
@@ -285,6 +301,7 @@ var _wingtip_material: StandardMaterial3D
 
 func _ready() -> void:
 	add_to_group(&"player")
+	_apply_pilot_stats()
 	camera = %Camera
 	_base_fov = camera.fov
 	_build_visual()
@@ -295,12 +312,40 @@ func _ready() -> void:
 
 	_weapons = WeaponSystem.new()
 	_weapons.name = "Weapons"
-	_weapons.setup(bullet_scene)
+	_weapons.setup(bullet_scene, _stats)
 	add_child(_weapons)
 
-	GlobalEventBus.player_health_changed.emit.call_deferred(_hp, MAX_HP)
-	GlobalEventBus.player_turbo_changed.emit.call_deferred(_turbo, TURBO_MAX)
+	GlobalEventBus.player_health_changed.emit.call_deferred(_hp, _max_hp)
+	GlobalEventBus.player_turbo_changed.emit.call_deferred(_turbo, _turbo_max)
 	GlobalEventBus.player_mode_changed.emit.call_deferred(mode_name())
+
+
+## Reads the pilot's record once and turns the level into this run's numbers. The
+## derived constants follow their base, so the fighter's stall speed and drag stay
+## the same fraction of cruise at every level instead of drifting apart from it.
+func _apply_pilot_stats() -> void:
+	_stats = PilotStats.new(GameProgress.instance().level())
+
+	_max_speed = MAX_SPEED * _stats.speed_multiplier()
+	_boost_speed = BOOST_SPEED * _stats.speed_multiplier()
+	_dash_speed = DASH_SPEED * _stats.speed_multiplier()
+	_fighter_speed = FIGHTER_SPEED * _stats.speed_multiplier()
+	_fighter_boost_speed = FIGHTER_BOOST_SPEED * _stats.speed_multiplier()
+	_fighter_stall_speed = _fighter_speed * FIGHTER_MIN_THROTTLE
+	_fighter_drag = (_fighter_speed - _fighter_stall_speed) / FIGHTER_STOP_TIME
+	_transform_drag = _fighter_speed / FIGHTER_STOP_TIME
+
+	_max_hp = _stats.max_hp(MAX_HP)
+	_hp = _max_hp
+	_turbo_max = TURBO_MAX * _stats.turbo_capacity_multiplier()
+	_turbo = _turbo_max
+	_turbo_shown = _turbo_max
+	_turbo_recharge = TURBO_RECHARGE_PER_SECOND * _stats.turbo_recharge_multiplier()
+
+	# The weapons are built after this runs on the first frame, so the guard is the
+	# first-run case; a later reapply reaches an existing arsenal.
+	if _weapons != null:
+		_weapons.set_stats(_stats)
 
 
 ## The hum belongs to this ship, so it goes when the ship does: a restart or a
@@ -323,13 +368,13 @@ func _physics_process(delta: float) -> void:
 		_start_dash()
 
 	if _dash_time > 0.0 and _mode == Mode.GERWALK:
-		velocity = _dash_direction * DASH_SPEED
+		velocity = _dash_direction * _dash_speed
 		velocity.y = 0.0
 		move_and_slide()
 	elif _transform_time > 0.0:
 		# Mid-transformation the ship keeps its momentum but takes no thrust and
 		# fires nothing: the switch is a commitment, not a free dodge or a reset.
-		velocity = velocity.move_toward(Vector3.ZERO, TRANSFORM_DRAG * 0.35 * delta)
+		velocity = velocity.move_toward(Vector3.ZERO, _transform_drag * 0.35 * delta)
 		velocity.y = 0.0
 		move_and_slide()
 	elif _mode == Mode.FIGHTER:
@@ -344,7 +389,7 @@ func _physics_process(delta: float) -> void:
 	_update_wingtip_trails(delta)
 	# The hum follows the ship: one continuous voice whose pitch and level track the
 	# airspeed, instead of a loop that restarts on every mode change.
-	Sfx.engine(true, velocity.length() / BOOST_SPEED)
+	Sfx.engine(true, velocity.length() / _boost_speed)
 
 
 func _move_gerwalk(delta: float) -> void:
@@ -354,7 +399,7 @@ func _move_gerwalk(delta: float) -> void:
 	var thrusting: bool = input_direction.length_squared() > 0.0
 	_update_boost(delta, thrusting)
 
-	var speed: float = BOOST_SPEED if _boosting else MAX_SPEED
+	var speed: float = _boost_speed if _boosting else _max_speed
 	var acceleration: float = BOOST_ACCELERATION if _boosting else ACCELERATION
 	# Screen up maps to -Z, so the ring reads the same as it did in 2D.
 	var target: Vector3 = Vector3(input_direction.x, 0.0, input_direction.y) * speed
@@ -430,16 +475,16 @@ func _move_fighter(delta: float) -> void:
 	var slew: float = (FIGHTER_GRIP / maxf(airspeed, 1.0)) * delta
 	course += clampf(angle_difference(course, yaw), -slew, slew)
 
-	var cruise: float = FIGHTER_BOOST_SPEED if _boosting else FIGHTER_SPEED
+	var cruise: float = _fighter_boost_speed if _boosting else _fighter_speed
 	# With the stick released there is still a floor: the ship glides, it does not
 	# hang. It is the throttle's own minimum, so no input and a hair of input give
 	# the same speed and there is no seam between them.
 	var wanted: float = (
 		cruise * (FIGHTER_MIN_THROTTLE + (1.0 - FIGHTER_MIN_THROTTLE) * throttle)
 		if thrusting
-		else FIGHTER_STALL_SPEED
+		else _fighter_stall_speed
 	)
-	var rate: float = FIGHTER_ACCELERATION if thrusting else FIGHTER_DRAG
+	var rate: float = FIGHTER_ACCELERATION if thrusting else _fighter_drag
 	airspeed = move_toward(airspeed, wanted, rate * delta)
 
 	# The jink is a push that ramps in and out, so it never snaps the velocity at
@@ -511,7 +556,7 @@ func _update_boost(delta: float, thrusting: bool) -> void:
 			_turbo_locked = true
 			_boosting = false
 	else:
-		_turbo = minf(_turbo + TURBO_RECHARGE_PER_SECOND * delta, TURBO_MAX)
+		_turbo = minf(_turbo + _turbo_recharge * delta, _turbo_max)
 
 	_emit_turbo()
 
@@ -523,7 +568,7 @@ func _emit_turbo() -> void:
 	if is_equal_approx(shown, _turbo_shown):
 		return
 	_turbo_shown = shown
-	GlobalEventBus.player_turbo_changed.emit(_turbo, TURBO_MAX)
+	GlobalEventBus.player_turbo_changed.emit(_turbo, _turbo_max)
 
 
 ## The wake: two nested cones per nozzle, plus the wing sweep. The flame follows
@@ -533,9 +578,9 @@ func _emit_turbo() -> void:
 ## speed on a featureless surface.
 func _update_afterburner_visual(delta: float) -> void:
 	var forward_speed: float = maxf(velocity.dot(_aim_direction), 0.0)
-	var thrust: float = clampf(forward_speed / BOOST_SPEED, 0.0, 1.0)
+	var thrust: float = clampf(forward_speed / _boost_speed, 0.0, 1.0)
 	var heat: float = clampf(
-		(forward_speed - MAX_SPEED) / (BOOST_SPEED - MAX_SPEED), 0.0, 1.0
+		(forward_speed - _max_speed) / (_boost_speed - _max_speed), 0.0, 1.0
 	)
 	# The burner announces itself once, on the way in. Hysteresis, because a ship
 	# riding the threshold would otherwise stutter the ignition every few frames.
@@ -568,8 +613,8 @@ func _update_afterburner_visual(delta: float) -> void:
 	# the blend, so a transformation never makes the wings flap back and forth on
 	# the way.
 	var fighter: bool = visual_mode == Mode.FIGHTER
-	var cruise: float = FIGHTER_SPEED if fighter else MAX_SPEED
-	var ceiling: float = FIGHTER_BOOST_SPEED if fighter else BOOST_SPEED
+	var cruise: float = _fighter_speed if fighter else _max_speed
+	var ceiling: float = _fighter_boost_speed if fighter else _boost_speed
 	var target_sweep: float
 	if forward_speed <= cruise:
 		var approach: float = clampf(forward_speed / maxf(cruise, 0.001), 0.0, 1.0)
@@ -723,7 +768,7 @@ func _start_barrel_roll(tapped: Vector2 = Vector2.ZERO) -> void:
 func _update_bank(delta: float) -> void:
 	var fighter: bool = _mode == Mode.FIGHTER
 	var right: Vector3 = Vector3(-_aim_direction.z, 0.0, _aim_direction.x)
-	var lateral: float = clampf(velocity.dot(right) / MAX_SPEED, -1.0, 1.0)
+	var lateral: float = clampf(velocity.dot(right) / _max_speed, -1.0, 1.0)
 	# The rate has to be read against the rate *this mode* can turn at. A fighter
 	# noses round at 400 deg/s and the aiming ring at 1800, so normalising both
 	# against the ring would leave the fighter banking a quarter as far as asked.
@@ -921,7 +966,7 @@ func take_damage(amount: int, source_position: Vector3 = Vector3.ZERO) -> void:
 
 	_hp = maxi(_hp - amount, 0)
 	_invulnerable = IFRAME_DURATION
-	GlobalEventBus.player_health_changed.emit(_hp, MAX_HP)
+	GlobalEventBus.player_health_changed.emit(_hp, _max_hp)
 	GlobalEventBus.camera_shake_requested.emit(0.6)
 	# The hit is on the ship the camera is riding, so it is never positional: the
 	# only thing distance would add is a quieter cue for the player's own damage.
@@ -1272,9 +1317,9 @@ func _wingtip_vapour() -> float:
 	if not _alive or _mode != Mode.FIGHTER:
 		return 0.0
 	var airspeed: float = (velocity - _roll_velocity).length()
-	var floor_speed: float = FIGHTER_SPEED * WINGTIP_SPEED_FLOOR
+	var floor_speed: float = _fighter_speed * WINGTIP_SPEED_FLOOR
 	return clampf(
-		(airspeed - floor_speed) / maxf(FIGHTER_SPEED - floor_speed, 0.001), 0.0, 1.0
+		(airspeed - floor_speed) / maxf(_fighter_speed - floor_speed, 0.001), 0.0, 1.0
 	)
 
 

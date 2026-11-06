@@ -12,6 +12,9 @@ extends Node3D
 const MISSILE_CLEARANCE: float = 0.12
 
 var _bullet_scene: PackedScene
+## The run's pilot bonuses. The arsenal keeps its identity and the stats only scale
+## the cadence and the handling, so a levelled pilot fires the same three weapons.
+var _stats: PilotStats = PilotStats.new()
 var _kind: Arsenal.Kind = Arsenal.Kind.VULCAN
 var _cooldown: float = 0.0
 var _laser_tick: float = 0.0
@@ -50,8 +53,15 @@ var _decoy_cooldown: float = 0.0
 var _laser_sounding: bool = false
 
 
-func setup(bullet_scene: PackedScene) -> void:
+func setup(bullet_scene: PackedScene, stats: PilotStats = PilotStats.new()) -> void:
 	_bullet_scene = bullet_scene
+	_stats = stats
+
+
+## The player owns the run's stats and hands them over; the arsenal never reads the
+## record itself. A run-start refresh replaces the object here.
+func set_stats(stats: PilotStats) -> void:
+	_stats = stats
 
 
 func _ready() -> void:
@@ -135,7 +145,8 @@ func _fire_vulcan(muzzle: Vector3, direction: Vector3) -> void:
 		return
 
 	var spread: float = deg_to_rad(
-		Arsenal.FIGHTER_VULCAN_SPREAD_DEGREES if _fighter else Arsenal.VULCAN_SPREAD_DEGREES
+		(Arsenal.FIGHTER_VULCAN_SPREAD_DEGREES if _fighter else Arsenal.VULCAN_SPREAD_DEGREES)
+		* _stats.vulcan_spread_multiplier()
 	)
 	for pellet in Arsenal.VULCAN_PELLETS:
 		var offset: float = 0.0
@@ -152,7 +163,7 @@ func _fire_vulcan(muzzle: Vector3, direction: Vector3) -> void:
 			0.0,
 			Projectile.LIFETIME * _range_multiplier()
 		)
-	_cooldown = Arsenal.VULCAN_INTERVAL
+	_cooldown = Arsenal.VULCAN_INTERVAL * _stats.primary_interval_multiplier()
 	# One burst per shot, not per pellet: five pellets of noise would read as one
 	# smear instead of a gun.
 	Sfx.play(&"vulcan")
@@ -165,7 +176,7 @@ func _fire_laser(delta: float, muzzle: Vector3, direction: Vector3) -> void:
 	_laser_tick = maxf(_laser_tick - delta, 0.0)
 
 	var reach: Vector3 = muzzle + direction * (
-		Arsenal.LASER_RANGE * _range_multiplier()
+		Arsenal.LASER_RANGE * _range_multiplier() * _stats.laser_range_multiplier()
 	)
 	var hit: Dictionary = _raycast(muzzle, reach)
 	var end: Vector3 = reach
@@ -181,7 +192,7 @@ func _fire_laser(delta: float, muzzle: Vector3, direction: Vector3) -> void:
 			(collider as Enemy).take_damage(Arsenal.LASER_DAMAGE)
 
 	if _laser_tick <= 0.0:
-		_laser_tick = Arsenal.LASER_TICK
+		_laser_tick = Arsenal.LASER_TICK * _stats.primary_interval_multiplier()
 	# The beam is continuous, so it gets one ignition per trigger pull instead of a
 	# zap per frame: `_laser_sounding` is cleared the moment the trigger comes up.
 	if not _laser_sounding:
@@ -211,7 +222,10 @@ func _fire_plasma(muzzle: Vector3, direction: Vector3) -> void:
 	var target: Node3D = null
 	if not _fighter:
 		target = _nearest_enemy(
-			muzzle, direction, Arsenal.PLASMA_LOCK_RANGE, Arsenal.PLASMA_LOCK_CONE_DEGREES
+			muzzle,
+			direction,
+			Arsenal.PLASMA_LOCK_RANGE,
+			Arsenal.PLASMA_LOCK_CONE_DEGREES * _stats.plasma_cone_multiplier()
 		)
 	_spawn(
 		muzzle,
@@ -224,7 +238,7 @@ func _fire_plasma(muzzle: Vector3, direction: Vector3) -> void:
 		Arsenal.PLASMA_TURN_RATE,
 		Projectile.LIFETIME * _range_multiplier()
 	)
-	_cooldown = Arsenal.PLASMA_INTERVAL
+	_cooldown = Arsenal.PLASMA_INTERVAL * _stats.primary_interval_multiplier()
 	Sfx.play(&"plasma")
 
 
