@@ -304,6 +304,10 @@ func _die() -> void:
 		_aim_beam.visible = false
 	_spawn_explosion()
 	killed.emit()
+	# The pilot's record grows here, for the same reason the score event is emitted
+	# here: a kill counts no matter which path spawned the enemy, and the level is
+	# earned by the count rather than awarded by the level.
+	GameProgress.instance().register_kill()
 	# The bus event is emitted here, not forwarded by the arena: a kill counts no
 	# matter which path spawned the enemy, and the value travels with it.
 	GlobalEventBus.enemy_killed.emit(score_value())
