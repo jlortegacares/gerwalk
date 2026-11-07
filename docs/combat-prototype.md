@@ -57,6 +57,13 @@ and the D-pad cycles. Each archetype answers a different aim problem.
 | Laser | Hit-scan beam, damage on a 0.05 s tick | Tracking: the beam only pays while it stays on the target |
 | Plasma | Slow bolt that locks a turret inside a 30° cone and curves onto it | Lining up once: the shot corrects after it leaves the nose |
 
+Every bullet is one `ArrayMesh` lathed from a bullet profile — boat-tail, straight
+body, ogive nose — built along `+Z` the same way the missile is, so the silhouette
+points where the shot flies. The mesh is cached per size and shared by every shot of
+that size, which keeps a vulcan stream at one node and one draw call per pellet
+instead of a node per feature. Each weapon keeps its own tint: the vulcan is fire
+yellow, so its close-range stream never reads as the cyan laser.
+
 The laser stops at the first thing it meets, so the drawn beam is the truth about
 what it can hit. Damage ticks on its own clock instead of the visual refresh, which
 is what lets a continuous beam pay out in steady bites instead of one burst frame.
@@ -1193,6 +1200,7 @@ All values are named constants at the top of each script.
 | Death countdown | `ui/hud/game_over.gd` | `RESPAWN_SECONDS`, `FADE_IN` |
 | Death blast | `common/ship_explosion.gd` | `LIFETIME`, `CORE_*`, `FIRE_*`, `DEBRIS_DURATION`, `SPARK_LIFETIME`, `SMOKE_LIFETIME` |
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
+| Bullet silhouette | `combat/projectile.gd` | `_dart_mesh()`: one lathed `ArrayMesh` per size (boat-tail, straight body, ogive nose) shared by every shot of that size; `DART_SEGMENTS` sets the revolve resolution |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Decoy | `combat/arsenal.gd`, `combat/decoy.gd` | `DECOY_COOLDOWN`; `LIFETIME`, `CAPTURE_RADIUS` |
 | Missile cover | `combat/projectile.gd` | `_cloud_hides_target()`: only a `Player` target inside `CloudField.is_dense()` loses the lock, and the loss is permanent; decoys and non-homing shots are untouched |

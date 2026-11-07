@@ -38,6 +38,9 @@ const ENEMY_COLOR: Color = Color(1.0, 0.42, 0.52, 1.0)
 ## Elongated on Z so a single Y rotation aligns the long axis with travel.
 const DART_SIZE: Vector3 = Vector3(0.42, 0.34, 1.6)
 const ORB_RADIUS: float = 0.55
+## Revolve resolution of the dart silhouette. Eight sides are enough that the
+## outline reads smooth at the few dozen pixels a shot gets on screen.
+const DART_SEGMENTS: int = 8
 
 ## Exhaust trail. Puffs are dropped into the scene, not parented to the missile, so
 ## the smoke already in the air survives the impact that frees the shot.
@@ -85,6 +88,9 @@ var _weave_fade: float = 1.0
 ## The planet's cloud deck, if the shot is flying on a level that has one. Cached at
 ## ready time so a guided shot does not walk the group tree every frame.
 var _cloud_field: CloudField = null
+## One dart mesh per visual size, shared by every shot of that size: a stream must
+## not rebuild geometry per pellet.
+static var _dart_meshes: Dictionary = {}
 
 
 func _ready() -> void:
@@ -181,13 +187,75 @@ func _build_visual(size: Vector3, color: Color) -> void:
 		mesh_instance.mesh = sphere
 		mesh_instance.material_override = _flat_material(color, 1.6)
 	else:
-		var box: BoxMesh = BoxMesh.new()
-		box.size = size
-		mesh_instance.mesh = box
+		mesh_instance.mesh = _dart_mesh(size)
 		mesh_instance.material_override = _flat_material(color, 1.6)
 
 	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mesh_instance)
+
+
+## The dart silhouette is a lathe of a bullet profile around +Z: a boat-tail, a
+## straight body and an ogive nose. One mesh per size is shared by every shot of
+## that size, so a vulcan stream still costs one node and one draw call per pellet
+## instead of a node per feature.
+func _dart_mesh(size: Vector3) -> ArrayMesh:
+	var key: Vector3 = size.snapped(Vector3.ONE * 0.01)
+	var cached: ArrayMesh = _dart_meshes.get(key) as ArrayMesh
+	if cached != null:
+		return cached
+
+	var radius: float = maxf(size.x * 0.5, 0.02)
+	var length: float = maxf(size.z, 0.1)
+	# Tail to tip as (radius fraction, position along the bullet). The fractions
+	# keep one profile valid for both the light pellet and the heavier plasma bolt.
+	var profile: Array[Vector2] = [
+		Vector2(0.55, -0.50),
+		Vector2(0.90, -0.38),
+		Vector2(1.00, -0.26),
+		Vector2(1.00, 0.02),
+		Vector2(0.94, 0.16),
+		Vector2(0.78, 0.30),
+		Vector2(0.55, 0.40),
+		Vector2(0.28, 0.47),
+		Vector2(0.02, 0.50),
+	]
+
+	var tool: SurfaceTool = SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for point in profile:
+		for segment in DART_SEGMENTS:
+			var angle: float = TAU * float(segment) / float(DART_SEGMENTS)
+			tool.add_vertex(
+				Vector3(
+					cos(angle) * point.x * radius,
+					sin(angle) * point.x * radius,
+					point.y * length
+				)
+			)
+	for ring in profile.size() - 1:
+		var lower: int = ring * DART_SEGMENTS
+		var upper: int = lower + DART_SEGMENTS
+		for segment in DART_SEGMENTS:
+			var next: int = (segment + 1) % DART_SEGMENTS
+			tool.add_index(lower + segment)
+			tool.add_index(lower + next)
+			tool.add_index(upper + segment)
+			tool.add_index(lower + next)
+			tool.add_index(upper + next)
+			tool.add_index(upper + segment)
+	# Cap the boat-tail. The camera sits behind the ship, so the back of every shot
+	# faces it: an open ring would read as a hole at close range.
+	var center: int = profile.size() * DART_SEGMENTS
+	tool.add_vertex(Vector3(0.0, 0.0, profile[0].y * length))
+	for segment in DART_SEGMENTS:
+		var next: int = (segment + 1) % DART_SEGMENTS
+		tool.add_index(center)
+		tool.add_index(next)
+		tool.add_index(segment)
+	tool.generate_normals()
+	var mesh: ArrayMesh = tool.commit()
+	_dart_meshes[key] = mesh
+	return mesh
 
 
 ## A missile reads as a missile from any angle the camera can see it: a pointed

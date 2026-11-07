@@ -28,7 +28,9 @@ const VULCAN_SPREAD_DEGREES: float = 16.0
 const VULCAN_SPEED: float = 95.0
 const VULCAN_DAMAGE: int = 1
 const VULCAN_SIZE: Vector3 = Vector3(0.42, 0.34, 1.6)
-const VULCAN_COLOR: Color = Color(0.55, 0.98, 0.9, 1.0)
+## Fire yellow: the vulcan is the close-range, high-rate gun, and the warm tint
+## separates its stream from the cyan laser and the pale plasma bolt at a glance.
+const VULCAN_COLOR: Color = Color(1.0, 0.78, 0.20, 1.0)
 
 ## Laser: hit-scan. The tick is the damage cadence, not the visual one, so a
 ## continuous beam pays out in steady bites instead of one burst frame, and the
