@@ -98,6 +98,7 @@ func _ready() -> void:
 	_build_environment()
 	_build_stars()
 	_build_planet()
+	_build_clouds()
 
 	_last_player_position = _player.global_position
 	_rng.seed = SPAWN_SEED
@@ -220,6 +221,16 @@ func _build_planet() -> void:
 	_planet.position = Vector3(0.0, GROUND_Y - PLANET_RADIUS, 0.0)
 	_planet.add_child(ground)
 	add_child(_planet)
+
+
+## The cloud deck is a level feature, not a skybox: the ship flies through it and a
+## dense bank is cover from guided missiles. It streams around the ship the same way
+## the encounters do, because the planet is far too wide to hold a fixed deck.
+func _build_clouds() -> void:
+	var clouds: CloudField = CloudField.new()
+	clouds.name = "Clouds"
+	add_child(clouds)
+	clouds.setup(_player)
 
 
 ## Keeps a small population of turrets around the ship. Whoever was left farther

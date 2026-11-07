@@ -82,6 +82,9 @@ var _weave_rate: float = 0.0
 var _weave_phase: float = 0.0
 var _weave_hit_range: float = 0.0
 var _weave_fade: float = 1.0
+## The planet's cloud deck, if the shot is flying on a level that has one. Cached at
+## ready time so a guided shot does not walk the group tree every frame.
+var _cloud_field: CloudField = null
 
 
 func _ready() -> void:
@@ -89,6 +92,7 @@ func _ready() -> void:
 	area_entered.connect(_on_area_entered)
 	if _team == Team.ENEMY:
 		add_to_group(&"enemy_bullet")
+	_cloud_field = get_tree().get_first_node_in_group(&"cloud_field") as CloudField
 
 
 ## `tint` lets a player weapon keep its own colour (a warm missile, a plasma
@@ -400,6 +404,12 @@ func _steer(delta: float) -> void:
 	# missile that arrives after the flare was dropped still takes it. Once the
 	# lock is on a flare the scan stops, because nothing outranks a flare.
 	if _team == Team.ENEMY:
+		# A dense cloud bank is the third answer to a guided shot, next to the
+		# decoy and the intercept: the ship disappears into the deck and the
+		# missile is left with nothing. The lock is lost for good, not suspended:
+		# the shot flies on straight and the run of cover is what pays.
+		if _cloud_hides_target():
+			_target = null
 		if not is_instance_valid(_target) or not _target.is_in_group(&"decoy"):
 			var decoy: Node3D = _nearest_decoy()
 			if decoy != null:
@@ -430,6 +440,19 @@ func _steer(delta: float) -> void:
 	var step: float = clampf(angle, -_turn_rate * delta, _turn_rate * delta)
 	_velocity = heading.rotated(Vector3.UP, step) * _speed
 	rotation.y = atan2(_velocity.x, _velocity.z)
+
+
+## Whether the deck is hiding the current target. Only the ship is covered: a flare
+## burns in the open, and a shot already chasing one keeps chasing it. A level with
+## no cloud deck simply never hides anything.
+func _cloud_hides_target() -> bool:
+	if not is_instance_valid(_target) or not (_target is Player):
+		return false
+	if _cloud_field == null or not is_instance_valid(_cloud_field):
+		_cloud_field = get_tree().get_first_node_in_group(&"cloud_field") as CloudField
+	if _cloud_field == null:
+		return false
+	return _cloud_field.is_dense(_target.global_position)
 
 
 ## The flare with the strongest pull: the closest one inside its own capture

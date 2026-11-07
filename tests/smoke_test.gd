@@ -44,6 +44,7 @@ func _ready() -> void:
 	await _test_enemy_patterns()
 	await _test_enemies_roam_the_planet()
 	await _test_missile_enemy()
+	await _test_clouds()
 	await _test_fighter_enemy()
 	await _test_enemy_death_blast()
 	await _test_missile_impact_blast()
@@ -2282,6 +2283,105 @@ func _test_missile_enemy() -> void:
 	_clear_enemies()
 	_clear_projectiles()
 	await get_tree().physics_frame
+
+
+## The cloud deck is cover, not scenery. One density field drives both the puffs the
+## ship flies through and the cover rule, so a bank that looks thick has to be a bank
+## that breaks a lock. The test finds the points at runtime instead of hardcoding
+## coordinates: retuning the field must not silently point the check at open sky.
+func _test_clouds() -> void:
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	var field: CloudField = get_tree().get_first_node_in_group(&"cloud_field") as CloudField
+	_check(field != null, "the planet carries a cloud field")
+	if field == null:
+		return
+
+	var probe: Vector3 = Vector3(240.0, 0.0, 180.0)
+	_check(
+		is_equal_approx(field.density_at(probe), field.density_at(probe)),
+		"cloud density is deterministic"
+	)
+	_check(
+		not field.is_dense(Vector3.ZERO),
+		"the opening patch is clear of dense cloud"
+	)
+
+	var dense: Vector3 = _find_cloud_point(field, true)
+	var thin: Vector3 = _find_cloud_point(field, false)
+	_check(dense != Vector3.INF, "the deck has dense banks")
+	_check(thin != Vector3.INF, "the deck has thin gaps")
+	if dense == Vector3.INF or thin == Vector3.INF:
+		return
+
+	# The visual stream has to populate the deck where the gameplay says it is
+	# dense, or the cover would be invisible.
+	_player.global_position = dense
+	_player.velocity = Vector3.ZERO
+	for _i in 3:
+		await get_tree().physics_frame
+	_check(
+		field.visible_puff_count() > 0,
+		"a dense bank draws puffs (%d)" % field.visible_puff_count()
+	)
+
+	# A guided shot loses the ship inside the core. The missile is parked far enough
+	# away that the check is the lock and not a race against its warhead.
+	var hidden: Projectile = _spawn_enemy_missile(
+		dense + Vector3(0.0, 0.0, 40.0), _player
+	)
+	_check(hidden.get("_target") == _player, "a missile starts locked on the ship")
+	for _i in 4:
+		await get_tree().physics_frame
+	_check(hidden.get("_target") == null, "a dense bank breaks the missile's lock")
+	var heading: Vector3 = hidden.get("_velocity")
+	for _i in 8:
+		await get_tree().physics_frame
+	_check(
+		(hidden.get("_velocity") as Vector3).is_equal_approx(heading),
+		"a missile that lost the lock flies straight"
+	)
+
+	# The fringe is weather, not cover: only the core hides the ship.
+	_player.global_position = thin
+	for _i in 3:
+		await get_tree().physics_frame
+	var chasing: Projectile = _spawn_enemy_missile(
+		thin + Vector3(0.0, 0.0, 40.0), _player
+	)
+	for _i in 4:
+		await get_tree().physics_frame
+	_check(
+		chasing.get("_target") == _player,
+		"a thin cloud leaves the missile's lock alone"
+	)
+
+	_clear_projectiles()
+	_clear_enemies()
+	_player.global_position = Vector3.ZERO
+	await get_tree().physics_frame
+
+
+## The strongest dense point and the thinnest gap on a coarse grid outside the
+## opening clearing. Scanning is what keeps the test honest about the current tuning.
+func _find_cloud_point(field: CloudField, want_dense: bool) -> Vector3:
+	var best: Vector3 = Vector3.INF
+	var best_score: float = -INF
+	for z in range(160, 521, 10):
+		for x in range(-520, 521, 10):
+			var point: Vector3 = Vector3(float(x), 0.0, float(z))
+			var density: float = field.density_at(point)
+			if want_dense and density < CloudField.DENSE_THRESHOLD:
+				continue
+			if not want_dense and density >= CloudField.DENSE_THRESHOLD:
+				continue
+			var score: float = density if want_dense else -density
+			if score > best_score:
+				best_score = score
+				best = point
+	return best
 
 
 ## The interceptor is a new flight model, not a new identity: it has to be an

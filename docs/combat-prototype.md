@@ -356,6 +356,43 @@ The window scale is the other trap: windows 0.3 units wide are four pixels from
 this camera and alias into white noise the moment the surface tilts. A lit *roof*
 — a 1.05-unit block — is what reads as a city from 50 units up.
 
+### The cloud deck: weather as cover
+
+The planet carries a cloud deck the ship flies through. It is the third answer to
+a guided shot, next to the decoy and the intercept: inside a dense bank the enemy
+missile loses the ship and flies on straight.
+
+**One field drives both jobs.** `CloudField` samples a `FastNoiseLite` bank in
+world space on the play plane, and the same number decides how many billboards a
+cell draws and whether a point counts as cover. A bank that looks thick is
+therefore a bank that actually breaks a lock; there is no second, invisible rule
+to drift out of sync. The puffs are four `MultiMesh` layers, one per
+procedurally generated texture variant, so the deck never reads as one repeated
+stamp. Each is a billboarded quad with an irregular, domain-warped silhouette and
+mipmapped anisotropic filtering, streamed in 18-unit cells around the ship. A
+wide, faint haze quad per cell binds the detail puffs into one volume instead of a
+pile of discs, and per-instance alpha lets haze and detail share the same texture
+variant. The texture also bakes a vertical light falloff — bright top, shaded
+base — so an unshaded billboard still reads as a volume.
+
+The field is atmosphere, not terrain: it does not roll with the planet, so the
+deck adds a second layer of parallax against the surface.
+
+Two thresholds split that field into weather and cover. Below `VISUAL_MIN_DENSITY`
+(0.58, high in the field's distribution) the sky is clear, so the deck covers about
+a quarter of the map; between it and `DENSE_THRESHOLD` the bank is thin cloud that
+warns a core is coming; at or above `DENSE_THRESHOLD` it hides the ship. Every
+visual ramp saturates at `VISUAL_FULL_DENSITY` (0.66), just above the cover
+threshold, so raising the floor thinned the deck without hollowing out its cores.
+The opening ring (`CLEAR_INNER`..`CLEAR_OUTER`) keeps the first contact in open sky,
+because a run that starts inside a wall of white has nothing to read.
+
+The lock loss is permanent for that shot. `Projectile._steer` drops the target
+when the ship is in a dense bank, and a shot with no target flies straight: the
+cloud is a read the player spends, not a shield that keeps topping up. Only the
+ship is covered. A flare burns in the open and a shot already chasing one keeps
+chasing it, and a level without a cloud field never hides anything.
+
 ## Maneuverability: snappy, not floaty
 
 A twin-stick ship has to answer like a bullet-hell character and read like a jet.
@@ -1158,6 +1195,7 @@ All values are named constants at the top of each script.
 | Missile trail | `combat/projectile.gd` | `TRAIL_INTERVAL`, `TRAIL_PUFF_LIFETIME`, `TRAIL_START_RADIUS`, `TRAIL_END_RADIUS`, `TRAIL_INHERIT` |
 | Bomb economy and blast | `combat/arsenal.gd` | `BOMB_START_CHARGES`, `BOMB_MAX_CHARGES`, `BOMB_KILLS_PER_CHARGE`, `BOMB_RADIUS`, `BOMB_DAMAGE` |
 | Decoy | `combat/arsenal.gd`, `combat/decoy.gd` | `DECOY_COOLDOWN`; `LIFETIME`, `CAPTURE_RADIUS` |
+| Missile cover | `combat/projectile.gd` | `_cloud_hides_target()`: only a `Player` target inside `CloudField.is_dense()` loses the lock, and the loss is permanent; decoys and non-homing shots are untouched |
 | Audio palette and mixing | `common/sfx.gd` | `VOICES`, `MAX_SPATIAL`, `SPATIAL_UNIT`, `SPATIAL_REACH` (covers the despawn ring), `SPATIAL_FLAT` (kills keep their level), `ENGINE_REST_DB`, `ENGINE_TOP_DB`, `SFX_BUS`, `GAIN_DB` (the mix), `PITCH_JITTER` (per-sound variation), `STACK_WINDOW` (same-key ducking), the bus reverb (`wet 0.12`, 18 ms), and the loaded `KEYS` |
 | Sound synthesis | `tools/generate_sfx.gd` | `RATE`, `PEAK`, `SHAPE_SINE/SAW/SQUARE`, `FILTER_LOW/HIGH`, `_tone`, `_noise` (with a cutoff sweep), `_ring` (inharmonic metal), `_crush` (sample-and-hold and quantisation, the console grain of the lock tone), one builder per key in `_catalogue()`; each sound seeds the noise from its name, so the WAVs are reproducible and one builder cannot shift the others |
 | Blast spectrum | `tools/generate_sfx.gd` | `_explosion` crack sweeping ~7 kHz to 3.6 kHz, body opening 2.4 kHz to 900 Hz, sub and rumble; the suite requires at least 30% of the energy above 1 kHz |
@@ -1189,6 +1227,7 @@ All values are named constants at the top of each script.
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
 | Planet scale and lap length | `levels/arena/arena.gd` | `PLANET_RADIUS` (lap = `2 * PI * PLANET_RADIUS`), `PLANET_SEGMENTS`, `PLANET_RINGS` |
+| Cloud deck | `levels/arena/cloud_field.gd` | `DENSITY_SCALE` (bank size), `DENSE_THRESHOLD` (cover), `VISUAL_MIN_DENSITY` (first visible cloud), `VISUAL_FULL_DENSITY` (ramps saturate), `CLEAR_INNER`/`CLEAR_OUTER` (opening ring), `STREAM_RADIUS`, `CELL_SIZE`, `MAX_PUFFS_PER_CELL`, `MAX_PUFFS`, `PUFF_MIN/MAX_SIZE`, `PUFF_MIN/MAX_Y`, `HAZE_MIN/MAX_SIZE`, `HAZE_ALPHA`, `DETAIL_ALPHA_MIN/MAX`, `CLOUD_TINT`, `PUFF_VARIANTS`, `PUFF_TEXTURE_SIZE`, `CLOUD_SEED` |
 | Islands and sea level | `levels/arena/planet_surface.gdshader` | `SEA_LEVEL`, `REGION_SCALE` (continents), `ISLAND_SCALE` (islands), `COAST_SCALE` (shoreline) |
 | City districts | `levels/arena/planet_surface.gdshader` | `CITY_CELL` (density), `CITY_HALF` (district size), `CITY_BLOCK`, `CITY_ROAD`, `CITY_ROOF` (street and roof scale), `CITY_LIT` (share of lit roofs) |
 | City grid | `levels/city/city.gd` | `BLOCK` (26), `STREET` (12), `PITCH` (38), `SIDEWALK` (2.5), `FOOTPRINT` (21), `BLOCKS` (8), `START_CELL`, `GRID_ORIGIN`; the outer ring is filled to the full pitch |
@@ -1237,7 +1276,8 @@ entities/enemy/fighter_enemy.gd interceptor: the player's airframe and flight mo
 ui/hud/                         event-fed bars (health, turbo, pilot level); the radar polls the enemy group for bearings
 ui/menu/                        boot menu: the planet and the city, CONTINUE and the pilot panel, the display and livery settings, the controls reference
 ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
-levels/arena/arena.gd           rolling planet sphere, stars, encounter streaming
+levels/arena/arena.gd           rolling planet sphere, stars, cloud deck, encounter streaming
+levels/arena/cloud_field.gd     streamed cloud deck: one density field for the puffs and the missile cover
 levels/city/city.gd             night district: block grid, street-snapped streaming, sight-line occlusion, score
 levels/city/city_ground.gdshader asphalt, pavement, curb and centre lines painted from world coordinates
 entities/city/building.gd       tower: HP, hit flash, health bar, rubble, scaled collapse, dither ghost
@@ -1330,7 +1370,7 @@ the scene file.
 
 ```sh
 # Headless gameplay assertions (movement, firing, patterns, i-frames, score, pilot
-# progression, HUD layout, death)
+# progression, cloud cover, HUD layout, death)
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . tests/smoke_test.tscn
 
 # Regenerate the sound palette from scratch (reproduces the committed WAVs byte for byte)
@@ -1342,6 +1382,17 @@ the scene file.
 # Same, after travelling: the terrain must not match the resting frame
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --travel 180 --out /tmp/gerwalk_moved.png
+
+# Review the cloud deck: the strongest dense core, a thin fringe and the clear
+# opening. `--px`/`--pz` place the ship and the deck streams around it, so it does
+# not have to fly there. Retuning the field moves these points; the smoke test
+# scans for them at runtime instead of trusting these coordinates.
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --nofire 1 --px 35 --pz 435 --out /tmp/cloud_core.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --nofire 1 --px 230 --pz 390 --out /tmp/cloud_fringe.png
+/Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
+    -- --nofire 1 --out /tmp/cloud_clear.png
 
 # The death screen: the countdown, both answers and the shortcut hint
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
