@@ -20,6 +20,9 @@ const MENU_SCENE: String = "res://ui/menu/main_menu.tscn"
 @onready var _score_label: Label = %ScoreLabel
 @onready var _level_label: Label = %LevelLabel
 @onready var _level_bar: Control = %LevelBar
+@onready var _boss_root: Control = %BossRoot
+@onready var _boss_name: Label = %BossName
+@onready var _boss_bar: Control = %BossBar
 @onready var _game_over: GameOver = %GameOver
 
 
@@ -33,6 +36,9 @@ func _ready() -> void:
 	GlobalEventBus.player_decoy_changed.connect(_on_player_decoy_changed)
 	GlobalEventBus.score_changed.connect(_on_score_changed)
 	GlobalEventBus.pilot_progress_changed.connect(_on_pilot_progress_changed)
+	GlobalEventBus.boss_appeared.connect(_on_boss_appeared)
+	GlobalEventBus.boss_health_changed.connect(_on_boss_health_changed)
+	GlobalEventBus.boss_defeated.connect(_on_boss_defeated)
 	GlobalEventBus.player_died.connect(_on_player_died)
 	_game_over.respawn_requested.connect(_restart_run)
 	_game_over.menu_requested.connect(_back_to_menu)
@@ -118,6 +124,22 @@ func _render_pilot(
 	var next_text: String = "MAX" if kills_for_next <= 0 else "%d TO NEXT" % kills_for_next
 	_level_label.text = "PILOT LV %d   %d KILLS   %s" % [level, total_kills, next_text]
 	_level_bar.set_progress(kills_into_level, kills_for_next)
+
+
+## The bar arrives with the ship and leaves with it. A boss bar parked at zero
+## after the kill would keep the fight on screen after it ended.
+func _on_boss_appeared(boss_name: String, maximum: int) -> void:
+	_boss_name.text = boss_name
+	_boss_bar.set_health(maximum, maximum)
+	_boss_root.visible = true
+
+
+func _on_boss_health_changed(current: int, maximum: int) -> void:
+	_boss_bar.set_health(current, maximum)
+
+
+func _on_boss_defeated() -> void:
+	_boss_root.visible = false
 
 
 func _on_player_died() -> void:

@@ -46,6 +46,11 @@ extends Node
 ## about where the fireball opens.
 ## `--interceptor N --kill 1` ends the interceptor hold with a lethal hit, which is
 ## how an enemy death blast is reviewed.
+## `--boss 1` brings the mothership in right after the arena loads and parks it at
+## `--boss-x` (default 46) on the play plane, which is how its scale, its broadside
+## and the HUD bar are reviewed without farming the twelve kills a run needs.
+## `--boss-hp N` drops it to N health first, so `--boss-hp 500` captures the
+## phase-two ring on the same frame.
 ## `--city 1` loads the city district instead of the planet, which is how the
 ## street grid, the towers and the night lighting are reviewed. Add `--nofire 1`
 ## to hold the trigger, since a vulcan stream washes the streets out and starts
@@ -89,6 +94,19 @@ func _ready() -> void:
 
 	await get_tree().physics_frame
 	await get_tree().physics_frame
+
+	# `--boss 1` brings the mothership in immediately and parks it in front of the
+	# ship, which is how its scale, its broadside and the HUD bar are reviewed
+	# without farming the twelve kills a run needs. `--boss-hp N` drops it to N
+	# health so the phase-two behaviour can be captured on the same frame.
+	if _argument("boss", "0") == "1":
+		var arena_level: Arena = arena as Arena
+		var ship: Boss = arena_level.spawn_boss()
+		if ship != null:
+			ship.global_position = Vector3(float(_argument("boss-x", "46")), 0.0, 0.0)
+			var ship_hp: String = _argument("boss-hp", "")
+			if not ship_hp.is_empty():
+				ship.take_damage(Boss.BOSS_HP - int(ship_hp))
 
 	# `--px F` / `--pz F` place the ship on the play plane before the warmup. A city
 	# frame often needs a specific street: the sight line only passes through a

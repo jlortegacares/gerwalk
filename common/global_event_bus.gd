@@ -21,3 +21,9 @@ signal pilot_progress_changed(
 	total_kills: int, level: int, kills_into_level: int, kills_for_next: int
 )
 signal camera_shake_requested(strength: float)
+## The capital ship arrived. The bar is only meaningful while it is alive, so the
+## event carries the name to print above it and the pool it starts with. The
+## health event follows on every hit, and the defeat event hides the bar again.
+signal boss_appeared(boss_name: String, maximum: int)
+signal boss_health_changed(current: int, maximum: int)
+signal boss_defeated

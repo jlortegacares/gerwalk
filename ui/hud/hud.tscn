@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://ui/hud/hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://ui/hud/health_bar.gd" id="2_health"]
@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://ui/hud/radar.gd" id="5_radar"]
 [ext_resource type="Script" path="res://ui/hud/game_over.gd" id="6_game_over"]
 [ext_resource type="Script" path="res://ui/hud/level_bar.gd" id="7_level"]
+[ext_resource type="Script" path="res://ui/hud/boss_bar.gd" id="8_boss"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button"]
 content_margin_left = 24.0
@@ -231,6 +232,44 @@ offset_right = 270.0
 offset_bottom = 92.0
 mouse_filter = 2
 script = ExtResource("7_level")
+
+[node name="BossRoot" type="Control" parent="HudRoot"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -260.0
+offset_top = 52.0
+offset_right = 260.0
+offset_bottom = 92.0
+grow_horizontal = 2
+mouse_filter = 2
+
+[node name="BossName" type="Label" parent="HudRoot/BossRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 20.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 0.62, 0.66, 0.95)
+theme_override_font_sizes/font_size = 15
+text = "CAPITAL SHIP"
+horizontal_alignment = 1
+
+[node name="BossBar" type="Control" parent="HudRoot/BossRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 22.0
+offset_bottom = 36.0
+grow_horizontal = 2
+mouse_filter = 2
+script = ExtResource("8_boss")
 
 [node name="ScoreLabel" type="Label" parent="HudRoot"]
 unique_name_in_owner = true

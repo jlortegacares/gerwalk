@@ -59,6 +59,13 @@ const SPAWN_SEED: int = 20261022
 const ENEMY_SCENE: PackedScene = preload("res://entities/enemy/turret.tscn")
 const MISSILE_ENEMY_SCENE: PackedScene = preload("res://entities/enemy/missile_enemy.tscn")
 const FIGHTER_ENEMY_SCENE: PackedScene = preload("res://entities/enemy/fighter_enemy.tscn")
+const BOSS_SCENE: PackedScene = preload("res://entities/enemy/boss.tscn")
+## The final encounter arrives once the run has earned it. Twelve kills is about
+## the point where the player has met all three archetypes and has the weapons
+## they need, so the mothership is a climax instead of a wall.
+const BOSS_KILL_THRESHOLD: int = 12
+## Far enough ahead that the hull clears the horizon before it starts shooting.
+const BOSS_SPAWN_DISTANCE: float = 150.0
 ## One launcher in three. It is a priority target, not the baseline pressure: a ring
 ## of them would turn every encounter into a missile-only fight.
 const MISSILE_ENEMY_SHARE: float = 0.34
@@ -81,6 +88,11 @@ var _last_player_position: Vector3 = Vector3.ZERO
 ## The run's score. The arena owns it because the arena is the run: reloading the
 ## scene on a death starts a fresh one at zero.
 var _score: int = 0
+## Kills this run. The boss threshold is a run fact, not a pilot fact: the record
+## across sessions must never decide when a fresh run meets the ship.
+var _run_kills: int = 0
+var _boss_spawned: bool = false
+var _boss: Boss = null
 
 @onready var _player: Player = %Player
 @onready var _enemies: Node3D = %Enemies
@@ -245,10 +257,22 @@ func _maintain_population(delta: float) -> void:
 		var enemy: Enemy = node as Enemy
 		if enemy == null or enemy.is_queued_for_deletion():
 			continue
+		# The boss is the encounter, not part of the stream: freeing it for being
+		# far away would delete the fight the player is meant to chase.
+		if enemy is Boss:
+			alive += 1
+			continue
 		if _planar_distance(enemy.global_position) > DESPAWN_DISTANCE:
 			enemy.queue_free()
 			continue
 		alive += 1
+
+	# The ship arrives alone. A stream of turrets around a set piece would dilute
+	# the fight and keep spawning contacts behind the player while they work the
+	# hull, which is the one time the arena must be quiet. Once the wreck is gone
+	# the stream resumes: the planet keeps going after its climax.
+	if _boss_alive():
+		return
 
 	if alive >= MAX_ENEMIES or _spawn_timer > 0.0:
 		return
@@ -307,6 +331,43 @@ func _pick_enemy_scene() -> PackedScene:
 func _on_enemy_killed(value: int) -> void:
 	_score += value
 	GlobalEventBus.score_changed.emit(_score)
+
+	_run_kills += 1
+	if not _boss_spawned and _run_kills >= BOSS_KILL_THRESHOLD:
+		spawn_boss()
+
+
+## The final encounter. It arrives once per run, ahead of the ship, and the stream
+## stays quiet until the hull is gone. Public because the suite and the capture
+## tool need it without farming a run's worth of kills.
+func spawn_boss() -> Boss:
+	if _boss_spawned:
+		return _boss
+
+	_boss_spawned = true
+	for node in _enemies.get_children():
+		if node is Enemy and not (node is Boss):
+			node.queue_free()
+
+	_boss = BOSS_SCENE.instantiate() as Boss
+	_enemies.add_child(_boss)
+
+	var angle: float = _spawn_angle()
+	var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * BOSS_SPAWN_DISTANCE
+	_boss.setup_spawn(_player.global_position + offset)
+	return _boss
+
+
+## Read-only view of the ship, so the suite can assert on it without reaching into
+## the container's children.
+func boss() -> Boss:
+	return _boss
+
+
+## The fight suppresses the stream while the hull exists, including the frames the
+## death cascade plays: the wreck still owns the encounter until it is freed.
+func _boss_alive() -> bool:
+	return is_instance_valid(_boss) and not _boss.is_queued_for_deletion()
 
 
 ## Read-only view of the run's score. The HUD reads the signal; this exists so the

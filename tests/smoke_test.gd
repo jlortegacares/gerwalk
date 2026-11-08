@@ -35,6 +35,12 @@ func _ready() -> void:
 	_check(_player != null, "arena exposes a Player")
 	_check(_player is CharacterBody3D, "player is a CharacterBody3D")
 
+	# The suite is one very long run that kills far more than the boss threshold,
+	# so the run counter is parked below zero and only the boss test drives it up.
+	# Without this the mothership would arrive mid-weapon-test and suppress the
+	# stream every later test depends on.
+	_arena.set("_run_kills", -1000)
+
 	_test_player_is_centered()
 	await _test_pilot_progression()
 	await _test_main_menu()
@@ -72,6 +78,7 @@ func _ready() -> void:
 	await _test_audio()
 	await _test_hud_layout()
 	await _test_score()
+	await _test_boss()
 
 	_clear_enemies()
 	_clear_projectiles()
@@ -2127,6 +2134,207 @@ func _test_score() -> void:
 		"the HUD prints the run's score (%s)" % label.text
 	)
 	GlobalEventBus.score_changed.disconnect(listener)
+
+	for blast in _death_blasts():
+		blast.queue_free()
+	await get_tree().physics_frame
+
+
+## S4, S5, S6, S8, S9: the mothership arrives on the run threshold, is solid, feeds
+## its bar, escalates at 60 percent, and pays for the kill.
+func _test_boss() -> void:
+	_clear_enemies()
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
+	var boss_root: Control = hud.get_node("%BossRoot") as Control
+	var boss_name: Label = hud.get_node("%BossName") as Label
+	_check(boss_root != null, "the HUD has a boss bar container")
+	if boss_root == null or boss_name == null:
+		return
+	_check(not boss_root.visible, "the boss bar starts hidden")
+
+	var appeared: Array[String] = []
+	var health: Array[Vector2i] = []
+	# Arrays are captured by reference; a plain int would be copied into the lambda
+	# and the count would never leave it.
+	var defeats: Array[bool] = []
+	var on_appeared: Callable = func(name: String, maximum: int) -> void:
+		appeared.append("%s:%d" % [name, maximum])
+	var on_health: Callable = func(current: int, maximum: int) -> void:
+		health.append(Vector2i(current, maximum))
+	var on_defeated: Callable = func() -> void:
+		defeats.append(true)
+	GlobalEventBus.boss_appeared.connect(on_appeared)
+	GlobalEventBus.boss_health_changed.connect(on_health)
+	GlobalEventBus.boss_defeated.connect(on_defeated)
+
+	# Drive the real trigger: one kill short of the threshold, then a kill. The
+	# suite parked the counter, so this is the only place the arrival path runs.
+	_arena.set("_run_kills", Arena.BOSS_KILL_THRESHOLD - 1)
+	var trigger: Enemy = _spawn_turret(_player.global_position + Vector3(24.0, 0.0, 0.0))
+	await get_tree().physics_frame
+	if trigger != null:
+		trigger.take_damage(trigger.current_hp())
+	await get_tree().physics_frame
+
+	var ship: Boss = _arena.boss()
+	_check(ship != null, "the run threshold brings the mothership in")
+	if ship == null:
+		GlobalEventBus.boss_appeared.disconnect(on_appeared)
+		GlobalEventBus.boss_health_changed.disconnect(on_health)
+		GlobalEventBus.boss_defeated.disconnect(on_defeated)
+		return
+
+	_check(ship.is_in_group(&"boss"), "the mothership joins the boss group")
+	# S5: layer 9 is world + enemy, so the hull is a wall instead of a ghost.
+	_check(ship.collision_layer == 9, "the hull sits on the world and enemy layers")
+	_check(ship.collision_mask == 1, "the hull collides with the world")
+
+	var collider: CollisionShape3D = ship.get_node_or_null("CollisionShape3D") as CollisionShape3D
+	var shape: BoxShape3D = null
+	if collider != null:
+		shape = collider.shape as BoxShape3D
+	_check(shape != null, "the hull has a box collider")
+	if shape != null:
+		_check(
+			is_equal_approx(shape.size.x, Boss.MODEL_SIZE.x * Boss.SCALE),
+			"the collider is as long as the hull (%.1f)" % shape.size.x
+		)
+		_check(
+			is_equal_approx(shape.size.y, Boss.MODEL_SIZE.y * Boss.SCALE),
+			"the collider is as tall as the hull (%.1f)" % shape.size.y
+		)
+		_check(
+			is_equal_approx(shape.size.z, Boss.MODEL_SIZE.z * Boss.SCALE),
+			"the collider is as wide as the hull (%.1f)" % shape.size.z
+		)
+		# The box is centred on the hull, not on the body origin. The hull is lifted
+		# so its belly sits on the ground, and a shape at the origin leaves the top
+		# decks outside the collision, where a shot can visibly cross them and miss.
+		_check(
+			is_equal_approx(
+				collider.position.y,
+				Boss.GROUND_Y + Boss.MODEL_SIZE.y * Boss.SCALE * 0.5
+			),
+			"the collider sits at the hull's centre, not on the play plane"
+		)
+
+	# S6: the bar arrives with the ship, named and full, fed only by the bus.
+	_check(
+		appeared.size() == 1 and appeared[0] == "%s:%d" % [Boss.BOSS_NAME, Boss.BOSS_HP],
+		"the arrival names the ship and its pool (%s)" % str(appeared)
+	)
+	_check(boss_root.visible, "the boss bar appears with the ship")
+	_check(boss_name.text == Boss.BOSS_NAME, "the bar carries the ship's name")
+
+	# S2: it flies. The hull has to move on its own heading, not hold station.
+	var before_position: Vector3 = ship.global_position
+	for _i in 4:
+		await get_tree().physics_frame
+	_check(
+		ship.global_position.distance_to(before_position) > 0.05,
+		"the mothership flies instead of holding station"
+	)
+
+	# S7: the first burst actually leaves the hull. Waiting the real delay is the
+	# only honest way to assert it; the telegraph is part of that delay.
+	_clear_projectiles()
+	await get_tree().create_timer(
+		Boss.FIRST_BURST_DELAY + Boss.BOSS_TELEGRAPH_TIME + 0.3
+	).timeout
+	_check(
+		_count_projectiles(Projectile.Team.ENEMY) > 0,
+		"the mothership's first burst leaves the hull"
+	)
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	# S6/S7: damage is a bus event, and the pool the bar divides by is the starting
+	# pool, not what is left.
+	var full_hp: int = ship.current_hp()
+	ship.take_damage(1)
+	_check(
+		not health.is_empty()
+			and health[health.size() - 1] == Vector2i(full_hp - 1, Boss.BOSS_HP),
+		"damage reaches the bar through the bus (%s)" % str(health)
+	)
+
+	# S12: a hit has to be visible on a hull this large. The flash is a billboard,
+	# and a billboarded instance discards its own scale, so the size must live in the
+	# mesh or the flash renders one unit wide and never shows.
+	var flash: MeshInstance3D = ship.get("_hull_flash") as MeshInstance3D
+	var flash_quad: QuadMesh = ship.get("_hull_flash_quad") as QuadMesh
+	_check(flash != null and flash.visible, "a hit flashes on the hull")
+	_check(
+		flash_quad != null and is_equal_approx(flash_quad.size.x, Boss.HIT_FLASH_SIZE),
+		"the hit flash is hull-sized, not a one-unit billboard"
+	)
+
+	# S11: the hull catches fire as the pool drains. No fire at full health, and a
+	# fire on the first deck once the ship has taken a real hit.
+	_check(ship.burning_fires() == 0, "the hull does not burn at full health")
+	ship.take_damage(int(float(Boss.BOSS_HP) * 0.12))
+	_check(ship.burning_fires() >= 1, "the first deck lights up after damage")
+
+	# S8: the second phase is a health threshold, not a scripted beat.
+	_check(not ship.is_phase_two(), "the ship starts in its first phase")
+	var to_threshold: int = (
+		ship.current_hp() - int(float(Boss.BOSS_HP) * Boss.PHASE_TWO_RATIO)
+	)
+	ship.take_damage(to_threshold)
+	_check(
+		ship.is_phase_two(),
+		"below %d percent the ship enters its second phase (hp %d)"
+		% [int(Boss.PHASE_TWO_RATIO * 100.0), ship.current_hp()]
+	)
+	_check(
+		ship.burning_fires() >= 3,
+		"more decks burn as the pool drains (%d lit)" % ship.burning_fires()
+	)
+
+	# S12: the layers say player fire reaches the hull. This is the regression guard
+	# for "my shots do nothing on a ship this big": a real dart, aimed at the bow,
+	# has to take health off the ship.
+	var hp_before_shot: int = ship.current_hp()
+	var bow: Vector3 = Vector3(cos(ship.rotation.y), 0.0, -sin(ship.rotation.y))
+	var shot_from: Vector3 = ship.global_position + bow * (
+		Boss.MODEL_SIZE.x * Boss.SCALE * 0.5 + 5.0
+	)
+	var shot: Projectile = (
+		load("res://combat/projectile.tscn").instantiate() as Projectile
+	)
+	get_tree().current_scene.add_child(shot)
+	shot.global_position = shot_from
+	shot.setup(-bow, 80.0, Projectile.Team.PLAYER, 1)
+	for _i in 12:
+		await get_tree().physics_frame
+	_check(
+		ship.current_hp() < hp_before_shot,
+		"a player shot reaches the hull (%d -> %d)" % [hp_before_shot, ship.current_hp()]
+	)
+	_clear_projectiles()
+	await get_tree().physics_frame
+
+	# S9: the kill pays, hides the bar, and frees the wreck after the cascade.
+	var score_before: int = _arena.score()
+	ship.take_damage(ship.current_hp())
+	_check(defeats.size() == 1, "the defeat is announced once")
+	_check(
+		_arena.score() == score_before + Boss.BOSS_SCORE,
+		"the kill pays %d points (score %d)" % [Boss.BOSS_SCORE, _arena.score()]
+	)
+	_check(not boss_root.visible, "the boss bar leaves with the ship")
+
+	await get_tree().create_timer(
+		Boss.DEATH_BLASTS * Boss.DEATH_STEP + 0.4
+	).timeout
+	_check(not is_instance_valid(ship), "the wreck frees itself after the cascade")
+
+	GlobalEventBus.boss_appeared.disconnect(on_appeared)
+	GlobalEventBus.boss_health_changed.disconnect(on_health)
+	GlobalEventBus.boss_defeated.disconnect(on_defeated)
 
 	for blast in _death_blasts():
 		blast.queue_free()
