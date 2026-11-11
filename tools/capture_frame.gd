@@ -51,6 +51,9 @@ extends Node
 ## and the HUD bar are reviewed without farming the twelve kills a run needs.
 ## `--boss-hp N` drops it to N health first, so `--boss-hp 500` captures the
 ## phase-two ring on the same frame.
+## `--lock-boss N` is the same arrival with the missile rack held for N frames and
+## the ship's own physics frozen: no turrets and no section guns, so the frame is
+## the lock mark on the hull and nothing else.
 ## `--city 1` loads the city district instead of the planet, which is how the
 ## street grid, the towers and the night lighting are reviewed. Add `--nofire 1`
 ## to hold the trigger, since a vulcan stream washes the streets out and starts
@@ -107,6 +110,31 @@ func _ready() -> void:
 			var ship_hp: String = _argument("boss-hp", "")
 			if not ship_hp.is_empty():
 				ship.take_damage(Boss.BOSS_HP - int(ship_hp))
+
+	# `--lock-boss N`: the mothership in front, the rack held, and the ship's own
+	# physics frozen so no section gun fires and the hull holds still. The subject is
+	# the lock mark on a hull this large, and a moving target would drag it out of
+	# frame while the rack loads.
+	var lock_boss_frames: int = int(_argument("lock-boss", "0"))
+	if lock_boss_frames > 0:
+		var boss_level: Arena = arena as Arena
+		var mothership: Boss = boss_level.spawn_boss()
+		if mothership != null:
+			mothership.global_position = Vector3(
+				float(_argument("boss-x", "46")), 0.0, 0.0
+			)
+			# The teleport moves the hull without turning it, so the arrival heading is
+			# re-applied from the new place: a lock capture with the ship broadside to
+			# the aim is not the picture the encounter ever produces.
+			mothership.setup_spawn(mothership.global_position)
+			mothership.set_physics_process(false)
+		Input.action_release(&"fire")
+		Input.action_release(&"aim_right")
+		for _i in 30:
+			await get_tree().physics_frame
+		Input.action_press(&"missile")
+		for _i in lock_boss_frames:
+			await get_tree().physics_frame
 
 	# `--px F` / `--pz F` place the ship on the play plane before the warmup. A city
 	# frame often needs a specific street: the sight line only passes through a

@@ -49,9 +49,23 @@ const WAVE_SCALE: float = 1.1
 
 ## Read by `_ready`, so it has to be set before the node enters the tree.
 var shake_strength: float = 1.0
+## Multiplies every layer of the blast. The default is the fighter-sized explosion
+## every existing caller expects; the mothership passes several times this, because a
+## 96-unit hull has to come apart at its own scale instead of leaving a turret-sized
+## puff at the centre of the wreck.
+var scale_multiplier: float = 1.0
+
+var _s: float = 1.0
+var _t: float = 1.0
 
 
 func _ready() -> void:
+	_s = maxf(scale_multiplier, 0.05)
+	# Bigger blasts also take longer. A 50-unit fireball that vanishes in 0.7 s reads
+	# as a flash instead of a hull coming apart, and the factor is capped so a
+	# capital-ship blast does not hold the frame for ten seconds.
+	_t = clampf(sqrt(_s), 1.0, 1.6)
+
 	_add_core()
 	_add_wave()
 	_add_fireball()
@@ -63,18 +77,20 @@ func _ready() -> void:
 	GlobalEventBus.camera_shake_requested.emit(shake_strength)
 
 	var tween: Tween = create_tween()
-	tween.tween_interval(LIFETIME)
+	tween.tween_interval(LIFETIME * _t)
 	tween.tween_callback(queue_free)
 
 
 ## The flash is additive and very short: it is what makes the frame read as a
 ## detonation instead of an orange ball growing out of the ground.
 func _add_core() -> void:
-	var flash: MeshInstance3D = _glow(CORE_START, CORE_COLOR, true)
+	var flash: MeshInstance3D = _glow(CORE_START * _s, CORE_COLOR, true)
 	var tween: Tween = create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(flash, "scale", Vector3.ONE * (CORE_END / CORE_START), CORE_DURATION)
-	tween.tween_property(flash, "transparency", 1.0, CORE_DURATION)
+	tween.tween_property(
+		flash, "scale", Vector3.ONE * (CORE_END / CORE_START), CORE_DURATION * _t
+	)
+	tween.tween_property(flash, "transparency", 1.0, CORE_DURATION * _t)
 
 
 ## The ring is the same wave a missile impact leaves, scaled up and without its own
@@ -83,7 +99,7 @@ func _add_core() -> void:
 func _add_wave() -> void:
 	var wave: ShockWave = ShockWave.new()
 	wave.flash_enabled = false
-	wave.scale = Vector3.ONE * WAVE_SCALE
+	wave.scale = Vector3.ONE * WAVE_SCALE * _s
 	add_child(wave)
 
 
@@ -93,24 +109,26 @@ func _add_wave() -> void:
 func _add_fireball() -> void:
 	for index in FIRE_LOBES.size():
 		var lobe: float = FIRE_LOBES[index]
-		var blob: MeshInstance3D = _glow(FIRE_START * lobe, FIRE_COLOR, true)
+		var blob: MeshInstance3D = _glow(FIRE_START * lobe * _s, FIRE_COLOR, true)
 		blob.position = Vector3(
-			randf_range(-0.8, 0.8), randf_range(-0.2, 0.7), randf_range(-0.8, 0.8)
+			randf_range(-0.8, 0.8) * _s,
+			randf_range(-0.2, 0.7) * _s,
+			randf_range(-0.8, 0.8) * _s
 		)
-		var delay: float = index * 0.06
+		var delay: float = index * 0.06 * _t
 		var tween: Tween = create_tween()
 		tween.set_parallel(true)
 		tween.tween_property(
-			blob, "scale", Vector3.ONE * (FIRE_END / FIRE_START), FIRE_DURATION
+			blob, "scale", Vector3.ONE * (FIRE_END / FIRE_START), FIRE_DURATION * _t
 		).set_delay(delay)
-		tween.tween_property(blob, "transparency", 1.0, FIRE_DURATION).set_delay(delay)
+		tween.tween_property(blob, "transparency", 1.0, FIRE_DURATION * _t).set_delay(delay)
 
 
 ## Dark shards on the gunmetal palette: they are the only layer that says the ship
 ## was made of something solid.
 func _add_debris() -> void:
 	var mesh: BoxMesh = BoxMesh.new()
-	mesh.size = Vector3(0.5, 0.22, 0.75)
+	mesh.size = Vector3(0.5, 0.22, 0.75) * _s
 	var material: StandardMaterial3D = StandardMaterial3D.new()
 	material.albedo_color = DEBRIS_COLOR
 	material.metallic = 0.5
@@ -121,36 +139,38 @@ func _add_debris() -> void:
 		var shard: MeshInstance3D = MeshInstance3D.new()
 		shard.mesh = mesh
 		shard.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		shard.scale = Vector3.ONE * randf_range(0.45, 1.0)
+		shard.scale = Vector3.ONE * randf_range(0.45, 1.0) * _s
 		add_child(shard)
 
 		var out: Vector3 = Vector3(
 			randf_range(-1.0, 1.0), randf_range(0.2, 1.0), randf_range(-1.0, 1.0)
 		).normalized()
-		var travel: Vector3 = out * randf_range(2.5, 5.0)
-		travel.y -= 1.6
+		var travel: Vector3 = out * randf_range(2.5, 5.0) * _s
+		travel.y -= 1.6 * _s
 		var spin: Vector3 = Vector3(
 			randf_range(-8.0, 8.0), randf_range(-8.0, 8.0), randf_range(-8.0, 8.0)
 		)
 		var tween: Tween = create_tween()
 		tween.set_parallel(true)
-		tween.tween_property(shard, "position", travel, DEBRIS_DURATION).set_ease(Tween.EASE_OUT)
-		tween.tween_property(shard, "rotation", spin, DEBRIS_DURATION)
+		tween.tween_property(
+			shard, "position", travel, DEBRIS_DURATION * _t
+		).set_ease(Tween.EASE_OUT)
+		tween.tween_property(shard, "rotation", spin, DEBRIS_DURATION * _t)
 		# The shard is gone before it lands, which keeps it from reading as litter
 		# left on the ground after the explosion has finished.
 		tween.tween_property(
-			shard, "scale", Vector3.ONE * 0.01, DEBRIS_DURATION * 0.5
-		).set_delay(DEBRIS_DURATION * 0.5)
+			shard, "scale", Vector3.ONE * 0.01, DEBRIS_DURATION * 0.5 * _t
+		).set_delay(DEBRIS_DURATION * 0.5 * _t)
 
 
 func _add_sparks() -> void:
 	var process: ParticleProcessMaterial = ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	process.emission_sphere_radius = 0.8
+	process.emission_sphere_radius = 0.8 * _s
 	process.direction = Vector3.UP
 	process.spread = 180.0
-	process.initial_velocity_min = 6.0
-	process.initial_velocity_max = 16.0
+	process.initial_velocity_min = 6.0 * _s
+	process.initial_velocity_max = 16.0 * _s
 	process.gravity = Vector3(0.0, -16.0, 0.0)
 	process.damping_min = 1.0
 	process.damping_max = 3.0
@@ -159,7 +179,9 @@ func _add_sparks() -> void:
 	process.scale_curve = _shrink_curve()
 	process.color_ramp = _spark_ramp()
 
-	var sparks: GPUParticles3D = _burst(36, SPARK_LIFETIME, 1.0, process, _quad(0.22, true))
+	var sparks: GPUParticles3D = _burst(
+		36, SPARK_LIFETIME * _t, 1.0, process, _quad(0.22 * _s, true)
+	)
 	add_child(sparks)
 	sparks.emitting = true
 
@@ -167,11 +189,11 @@ func _add_sparks() -> void:
 func _add_smoke() -> void:
 	var process: ParticleProcessMaterial = ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	process.emission_sphere_radius = 1.1
+	process.emission_sphere_radius = 1.1 * _s
 	process.direction = Vector3.UP
 	process.spread = 180.0
-	process.initial_velocity_min = 1.6
-	process.initial_velocity_max = 5.5
+	process.initial_velocity_min = 1.6 * _s
+	process.initial_velocity_max = 5.5 * _s
 	process.gravity = Vector3(0.0, 1.2, 0.0)
 	process.damping_min = 0.6
 	process.damping_max = 1.8
@@ -186,10 +208,12 @@ func _add_smoke() -> void:
 	# like a sprite popping, and the puff has to keep arriving while the fire dies.
 	# The puff is small enough that the column reads as puffs instead of one grey
 	# disc once they have all grown.
-	var smoke: GPUParticles3D = _burst(24, SMOKE_LIFETIME, 0.85, process, _quad(1.8, false))
+	var smoke: GPUParticles3D = _burst(
+		24, SMOKE_LIFETIME * _t, 0.85, process, _quad(1.8 * _s, false)
+	)
 	add_child(smoke)
 	var tween: Tween = create_tween()
-	tween.tween_interval(SMOKE_DELAY)
+	tween.tween_interval(SMOKE_DELAY * _t)
 	tween.tween_callback(func() -> void: smoke.emitting = true)
 
 

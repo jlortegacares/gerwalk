@@ -267,13 +267,10 @@ func _maintain_population(delta: float) -> void:
 			continue
 		alive += 1
 
-	# The ship arrives alone. A stream of turrets around a set piece would dilute
-	# the fight and keep spawning contacts behind the player while they work the
-	# hull, which is the one time the arena must be quiet. Once the wreck is gone
-	# the stream resumes: the planet keeps going after its climax.
-	if _boss_alive():
-		return
-
+	# The fighters already on the field stay when the ship arrives, and the stream
+	# keeps producing: the boss is an escalation of the run, not a scene change. The
+	# hull counts against `MAX_ENEMIES`, so the fight keeps a couple of escorts instead
+	# of the whole population, which is enough for the set piece to stay readable.
 	if alive >= MAX_ENEMIES or _spawn_timer > 0.0:
 		return
 
@@ -337,18 +334,15 @@ func _on_enemy_killed(value: int) -> void:
 		spawn_boss()
 
 
-## The final encounter. It arrives once per run, ahead of the ship, and the stream
-## stays quiet until the hull is gone. Public because the suite and the capture
-## tool need it without farming a run's worth of kills.
+## The final encounter. It arrives once per run, ahead of the ship, and the fighters
+## already on the field stay: the arrival escalates the run instead of resetting it.
+## Public because the suite and the capture tool need it without farming a run's worth
+## of kills.
 func spawn_boss() -> Boss:
 	if _boss_spawned:
 		return _boss
 
 	_boss_spawned = true
-	for node in _enemies.get_children():
-		if node is Enemy and not (node is Boss):
-			node.queue_free()
-
 	_boss = BOSS_SCENE.instantiate() as Boss
 	_enemies.add_child(_boss)
 
@@ -362,12 +356,6 @@ func spawn_boss() -> Boss:
 ## the container's children.
 func boss() -> Boss:
 	return _boss
-
-
-## The fight suppresses the stream while the hull exists, including the frames the
-## death cascade plays: the wreck still owns the encounter until it is freed.
-func _boss_alive() -> bool:
-	return is_instance_valid(_boss) and not _boss.is_queued_for_deletion()
 
 
 ## Read-only view of the run's score. The HUD reads the signal; this exists so the

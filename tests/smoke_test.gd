@@ -2140,11 +2140,15 @@ func _test_score() -> void:
 	await get_tree().physics_frame
 
 
-## S4, S5, S6, S8, S9: the mothership arrives on the run threshold, is solid, feeds
-## its bar, escalates at 60 percent, and pays for the kill.
+## S4, S5, S6, S8, S9, S13: the mothership arrives on the run threshold, is solid,
+## is fought as three independently attackable sections, feeds its bar, escalates at
+## 60 percent, and comes apart at the hull's own scale when the third section falls.
 func _test_boss() -> void:
 	_clear_enemies()
 	_clear_projectiles()
+	# The spawner is parked for the test: the arrival is what is under test, and a
+	# fighter wandering into the set piece would make the projectile counts ambiguous.
+	_arena.set("_spawn_timer", 1.0e9)
 	await get_tree().physics_frame
 
 	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
@@ -2174,6 +2178,16 @@ func _test_boss() -> void:
 	# suite parked the counter, so this is the only place the arrival path runs.
 	_arena.set("_run_kills", Arena.BOSS_KILL_THRESHOLD - 1)
 	var trigger: Enemy = _spawn_turret(_player.global_position + Vector3(24.0, 0.0, 0.0))
+	# A fighter already in the stream has to survive the arrival: the ship escalates
+	# the run instead of wiping the field. It sits in the stream's own container, which
+	# is where the old arrival used to free everything.
+	var stream: Node = _arena.get("_enemies") as Node
+	var escort: Enemy = (
+		load("res://entities/enemy/turret.tscn").instantiate() as Enemy
+	)
+	if stream != null and escort != null:
+		stream.add_child(escort)
+		escort.setup_spawn(_player.global_position + Vector3(-26.0, 0.0, 16.0))
 	await get_tree().physics_frame
 	if trigger != null:
 		trigger.take_damage(trigger.current_hp())
@@ -2188,37 +2202,148 @@ func _test_boss() -> void:
 		return
 
 	_check(ship.is_in_group(&"boss"), "the mothership joins the boss group")
-	# S5: layer 9 is world + enemy, so the hull is a wall instead of a ghost.
-	_check(ship.collision_layer == 9, "the hull sits on the world and enemy layers")
-	_check(ship.collision_mask == 1, "the hull collides with the world")
 
-	var collider: CollisionShape3D = ship.get_node_or_null("CollisionShape3D") as CollisionShape3D
-	var shape: BoxShape3D = null
-	if collider != null:
-		shape = collider.shape as BoxShape3D
-	_check(shape != null, "the hull has a box collider")
-	if shape != null:
+	# S15: the fighters already on the field stay when the ship arrives. The arrival
+	# used to free every non-boss enemy, which reset the run at its climax.
+	_check(
+		is_instance_valid(escort) and not escort.is_queued_for_deletion(),
+		"the fighters already on the field stay when the boss arrives"
+	)
+	if is_instance_valid(escort):
+		escort.queue_free()
+	await get_tree().physics_frame
+
+	# S13/S15: the hull is six target points in three sections, not one pool. Each
+	# point is a solid box on the world and enemy layers, so it blocks the player and
+	# every shot finds it; each section owns two of them, side by side across the beam.
+	var parts: Array[BossPart] = ship.parts()
+	_check(
+		parts.size() == Boss.PART_COUNT,
+		"the hull is six target points (%d)" % parts.size()
+	)
+	if parts.size() != Boss.PART_COUNT:
+		GlobalEventBus.boss_appeared.disconnect(on_appeared)
+		GlobalEventBus.boss_health_changed.disconnect(on_health)
+		GlobalEventBus.boss_defeated.disconnect(on_defeated)
+		return
+
+	var section_length: float = (
+		Boss.MODEL_SIZE.x * Boss.SCALE / float(Boss.SECTION_COUNT)
+	)
+	var point_width: float = (
+		Boss.MODEL_SIZE.z * Boss.SCALE / float(Boss.PARTS_PER_SECTION)
+	)
+
+	# The encounter fires a laser and homing missiles from three sections now. This
+	# test is about the ship's state, not about surviving it, so the player is made
+	# untouchable for its duration and handed back clean at the end.
+	_player.set("_invulnerable", 1.0e9)
+
+	# S14: each section answers with a different weapon. The three guns are three
+	# problems, not one broadside repeated, so destroying a section removes a threat
+	# the player can name.
+	var weapons: Array[BossWeapon] = ship.weapons()
+	_check(
+		weapons.size() == Boss.SECTION_COUNT,
+		"each section carries its own gun (%d)" % weapons.size()
+	)
+	if weapons.size() == Boss.SECTION_COUNT:
 		_check(
-			is_equal_approx(shape.size.x, Boss.MODEL_SIZE.x * Boss.SCALE),
-			"the collider is as long as the hull (%.1f)" % shape.size.x
+			weapons[0].kind() == BossWeapon.Kind.VULCAN
+				and weapons[1].kind() == BossWeapon.Kind.MISSILES
+				and weapons[2].kind() == BossWeapon.Kind.LASER,
+			"the bow fires a vulcan, the middle missiles and the stern the laser"
+		)
+		for section in weapons.size():
+			_check(
+				is_zero_approx(weapons[section].position.y),
+				"section %d fires from the play plane" % section
+			)
+			_check(
+				is_equal_approx(
+					weapons[section].position.x,
+					parts[section * Boss.PARTS_PER_SECTION].position.x
+				),
+				"section %d fires from its own place on the keel" % section
+			)
+
+	# S14: the missile lock has to be visible on a 96-unit hull AND sit on it. A
+	# hull-sized frame hangs its corners over the water, which reads as a mark that
+	# came off the ship; a turret-sized box disappears. The mark is a small box on
+	# the hull, drawn over the model so the opaque ship cannot hide it.
+	var mark: Vector3 = ship.lock_mark()
+	var hull_top: float = Boss.GROUND_Y + Boss.MODEL_SIZE.y * Boss.SCALE
+	_check(
+		mark.x < Boss.MODEL_SIZE.x * Boss.SCALE * 0.2
+			and mark.z < Boss.MODEL_SIZE.z * Boss.SCALE * 0.7,
+		"the mothership's lock mark is a small box, not a frame around a third (%.1f x %.1f)"
+		% [mark.x, mark.z]
+	)
+	_check(
+		mark.y > Boss.GROUND_Y and mark.y < hull_top,
+		"the lock mark sits on the hull instead of floating above it (%.1f)" % mark.y
+	)
+	_check(
+		ship.lock_mark_on_hull(),
+		"the lock mark is drawn over the hull it sits in"
+	)
+
+	for index in parts.size():
+		var part: BossPart = parts[index]
+		var section: int = index / Boss.PARTS_PER_SECTION
+		_check(
+			part.current_hp() == Boss.PART_HP,
+			"point %d starts with its own pool (%d)" % [index, part.current_hp()]
 		)
 		_check(
-			is_equal_approx(shape.size.y, Boss.MODEL_SIZE.y * Boss.SCALE),
-			"the collider is as tall as the hull (%.1f)" % shape.size.y
+			part.section_id == section,
+			"point %d belongs to section %d" % [index, section]
 		)
 		_check(
-			is_equal_approx(shape.size.z, Boss.MODEL_SIZE.z * Boss.SCALE),
-			"the collider is as wide as the hull (%.1f)" % shape.size.z
+			part.collision_layer == 9,
+			"point %d sits on the world and enemy layers" % index
 		)
-		# The box is centred on the hull, not on the body origin. The hull is lifted
-		# so its belly sits on the ground, and a shape at the origin leaves the top
-		# decks outside the collision, where a shot can visibly cross them and miss.
+		var collider: CollisionShape3D = part.get_node_or_null("Shape") as CollisionShape3D
+		var shape: BoxShape3D = null
+		if collider != null:
+			shape = collider.shape as BoxShape3D
+		_check(shape != null, "point %d has a box collider" % index)
+		if shape != null:
+			_check(
+				is_equal_approx(shape.size.x, section_length),
+				"point %d is a third of the hull long (%.1f)" % [index, shape.size.x]
+			)
+			_check(
+				is_equal_approx(shape.size.y, Boss.MODEL_SIZE.y * Boss.SCALE),
+				"point %d is as tall as the hull" % index
+			)
+			_check(
+				is_equal_approx(shape.size.z, point_width),
+				"point %d is half the beam wide (%.1f)" % [index, shape.size.z]
+			)
+		# The box is centred on the hull, not on the body origin: a shape at the
+		# origin leaves the top decks outside the collision, where a shot can
+		# visibly cross them and miss.
 		_check(
 			is_equal_approx(
-				collider.position.y,
+				part.position.y,
 				Boss.GROUND_Y + Boss.MODEL_SIZE.y * Boss.SCALE * 0.5
 			),
-			"the collider sits at the hull's centre, not on the play plane"
+			"point %d sits at the hull's centre, not on the play plane" % index
+		)
+
+	_check(
+		parts[0].position.x > parts[2].position.x
+			and parts[2].position.x > parts[4].position.x,
+		"the sections run bow, middle, stern along the keel"
+	)
+	for section in Boss.SECTION_COUNT:
+		var port: BossPart = parts[section * Boss.PARTS_PER_SECTION]
+		var starboard: BossPart = parts[section * Boss.PARTS_PER_SECTION + 1]
+		_check(
+			is_equal_approx(port.position.x, starboard.position.x)
+				and not is_equal_approx(port.position.z, starboard.position.z),
+			"section %d has two points side by side across the beam" % section
 		)
 
 	# S6: the bar arrives with the ship, named and full, fed only by the bus.
@@ -2238,11 +2363,12 @@ func _test_boss() -> void:
 		"the mothership flies instead of holding station"
 	)
 
-	# S7: the first burst actually leaves the hull. Waiting the real delay is the
-	# only honest way to assert it; the telegraph is part of that delay.
+	# S7/S14: the first burst actually leaves the hull. The bow is the vulcan, so its
+	# own windup, not a hull-wide telegraph, is what delays the shot. Waiting the real
+	# clock is the only honest way to assert it.
 	_clear_projectiles()
 	await get_tree().create_timer(
-		Boss.FIRST_BURST_DELAY + Boss.BOSS_TELEGRAPH_TIME + 0.3
+		Boss.FIRST_BURST_DELAY + BossWeapon.VULCAN_WINDUP + 0.4
 	).timeout
 	_check(
 		_count_projectiles(Projectile.Team.ENEMY) > 0,
@@ -2251,13 +2377,50 @@ func _test_boss() -> void:
 	_clear_projectiles()
 	await get_tree().physics_frame
 
+	# S13/S12/S15: a real player dart lands on the point it crosses. This is the
+	# regression guard for "my shots do nothing on a ship this big", and the guard
+	# that the points are actually independent: the other five stay untouched.
+	var bow: Vector3 = Vector3(cos(ship.rotation.y), 0.0, -sin(ship.rotation.y))
+	var lateral: Vector3 = Vector3(-bow.z, 0.0, bow.x)
+	var shot_from: Vector3 = (
+		ship.global_position
+		+ bow * (Boss.MODEL_SIZE.x * Boss.SCALE * 0.5 + 5.0)
+		+ lateral * parts[0].position.z
+	)
+	var bow_hp: int = parts[0].current_hp()
+	var total_before: int = ship.current_hp()
+	var shot: Projectile = (
+		load("res://combat/projectile.tscn").instantiate() as Projectile
+	)
+	get_tree().current_scene.add_child(shot)
+	shot.global_position = shot_from
+	shot.setup(-bow, 80.0, Projectile.Team.PLAYER, 1)
+	for _i in 12:
+		await get_tree().physics_frame
+	_check(
+		parts[0].current_hp() < bow_hp,
+		"a player shot wears down the point it crosses (%d -> %d)"
+		% [bow_hp, parts[0].current_hp()]
+	)
+	var untouched: bool = true
+	for index in range(1, parts.size()):
+		if parts[index].current_hp() != Boss.PART_HP:
+			untouched = false
+	_check(untouched, "a shot only damages the point it crosses")
+	_check(
+		ship.current_hp() < total_before,
+		"point damage reaches the hull's total (%d -> %d)"
+		% [total_before, ship.current_hp()]
+	)
+	_clear_projectiles()
+	await get_tree().physics_frame
+
 	# S6/S7: damage is a bus event, and the pool the bar divides by is the starting
 	# pool, not what is left.
-	var full_hp: int = ship.current_hp()
 	ship.take_damage(1)
 	_check(
 		not health.is_empty()
-			and health[health.size() - 1] == Vector2i(full_hp - 1, Boss.BOSS_HP),
+			and health[health.size() - 1] == Vector2i(ship.current_hp(), Boss.BOSS_HP),
 		"damage reaches the bar through the bus (%s)" % str(health)
 	)
 
@@ -2272,14 +2435,76 @@ func _test_boss() -> void:
 		"the hit flash is hull-sized, not a one-unit billboard"
 	)
 
-	# S11: the hull catches fire as the pool drains. No fire at full health, and a
-	# fire on the first deck once the ship has taken a real hit.
+	# S11: fire is local to the section that is wearing down. No fire at full health,
+	# and a fire on the bow once the bow has taken a real hit.
 	_check(ship.burning_fires() == 0, "the hull does not burn at full health")
 	ship.take_damage(int(float(Boss.BOSS_HP) * 0.12))
 	_check(ship.burning_fires() >= 1, "the first deck lights up after damage")
 
-	# S8: the second phase is a health threshold, not a scripted beat.
-	_check(not ship.is_phase_two(), "the ship starts in its first phase")
+	# S13/S15: one point falling does not finish its section. The bow keeps answering
+	# while its other half stands, which is what makes the pair a pair and not one
+	# section cut in two for looks.
+	ship.take_damage(parts[0].current_hp())
+	_check(parts[0].is_destroyed(), "a target point can be destroyed on its own")
+	_check(
+		not ship.is_section_destroyed(0),
+		"one point down does not finish its section"
+	)
+	_check(
+		not weapons[0].is_silenced(),
+		"a section with a live point keeps its gun"
+	)
+	_check(ship.destroyed_parts() == 1, "one of six target points is down")
+	_check(defeats.is_empty(), "one destroyed point does not end the fight")
+	_check(
+		ship.burning_fires() == 2,
+		"a half-worn section burns at full intensity (%d lit)" % ship.burning_fires()
+	)
+
+	# The section falls when its second point does, and only then its gun goes quiet.
+	ship.take_damage(parts[1].current_hp())
+	_check(parts[1].is_destroyed(), "the bow's other point falls too")
+	_check(ship.is_section_destroyed(0), "the bow section is destroyed")
+	_check(ship.destroyed_sections() == 1, "one of three sections is down")
+	_check(
+		ship.current_hp() == Boss.BOSS_HP - Boss.PART_HP * Boss.PARTS_PER_SECTION,
+		"the hull survives one section (%d)" % ship.current_hp()
+	)
+	_check(defeats.is_empty(), "one destroyed section does not end the fight")
+	_check(
+		ship.section_hp(1) == Boss.PART_HP * Boss.PARTS_PER_SECTION
+			and ship.section_hp(2) == Boss.PART_HP * Boss.PARTS_PER_SECTION,
+		"the surviving sections keep their pools"
+	)
+	_check(
+		ship.burning_fires() == 2,
+		"a destroyed section burns at full intensity (%d lit)" % ship.burning_fires()
+	)
+
+	# S14: a destroyed section goes quiet. The gun reads its own section, so the bow's
+	# vulcan is silenced without a second bookkeeping path, and the two surviving guns
+	# keep answering.
+	if weapons.size() == Boss.SECTION_COUNT:
+		var silenced_shots: int = weapons[0].shots_fired()
+		weapons[0].arm(0.0)
+		for _i in 150:
+			await get_tree().physics_frame
+		_check(weapons[0].is_silenced(), "the destroyed bow's gun is silenced")
+		_check(
+			weapons[0].shots_fired() == silenced_shots,
+			"the destroyed section never fires again (%d -> %d)" % [
+				silenced_shots, weapons[0].shots_fired()
+			]
+		)
+		_check(
+			not weapons[1].is_silenced() and not weapons[2].is_silenced(),
+			"the surviving sections keep their guns"
+		)
+		_clear_projectiles()
+
+	# S8: the second phase is a health threshold, not a scripted beat. It reads the
+	# sum of the sections, so it arrives when the ship as a whole is worn down.
+	_check(not ship.is_phase_two(), "the ship is still in its first phase")
 	var to_threshold: int = (
 		ship.current_hp() - int(float(Boss.BOSS_HP) * Boss.PHASE_TWO_RATIO)
 	)
@@ -2294,32 +2519,23 @@ func _test_boss() -> void:
 		"more decks burn as the pool drains (%d lit)" % ship.burning_fires()
 	)
 
-	# S12: the layers say player fire reaches the hull. This is the regression guard
-	# for "my shots do nothing on a ship this big": a real dart, aimed at the bow,
-	# has to take health off the ship.
-	var hp_before_shot: int = ship.current_hp()
-	var bow: Vector3 = Vector3(cos(ship.rotation.y), 0.0, -sin(ship.rotation.y))
-	var shot_from: Vector3 = ship.global_position + bow * (
-		Boss.MODEL_SIZE.x * Boss.SCALE * 0.5 + 5.0
-	)
-	var shot: Projectile = (
-		load("res://combat/projectile.tscn").instantiate() as Projectile
-	)
-	get_tree().current_scene.add_child(shot)
-	shot.global_position = shot_from
-	shot.setup(-bow, 80.0, Projectile.Team.PLAYER, 1)
-	for _i in 12:
-		await get_tree().physics_frame
+	# S13/S15: the middle section falls when both of its points do; the ship is still
+	# alive with the stern's pair standing.
+	ship.take_damage(ship.section_hp(1))
+	_check(ship.is_section_destroyed(1), "the middle section falls on its own")
 	_check(
-		ship.current_hp() < hp_before_shot,
-		"a player shot reaches the hull (%d -> %d)" % [hp_before_shot, ship.current_hp()]
+		ship.destroyed_sections() == 2
+			and ship.current_hp() == Boss.PART_HP * Boss.PARTS_PER_SECTION,
+		"two sections down leave one pair standing (%d)" % ship.current_hp()
 	)
-	_clear_projectiles()
-	await get_tree().physics_frame
+	_check(defeats.is_empty(), "two destroyed sections still do not end the fight")
 
-	# S9: the kill pays, hides the bar, and frees the wreck after the cascade.
+	# S9/S13: the third section ends the fight, pays, hides the bar, and the wreck
+	# frees itself after the break-up.
 	var score_before: int = _arena.score()
-	ship.take_damage(ship.current_hp())
+	ship.take_damage(ship.section_hp(2))
+	_check(ship.destroyed_parts() == Boss.PART_COUNT, "all six target points are destroyed")
+	_check(ship.destroyed_sections() == Boss.SECTION_COUNT, "all three sections are destroyed")
 	_check(defeats.size() == 1, "the defeat is announced once")
 	_check(
 		_arena.score() == score_before + Boss.BOSS_SCORE,
@@ -2331,6 +2547,18 @@ func _test_boss() -> void:
 		Boss.DEATH_BLASTS * Boss.DEATH_STEP + 0.4
 	).timeout
 	_check(not is_instance_valid(ship), "the wreck frees itself after the cascade")
+
+	# S13: the last detonation is sized to the hull, not to a fighter. The final
+	# blast is the one that outlives the wreck at the ship's own scale.
+	var biggest: float = 0.0
+	for blast in _death_blasts():
+		biggest = maxf(biggest, blast.scale_multiplier)
+	_check(
+		biggest >= Boss.FINAL_SCALE,
+		"the final explosion is scaled to the hull (%.1f)" % biggest
+	)
+
+	_player.set("_invulnerable", 0.0)
 
 	GlobalEventBus.boss_appeared.disconnect(on_appeared)
 	GlobalEventBus.boss_health_changed.disconnect(on_health)
@@ -3723,11 +3951,19 @@ func _test_lock_reticle() -> void:
 	var host: Node3D = Node3D.new()
 	add_child(host)
 	var reticle: LockReticle = LockReticle.new()
+	# S14: the box is size-parameterizable, so a capital ship frames its hull instead
+	# of carrying the resting turret square. The extents are set before the mark
+	# enters the tree, because `_ready` builds the mesh once.
+	reticle.set_mark_size(Vector2(10.0, 3.0), 5.0)
 	host.add_child(reticle)
 	# Checked on the frame it is born: `_process` starts closing it from there.
 	_check(
 		reticle.scale.x > 1.2,
 		"the mark arrives wider than its resting box (%.2f)" % reticle.scale.x
+	)
+	_check(
+		is_equal_approx(reticle.position.y, 5.0),
+		"a sized mark sits at its requested height (%.2f)" % reticle.position.y
 	)
 	# Four corner brackets are two quads each, plus the four triangles of the pip.
 	var arrays: Array = (reticle.mesh as ImmediateMesh).surface_get_arrays(0)
@@ -3736,6 +3972,12 @@ func _test_lock_reticle() -> void:
 		vertices.size() == 4 * 2 * 6 + 4 * 3,
 		"the mark is four corner brackets and a centre pip (got %d vertices)"
 		% vertices.size()
+	)
+	var bounds: AABB = (reticle.mesh as ImmediateMesh).get_aabb()
+	_check(
+		bounds.size.x > 19.0 and bounds.size.z > 5.0,
+		"a sized mark frames the requested footprint (%.1f x %.1f)"
+		% [bounds.size.x, bounds.size.z]
 	)
 
 	# The acquisition is more than a resize: a frame spins in, a burst leaves the

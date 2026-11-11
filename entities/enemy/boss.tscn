@@ -4,10 +4,8 @@
 [ext_resource type="PackedScene" path="res://combat/projectile.tscn" id="2_bullet"]
 
 [node name="Boss" type="CharacterBody3D"]
-collision_layer = 9
-collision_mask = 1
+collision_layer = 0
+collision_mask = 0
 motion_mode = 1
 script = ExtResource("1_boss")
 bullet_scene = ExtResource("2_bullet")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]

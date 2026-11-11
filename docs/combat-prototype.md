@@ -840,29 +840,37 @@ the player's 4.15-unit airframe and longer than the roughly 75 units the camera
 sees vertically. The ship is deliberately bigger than the frame: at this scale,
 "surprising" has to mean that the thing does not fit on the screen. The model is
 offset by its measured centre so the body's origin is the middle of the hull,
-which keeps the collision shape, the muzzle stations and the death cascade in one
+which keeps the sections, the section guns and the death cascade in one
 coordinate space.
 
-The hull is **solid against the player** (`collision_layer = 9`, world + enemy;
-`collision_mask = 1`), unlike every other enemy. A 96-unit ship is a wall, and
-flying through it would break the one thing the scale exists to sell. The
-collider is a `BoxShape3D` sized from the same constants as the model and
-positioned at the hull's own centre, not on the play plane. A capsule centred on
-the body origin looked right and was not: the hull is lifted so its belly sits on
-the surface, so the top thirteen units of the ship sat outside the shape and a
-shot that visibly crossed the upper decks could pass through. The box covers the
-hull exactly, and a regression test fires a real player dart at the bow and
-asserts the pool moves.
+The hull is **solid against the player**, unlike every other enemy: a 96-unit ship
+is a wall, and flying through it would break the one thing the scale exists to
+sell. The collision is three `StaticBody3D` sections on layer 9 (world + enemy),
+one per third of the keel, each a `BoxShape3D` sized from the same constants as the
+model and centred at the hull's own height. A shape at the body origin looked right
+and was not: the hull is lifted so its belly sits on the surface, so the top
+thirteen units of the ship sat outside it and a shot that visibly crossed the upper
+decks could pass through. The body itself carries no shape, so a shot always lands
+on a section, and a regression test fires a real player dart at the bow and asserts
+that only the bow's pool moves.
 
-**The hull is the health bar.** Six fire stations, walked bow to stern, ignite at
-90, 78, 66, 54, 42 and 30 percent of the pool and grow from a small flame to a
-full blaze as the ship keeps taking damage (`entities/enemy/hull_fire.gd`). The
-player reads the state without looking at the HUD: a ship at 20 percent is a
-burning wreck, not a bar with a shorter fill. Each station is a billboarded,
-soft-edged flame quad with a hotter core and a smoke plume in world space, so the
-trail stays where it was made while the ship flies on. The fire is a function of
-the pool, not an event: every hit recomputes it, so the blaze can never drift out
-of step with the bar.
+The sections are `StaticBody3D`, not `AnimatableBody3D`. An animatable body writes
+the physics server's transform back onto the node, and inside a hull that moves
+every physics frame that read-back accumulates: the box drifts away from the model
+until shots pass through the deck they visibly crossed. A static body follows its
+parent's transform exactly, which is the only thing a wall riding a moving hull has
+to do.
+
+**The hull is the health bar.** Six fire stations, two per section, ignite as each
+section's pool drains — at 90 and 55 percent of that third — and grow from a small
+flame to a full blaze (`entities/enemy/hull_fire.gd`). Because the fires read each
+section's own pool, shooting the bow sets the bow alight: the hull tells the player
+which third is wearing down, not just how much fight is left. A destroyed section
+burns at full intensity, the clearest read that it is finished. Each station is a
+billboarded, soft-edged flame quad with a hotter core and a smoke plume in world
+space, so the trail stays where it was made while the ship flies on. Fire is a
+function of the pool, not an event: every hit recomputes it, so the blaze can never
+drift out of step with the bar.
 
 Two rendering details are load-bearing, and both were found by capture, not by
 reading the API. A billboarded `MeshInstance3D` **ignores its own scale**: a quad
@@ -874,48 +882,83 @@ buried inside the opaque hull.
 
 A hit has to be visible on a hull this large, and the projectile's own spark is a
 two-unit flash at the impact point that the deck hides from a top-down camera.
-`take_damage()` therefore also opens a warm billboard flash on the upper deck
-toward the player, where the camera can see it. It uses the same mesh-sized quad
-for the same reason as the flames.
+`BossPart` therefore reports the hit, and the hull opens a warm billboard flash on
+that point's upper deck, where the camera can see it. It uses the same mesh-sized
+quad for the same reason as the flames.
 
 It arrives **once per run**, after `BOSS_KILL_THRESHOLD` (12) kills. The trigger
 counts the run, not the pilot record: a fresh run must not inherit a threshold
-from a previous session. While the hull exists the normal stream is suppressed,
-including the frames the death cascade plays, and it resumes when the wreck is
-freed. The ship arrives 150 units ahead of the player, pointed at them, so the
-arrival is an encounter instead of a flyby.
+from a previous session. The fighters already on the field **stay**: the arrival
+escalates the run instead of resetting it, and the normal stream keeps producing
+through the fight. The hull counts against `MAX_ENEMIES`, so the set piece keeps a
+couple of escorts instead of the whole population, which is enough for the fight to
+stay readable. The ship arrives 150 units ahead of the player, pointed at them, so
+the arrival is an encounter instead of a flyby.
 
 The fight has **two phases**, split at 60 percent of the pool. Below the
 threshold the ship cruises at 10 instead of 7, turns at 18 deg/s instead of 12,
-recovers in 1.8 s instead of 2.6, and adds a 24-shot radial burst to the
-broadside. A hull this long turns like a building on purpose: the player has to
-be able to circle it, so the nose is never a tracking turret.
+compresses every gun's pause by `PHASE_TWO_HURRY` (0.62) and adds a 24-shot radial
+burst. A hull this long turns like a building on purpose: the player has to be
+able to circle it, so the nose is never a tracking turret.
 
-Every burst is telegraphed by one beam from the hull's centre to the ship, then
-fired from four muzzle stations spread along the flanks. The stations alternate
-sides, so a burst reads as a broadside off the whole ship instead of a single
-gun. The phase-two ring leaves from the hull's **silhouette edge**, not from its
-centre: a radial burst that starts under an opaque slab would be invisible until
-it cleared the hull, and the pattern meant to punish a player parked on the hull
-would be the one they cannot see coming.
+Each section answers with a **different weapon** (`entities/enemy/boss_weapon.gd`),
+on its own clock: the bow sprays a four-volley vulcan of three pellets, the middle
+launches a guided pair with the launcher enemy's own tuning, and the stern cuts a
+laser that rakes from the deck top down onto the play plane. One clock for the
+whole hull would read as a single turret with three muzzles; three clocks make the
+fight a choice of which threat to silence. Every gun telegraphs with the same line
+it fires along, and the aim locks when the windup opens, so the line is a promise:
+a player who reads it can step off it. The laser keeps its line lit while it burns,
+because its shot *is* the line. The three guns are staggered from `FIRST_BURST_DELAY`
+so the arrival opens with one threat, not three at once.
+
+The phase-two ring is the ship's own pattern, not a section's: it is radial, so it
+has no aim and no telegraph, and it leaves from the hull's **silhouette edge**. A
+radial burst that starts under an opaque slab would be invisible until it cleared
+the hull, and the pattern meant to punish a player parked on the hull would be the
+one they cannot see coming.
 
 The hull's own shots ignore it. Because the ship is solid, it sits on the world
 layer, which is also inside an enemy bullet's default mask: without the override
-the ship would shoot down its own broadside on the frame it left the flank. The
-boss is a planet-only encounter and the planet has no world colliders, so its
-bullets only need the player layer.
+the ship would shoot down its own fire on the frame it left the flank. The boss is
+a planet-only encounter and the planet has no world colliders, so its bullets only
+need the player layer.
 
-Damage anywhere on the hull counts. There are no subsystems, because the size is
-already the challenge; asking the player to find a weak point on a moving slab
-this large would turn the duel into a search problem. The kill pays 5,000 and
-breaks the hull up in six blasts walked bow to stern, then the planet resumes.
-There is no victory screen in the prototype, so the run simply continues; that is
-recorded as an assumption in the feature document.
+The hull is fought as **six target points in three sections**: bow, middle and
+stern, each split port and starboard (`entities/enemy/boss_part.gd`). Every point
+owns its own 200-point pool; a section is finished when both of its points are, so a
+shot wears down the point it crosses and nothing else. That gives the player places
+to commit instead of grazing one hull-wide hitbox, and it gives each third a visible
+milestone before the gun stops answering. Destroying a point does not open the hull
+— the wreckage stays solid — but a finished section stops taking damage, stops
+firing its own gun and burns at full intensity. The ship dies when the third section
+falls, and the bar reads the sum of the six pools, so the fight still reads as one
+hull wearing down. The kill pays 5,000 and breaks the hull up in twelve blasts
+walked bow to stern, then one detonation at the hull's centre sized to the ship: a
+96-unit hull has to come apart like a capital ship, not like a turret with a longer
+bar. `ShipExplosion` gained a `scale_multiplier` for that last beat; every other
+caller keeps the default and the fighter-sized blast it already had. There is no
+victory screen in the prototype, so the run simply continues; that is recorded as
+an assumption in the feature document.
+
+The missile lock on the mothership is a **small box on the hull**
+(`Enemy.lock_mark()`). The radar's resting box frames a turret, and a 2.6-unit box
+on the centre of a 96-unit ship reads as no lock at all; a frame around a third of
+the hull fixes the size but not the read — its corners hang over the water because
+the ship narrows toward the bow and the stern, so the mark looks detached from the
+ship. `Boss` reports `LOCK_MARK_HALF` (5.0 x 3.2) at the hull's own mid height:
+big enough to read as a lock from the cockpit, small enough to stay over the ship.
+The plane sits inside the model, so `lock_mark_on_hull()` tells the reticle to draw
+over the hull instead of letting the opaque decks hide it; a turret keeps the depth
+test, so a mark behind a tower stays behind the tower.
+`LockReticle.set_mark_size()` takes the extents before the mark enters the tree, and
+the bracket arms, line weight, pip and tally scale with the smaller side.
 
 The HUD bar is one continuous pool (`ui/hud/boss_bar.gd`), not the player's
-segments: a capital ship is a single pool, and a segmented bar would read as "six
-hits left" when the fight is a minute long. It arrives with `boss_appeared`,
-follows `boss_health_changed` and leaves on `boss_defeated`, all through the bus.
+segments: it reads the sum of the six target points, and a segmented bar would read
+as "six hits left" when the fight is a minute long. It arrives with
+`boss_appeared`, follows `boss_health_changed` and leaves on `boss_defeated`, all
+through the bus.
 
 ## The city
 
@@ -1349,10 +1392,14 @@ All values are named constants at the top of each script.
 | Interceptor salvo | `entities/enemy/fighter_enemy.gd` | `SALVO`, `MISSILE_SPEED`, `MISSILE_TURN_RATE`, `MISSILE_DAMAGE`, `MISSILE_SPREAD_DEGREES`, `WARNING_TIME`, `EXTEND_TIME`, `RELOAD_TIME` |
 | Interceptor share of the population | `levels/arena/arena.gd` | `FIGHTER_ENEMY_SHARE` |
 | Mothership hull and arrival | `entities/enemy/boss.gd`, `levels/arena/arena.gd` | `SCALE` (13.8), `MODEL_SIZE`/`MODEL_CENTER`, `GROUND_Y`, `BOSS_HP` (1200), `BOSS_SCORE` (5000), `BOSS_KILL_THRESHOLD` (12), `BOSS_SPAWN_DISTANCE` (150) |
-| Mothership flight and phases | `entities/enemy/boss.gd` | `CRUISE_SPEED` (7), `PHASE_TWO_SPEED` (10), `TURN_RATE_DEGREES` (12), `PHASE_TWO_TURN_RATE` (18), `PHASE_TWO_RATIO` (0.6), `FIRST_BURST_DELAY`, `BOSS_TELEGRAPH_TIME`, `BOSS_RECOVER_TIME`, `PHASE_TWO_RECOVER` |
-| Mothership fire | `entities/enemy/boss.gd` | `MUZZLE_STATIONS`, `BOSS_FAN_BULLETS`, `FAN_SPREAD_DEGREES`, `BULLET_SPEED`, `BOSS_RING_BULLETS` (24), `BOSS_RING_SPEED` (26), `_hull_edge()` |
-| Mothership break-up | `entities/enemy/boss.gd` | `DEATH_BLASTS` (6), `DEATH_STEP` (0.14), `CASCADE_SHAKE`, `FINAL_SHAKE` |
-| Mothership burning | `entities/enemy/boss.gd`, `entities/enemy/hull_fire.gd` | `FIRE_THRESHOLDS` (0.90 to 0.30), `FIRE_ANCHORS`, `FLAME_SIZE` (14), `CORE_SIZE` (6), `FLAME_ASPECT` (1.9), `SMOKE_AMOUNT` (20), `HIT_FLASH_SIZE` (7) |
+| Mothership flight and phases | `entities/enemy/boss.gd` | `CRUISE_SPEED` (7), `PHASE_TWO_SPEED` (10), `TURN_RATE_DEGREES` (12), `PHASE_TWO_TURN_RATE` (18), `PHASE_TWO_RATIO` (0.6), `FIRST_BURST_DELAY` (2.2), `FIRST_BURST_STAGGER` (0.9) |
+| Mothership target points | `entities/enemy/boss.gd`, `entities/enemy/boss_part.gd` | `SECTION_COUNT` (3), `PARTS_PER_SECTION` (2), `PART_COUNT` (6), `PART_HP` (200), `PART_FIRE_THRESHOLDS` (0.90, 0.55), `PART_BLAST_SCALE/SHAKE`, `LOCK_MARK_HALF` (5.0 x 3.2) |
+| Mothership section guns | `entities/enemy/boss.gd`, `entities/enemy/boss_weapon.gd` | `WEAPON_KINDS` (vulcan, missiles, laser); vulcan `VULCAN_WINDUP/BURST/INTERVAL/RECOVER/READY/PELLETS/SPREAD_DEGREES/SPEED`; laser `LASER_WINDUP/DURATION/RECOVER/READY/WIDTH/HIT_RADIUS/DAMAGE/PITCH`; missiles `MISSILE_WINDUP/RECOVER/READY/SALVO/SPREAD_DEGREES`; `PHASE_TWO_HURRY` (0.62) |
+| Mothership ring | `entities/enemy/boss.gd` | `RING_READY` (5), `BOSS_RING_BULLETS` (24), `BOSS_RING_SPEED` (26), `_hull_edge()` |
+| Mothership missiles | `entities/enemy/boss.gd` | `BOSS_MISSILE_SPEED` (33), `BOSS_MISSILE_DAMAGE` (2), `BOSS_MISSILE_TURN_RATE` (1.6), `BOSS_MISSILE_LIFETIME` (6), `BOSS_MISSILE_SIZE` |
+| Mothership break-up | `entities/enemy/boss.gd` | `DEATH_BLASTS` (12), `DEATH_STEP` (0.11), `CASCADE_SHAKE` (0.5), `CASCADE_SCALE` (2.2), `FINAL_SHAKE` (3), `FINAL_SCALE` (6) |
+| Mothership burning | `entities/enemy/boss.gd`, `entities/enemy/hull_fire.gd` | `PART_FIRE_THRESHOLDS`, `FIRE_ANCHORS`, `FLAME_SIZE` (14), `CORE_SIZE` (6), `FLAME_ASPECT` (1.9), `SMOKE_AMOUNT` (20), `HIT_FLASH_SIZE` (7) |
+| Missile lock mark | `combat/lock_reticle.gd`, `entities/enemy/turret.gd` | `HALF_SIZE` (2.6), `set_mark_size(half, lift)`; `Enemy.lock_mark()` returns zero for the resting box, `Boss` returns the middle third |
 | Enemy roaming | `entities/enemy/turret.gd` | `ROAM_SPEED`, `ROAM_LEG_MIN`, `ROAM_LEG_MAX`, `ROAM_LEG_TIME` |
 | Encounter streaming | `levels/arena/arena.gd` | `MAX_ENEMIES`, `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE` |
 
@@ -1372,14 +1419,16 @@ combat/projectile.*             one shared bullet, team decides layers + shape, 
 combat/smoke_puff.gd            self-freeing trail puff, added to the scene, not the shot
 combat/bomb_wave.gd             expanding shockwave, presentation only
 combat/decoy.gd                 dropped flare: takes the lock of nearby guided shots, self-freeing
-combat/lock_reticle.gd          world-space mark on a radar lock, dies with its turret
+combat/lock_reticle.gd          world-space mark on a radar lock, dies with its target; size follows the target's footprint
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
 entities/player/weapon_system.gd  primaries, missiles, the bomb and the decoy, spawned per ship
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
 entities/enemy/fighter_enemy.gd interceptor: the player's airframe and flight model, a missile pass and a break
-entities/enemy/boss.gd          mothership: GLB hull, slow flight, telegraphed broadside, two phases, break-up
-entities/enemy/boss.tscn        the hull's box collider on the world + enemy layers
+entities/enemy/boss.gd          mothership: GLB hull, slow flight, three section guns, two phases, break-up
+entities/enemy/boss_part.gd     one of the hull's six target points, two per section: pool, collider, damage and destroyed signals
+entities/enemy/boss_weapon.gd   one section's gun: vulcan, guided pair or laser, with its own clock and telegraph
+entities/enemy/boss.tscn        the hull body, shapeless: the six points own the collision
 entities/enemy/hull_fire.gd     one persistent hull fire: flame, hot core, smoke plume, intensity
 models/boss-1/*.glb             the capital-ship asset, imported once and preloaded by the boss
 ui/hud/                         event-fed bars (health, turbo, pilot level, boss); the radar polls the enemy group for bearings

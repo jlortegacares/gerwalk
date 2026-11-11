@@ -81,16 +81,57 @@ var _number_label: Label3D = null
 var _scan: MeshInstance3D = null
 var _burst: MeshInstance3D = null
 var _label_pop: float = 0.0
+## The box's half extents on the play plane and its height above the body. A turret
+## keeps the resting square; a capital ship sets its own footprint before entering the
+## tree, because a fighter-sized box on a 96-unit hull reads as no lock at all.
+var _half: Vector2 = Vector2(HALF_SIZE, HALF_SIZE)
+var _lift: float = HEIGHT
+## A mark that lives inside a hull instead of above a body. Its plane sits at the
+## ship's own mid height, so the opaque model would hide it completely; drawn over
+## the hull, it reads as a lock painted on the ship instead of a frame hanging in the
+## air. Fighter-sized marks keep the depth test, so a turret behind a tower keeps its
+## box behind the tower.
+var _on_hull: bool = false
 
 
 func _ready() -> void:
 	add_to_group(&"lock_reticle")
-	position.y = HEIGHT
+	position.y = _lift
 	_build_box()
 	_build_effects()
 	# The first frame is the widest one; `_process` closes from here.
 	scale = Vector3.ONE * LOCK_IN_SCALE
 	transparency = 1.0
+
+
+## Frames a target bigger than a turret. Called before the mark enters the tree, so
+## `_ready` builds the box at this size; calling it later rebuilds the geometry.
+## `on_hull` marks a target whose plane sits inside its own model: the mark is drawn
+## over the hull so it reads as attached instead of hidden.
+func set_mark_size(half: Vector2, lift: float, on_hull: bool = false) -> void:
+	_half = Vector2(maxf(half.x, 0.1), maxf(half.y, 0.1))
+	_lift = lift
+	_on_hull = on_hull
+	position.y = _lift
+	if _material == null:
+		return
+	_build_box()
+	if _scan != null:
+		_scan.mesh = _build_outline(
+			_half * (SCAN_HALF / HALF_SIZE), SCAN_THICKNESS * _unit()
+		)
+	if _burst != null:
+		_burst.mesh = _build_outline(
+			_half * (BURST_HALF / HALF_SIZE), BURST_THICKNESS * _unit()
+		)
+
+
+## One visual unit of the mark, from the target's smaller half extent. The line weight,
+## the bracket arms and the pip scale with it: sized from the long side, a capital
+## ship's box would carry arms longer than the ship is wide.
+func _unit() -> float:
+	return clampf(minf(_half.x, _half.y) / HALF_SIZE, 1.0, 24.0)
+
 
 
 ## Whether the box is settled. The salvo sync reads it to avoid re-holding a mark
@@ -153,7 +194,7 @@ func set_missiles(value: int) -> void:
 		_number_label.outline_modulate = Color(0.0, 0.0, 0.0, 0.85)
 		_number_label.modulate = COLOR
 		# Above the box on screen: the reticle lies flat, and screen up is -Z.
-		_number_label.position = Vector3(0.0, 0.05, -HALF_SIZE - 1.3)
+		_number_label.position = Vector3(0.0, 0.05, -_half.y - 1.3 * _unit())
 		add_child(_number_label)
 	# The tally is rewritten every sync because the pool order can change under it;
 	# a Label3D rebuilds its geometry on assignment, so only touch it when it moves.
@@ -169,22 +210,42 @@ func _build_box() -> void:
 	var box: ImmediateMesh = ImmediateMesh.new()
 	box.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	var corners: Array[Vector3] = [
-		Vector3(-HALF_SIZE, 0.0, -HALF_SIZE),
-		Vector3(HALF_SIZE, 0.0, -HALF_SIZE),
-		Vector3(HALF_SIZE, 0.0, HALF_SIZE),
-		Vector3(-HALF_SIZE, 0.0, HALF_SIZE),
+		Vector3(-_half.x, 0.0, -_half.y),
+		Vector3(_half.x, 0.0, -_half.y),
+		Vector3(_half.x, 0.0, _half.y),
+		Vector3(-_half.x, 0.0, _half.y),
 	]
+	var arm: float = ARM * _unit()
+	var thickness: float = THICKNESS * _unit()
 	for corner in corners:
 		# Each bracket is an L pointing inwards, so the four corners frame the
 		# contact without closing a box around it.
 		var sx: float = signf(corner.x)
 		var sz: float = signf(corner.z)
-		_bar(box, corner + Vector3(-sx * ARM * 0.5, 0.0, 0.0), Vector3.RIGHT, ARM * 0.5)
-		_bar(box, corner + Vector3(0.0, 0.0, -sz * ARM * 0.5), Vector3.BACK, ARM * 0.5)
+		_bar(
+			box,
+			corner + Vector3(-sx * arm * 0.5, 0.0, 0.0),
+			Vector3.RIGHT,
+			arm * 0.5,
+			thickness
+		)
+		_bar(
+			box,
+			corner + Vector3(0.0, 0.0, -sz * arm * 0.5),
+			Vector3.BACK,
+			arm * 0.5,
+			thickness
+		)
 	_pip(box)
 	box.surface_end()
 	mesh = box
 
+	# The effects share the material, so a rebuild keeps the one they already hold.
+	# A mark that lives inside a hull is drawn over it, because the model would
+	# otherwise hide the lock entirely.
+	if _material != null:
+		_material.no_depth_test = _on_hull
+		return
 	_material = StandardMaterial3D.new()
 	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -193,6 +254,7 @@ func _build_box() -> void:
 	_material.emission = COLOR
 	_material.emission_energy_multiplier = GLOW
 	_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_material.no_depth_test = _on_hull
 	material_override = _material
 
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -204,7 +266,9 @@ func _build_box() -> void:
 func _build_effects() -> void:
 	_scan = MeshInstance3D.new()
 	_scan.name = "ScanFrame"
-	_scan.mesh = _build_outline(SCAN_HALF, SCAN_THICKNESS)
+	_scan.mesh = _build_outline(
+		_half * (SCAN_HALF / HALF_SIZE), SCAN_THICKNESS * _unit()
+	)
 	_scan.material_override = _material
 	_scan.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_scan.transparency = 1.0
@@ -212,23 +276,25 @@ func _build_effects() -> void:
 
 	_burst = MeshInstance3D.new()
 	_burst.name = "Burst"
-	_burst.mesh = _build_outline(BURST_HALF, BURST_THICKNESS)
+	_burst.mesh = _build_outline(
+		_half * (BURST_HALF / HALF_SIZE), BURST_THICKNESS * _unit()
+	)
 	_burst.material_override = _material
 	_burst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_burst.transparency = 1.0
 	add_child(_burst)
 
 
-## A thin square outline in the local XZ plane: the scan frame and the burst are
+## A thin rectangular outline in the local XZ plane: the scan frame and the burst are
 ## the same shape at different sizes, so one builder serves both.
-func _build_outline(half: float, thickness: float) -> ImmediateMesh:
+func _build_outline(half: Vector2, thickness: float) -> ImmediateMesh:
 	var outline: ImmediateMesh = ImmediateMesh.new()
 	outline.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	var corners: Array[Vector3] = [
-		Vector3(-half, 0.0, -half),
-		Vector3(half, 0.0, -half),
-		Vector3(half, 0.0, half),
-		Vector3(-half, 0.0, half),
+		Vector3(-half.x, 0.0, -half.y),
+		Vector3(half.x, 0.0, -half.y),
+		Vector3(half.x, 0.0, half.y),
+		Vector3(-half.x, 0.0, half.y),
 	]
 	for index in corners.size():
 		var a: Vector3 = corners[index]
@@ -262,11 +328,12 @@ func _bar(
 ## The centre pip: the dot the brackets point at, and the thing the eye tracks
 ## while the box is still closing.
 func _pip(box: ImmediateMesh) -> void:
+	var pip: float = PIP * _unit()
 	var points: Array[Vector3] = [
-		Vector3(PIP, 0.0, 0.0),
-		Vector3(0.0, 0.0, PIP),
-		Vector3(-PIP, 0.0, 0.0),
-		Vector3(0.0, 0.0, -PIP),
+		Vector3(pip, 0.0, 0.0),
+		Vector3(0.0, 0.0, pip),
+		Vector3(-pip, 0.0, 0.0),
+		Vector3(0.0, 0.0, -pip),
 	]
 	for index in points.size():
 		var next: int = (index + 1) % points.size()
@@ -342,7 +409,9 @@ func _decay_label(delta: float) -> void:
 	if _number_label == null:
 		return
 	_label_pop = maxf(_label_pop - delta * LABEL_POP_DECAY, 0.0)
-	_number_label.scale = Vector3.ONE * (1.0 + _label_pop * LABEL_POP)
+	# The tally scales with the mark, so a capital ship's box carries a number that
+	# reads from the far end of the hull instead of a turret-sized speck.
+	_number_label.scale = Vector3.ONE * _unit() * (1.0 + _label_pop * LABEL_POP)
 
 
 ## Ease-out-back: overshoots past 1 and settles, which is the snap.

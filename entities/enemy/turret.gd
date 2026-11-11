@@ -282,6 +282,21 @@ func score_value() -> int:
 	return SCORE_VALUE
 
 
+## The footprint the missile lock box should frame, as `(half length, height above
+## the body, half width)`. The default is zero, which tells the radar to use its own
+## resting size: a turret is one unit and a box already frames it. A capital ship
+## overrides this, because a fighter-sized box on its centre reads as no lock at all.
+func lock_mark() -> Vector3:
+	return Vector3.ZERO
+
+
+## Whether the mark's plane sits inside the target's own model. The default is false:
+## a turret's box floats above a body small enough to see past. A capital ship puts
+## its mark on the hull, so the mark has to be drawn over the model to stay visible.
+func lock_mark_on_hull() -> bool:
+	return false
+
+
 func take_damage(amount: int) -> void:
 	if _state == State.DEAD:
 		return

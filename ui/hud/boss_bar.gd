@@ -1,7 +1,7 @@
 extends Control
-## The mothership's health. One continuous bar instead of the ship's segments: a
-## capital ship is a single pool, and a segmented bar would read as "six hits left"
-## when the fight is a minute long.
+## The mothership's health. One continuous bar instead of the ship's segments: the
+## hull is fought as three pools, but the bar reads their sum, and a segmented bar
+## would read as "six hits left" when the fight is a minute long.
 ##
 ## Draw-only and event-fed, like every other bar in the HUD: the boss owns the
 ## number, the bus carries it, this node projects it.

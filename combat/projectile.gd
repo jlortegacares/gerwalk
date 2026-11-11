@@ -552,6 +552,10 @@ func _on_body_entered(body: Node3D) -> void:
 		if (body as Player).is_evading():
 			return
 		body.take_damage(_damage, global_position)
+	elif body is BossPart and _team == Team.PLAYER:
+		# A capital ship is fought section by section: the shot has to land on the
+		# third it crossed, not on a hull-wide pool.
+		body.take_damage(_damage)
 	elif body is Enemy and _team == Team.PLAYER:
 		body.take_damage(_damage)
 	elif body is Building and _team == Team.PLAYER:

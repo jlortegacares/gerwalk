@@ -439,6 +439,14 @@ func _sync_marks(pool: Array[Enemy]) -> void:
 		if enemy.get_node_or_null(^"LockReticle") == null:
 			var reticle: LockReticle = LockReticle.new()
 			reticle.name = "LockReticle"
+			# The contact owns the mark's footprint: a turret leaves it at the
+			# resting size, a capital ship frames its own hull. It is set before the
+			# mark enters the tree, because the box is built once in `_ready`.
+			var mark: Vector3 = enemy.lock_mark()
+			if mark != Vector3.ZERO:
+				reticle.set_mark_size(
+					Vector2(mark.x, mark.z), mark.y, enemy.lock_mark_on_hull()
+				)
 			enemy.add_child(reticle)
 		_marked.append(enemy)
 
