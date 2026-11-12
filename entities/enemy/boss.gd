@@ -4,19 +4,19 @@ extends Enemy
 ## `models/boss-1` GLB that flies slowly over the surface and is fought as one
 ## set piece.
 ##
-## The hull is three sections of two target points each: bow, middle and stern, port
-## and starboard. Each point owns its pool, its fires and the section's gun, so
-## shooting the bow's near half wears down the bow and the bow is the section that
-## stops answering. A 96-unit ship is already a level; six points give the player
-## places to attack instead of one hitbox they can only graze, without asking them to
-## find a tiny weak point on a moving slab.
+## The hull is three target points, one per section: bow, middle and stern. Each point
+## owns its own pool, and the section's fires and gun read that pool, so shooting the
+## bow wears down the bow and the bow is the section that stops answering. A 96-unit
+## ship is already a level; three points give the player places to commit instead of
+## one hitbox they can only graze, without splitting a third into halves nobody can
+## aim at while the ship is moving.
 ##
 ## The three guns are three different problems (`entities/enemy/boss_weapon.gd`): a
 ## vulcan burst from the bow, a guided pair from the middle and a laser from the
 ## stern. They run on separate clocks, so the fight is a choice of which threat to
 ## silence rather than one broadside repeated from a longer bar.
 ##
-## The points are the hull's collision: six solid boxes on the world and enemy
+## The points are the hull's collision: three solid boxes on the world and enemy
 ## layers. The body itself carries no shape, so a shot always lands on a point and
 ## never on a hull-wide fallback that would make the split cosmetic.
 ##
@@ -48,12 +48,11 @@ const GROUND_Y: float = -1.5
 const BOSS_NAME: String = "CAPITAL SHIP"
 const BOSS_HP: int = 1200
 const BOSS_SCORE: int = 5000
-## The hull is fought as six points grouped in three sections: bow, middle and stern,
-## each split port and starboard. `BOSS_HP` stays the ship's total so the bar, the
-## phase threshold and the score keep one meaning; each point owns a sixth.
+## The hull is fought as three points, one per section: bow, middle and stern.
+## `BOSS_HP` stays the ship's total so the bar, the phase threshold and the score
+## keep one meaning; each point owns a third.
 const SECTION_COUNT: int = 3
-const PARTS_PER_SECTION: int = 2
-const PART_COUNT: int = SECTION_COUNT * PARTS_PER_SECTION
+const PART_COUNT: int = SECTION_COUNT
 const PART_HP: int = BOSS_HP / PART_COUNT
 ## Below this share of the pool the ship stops holding back: it turns harder, fires
 ## faster and adds the radial burst, so the second half of the fight is a different
@@ -151,6 +150,10 @@ var _parts: Array[BossPart] = []
 ## whether it is still alive, so the silence is a property of the section.
 var _weapons: Array[BossWeapon] = []
 var _fires: Array[HullFire] = []
+## One lock anchor per section, at the section's own centre. The radar locks the
+## ship once and the rack splits its salvo over these points, so a player can put
+## missiles on the bow, the middle or the stern and the damage lands on that third.
+var _lock_anchors: Array[Node3D] = []
 var _hull_flash: MeshInstance3D
 var _hull_flash_quad: QuadMesh
 var _hull_flash_tween: Tween
@@ -170,6 +173,7 @@ func _ready() -> void:
 	_player = _find_player()
 	_build_visual()
 	_build_parts()
+	_build_lock_anchors()
 	_build_weapons()
 	_build_fires()
 	_build_hull_flash()
@@ -363,9 +367,9 @@ func _on_part_damaged(part: BossPart, _current: int, _maximum: int) -> void:
 	_flash_hit(part)
 
 
-## One section down is not the kill. A section falls when both of its points do, and
-## the ship dies when the third section falls. The last point does not get its own
-## blast: the break-up owns that beat.
+## One section down is not the kill. A section falls when its point does, and the
+## ship dies when the third section falls. The last point does not get its own blast:
+## the break-up owns that beat.
 func _on_part_destroyed(part: BossPart) -> void:
 	_sync_health()
 
@@ -377,15 +381,14 @@ func _on_part_destroyed(part: BossPart) -> void:
 	_spawn_blast(part.global_position, PART_BLAST_SHAKE, PART_BLAST_SCALE)
 
 
-## Read-only view of the target points, in bow-to-stern order: each section's port and
-## starboard halves. The suite and the capture tool drive a point without going
-## through the hull helper.
+## Read-only view of the target points, in bow-to-stern order: one per section. The
+## suite and the capture tool drive a point without going through the hull helper.
 func parts() -> Array[BossPart]:
 	return _parts
 
 
-## A section is finished when both of its points are. That is the unit the gun and the
-## fires read, so a half-worn third keeps answering and keeps burning.
+## A section is finished when its point is. That is the unit the gun and the fires
+## read, so a destroyed third stops answering and burns at full intensity.
 func is_section_destroyed(section: int) -> bool:
 	if section < 0 or section >= SECTION_COUNT:
 		return false
@@ -403,8 +406,8 @@ func destroyed_sections() -> int:
 	return total
 
 
-## The pool of one section, the sum of its two points. The bar reads all six, the
-## fires read each section, and the phase threshold reads the ship.
+## The pool of one section: its point's pool. The bar reads all three, the fires read
+## each section, and the phase threshold reads the ship.
 func section_hp(section: int) -> int:
 	var total: int = 0
 	for part in _parts:
@@ -447,6 +450,13 @@ func lock_mark() -> Vector3:
 ## opaque model would hide a depth-tested box, so the reticle draws over the ship.
 func lock_mark_on_hull() -> bool:
 	return true
+
+
+## The three places a missile can be locked on: bow, middle and stern. A turret
+## offers none and keeps the single mark on its body; the ship offers one per
+## section, so the rack can be spent on the part the player wants to finish.
+func lock_mark_anchors() -> Array[Node3D]:
+	return _lock_anchors
 
 
 func _die() -> void:
@@ -542,41 +552,58 @@ func _build_visual() -> void:
 	_visual.add_child(model)
 
 
-## The six target points are the hull's only collision: two per section, split across
-## the beam. The player orbits the ship, so the near half is the point their shots
-## cross; the split gives each third two places to commit instead of one. Each box
-## covers its half of the third at the hull's own height, so a shot that visibly
-## crosses a point lands on that point and never on a hull-wide fallback that would
-## make the split cosmetic.
+## The three target points are the hull's only collision, one per section and as wide
+## as the beam. A box that covers its whole third at the hull's own height means a
+## shot that visibly crosses a section lands on it and never on a hull-wide fallback
+## that would make the split cosmetic.
 ##
-## Index 0 is the bow's port point, so the walk goes from +X to -X and, inside a
-## section, from -Z to +Z. The box centre sits at the hull's height, not on the play
-## plane: a shape at the body origin would leave the upper decks outside the
-## collision, where a shot can visibly cross them and miss.
+## Index 0 is the bow, so the walk goes from +X to -X. The box centre sits at the
+## hull's height, not on the play plane: a shape at the body origin would leave the
+## upper decks outside the collision, where a shot can visibly cross them and miss.
 func _build_parts() -> void:
 	var length: float = _half_length() * 2.0
 	var section_length: float = length / float(SECTION_COUNT)
-	var point_width: float = MODEL_SIZE.z * SCALE / float(PARTS_PER_SECTION)
+	var part_width: float = MODEL_SIZE.z * SCALE
 	for section in SECTION_COUNT:
-		for slot in PARTS_PER_SECTION:
-			var index: int = section * PARTS_PER_SECTION + slot
-			var part: BossPart = BossPart.new()
-			part.name = "Part%d" % index
-			part.setup(
-				index,
-				section,
-				PART_HP,
-				Vector3(section_length, MODEL_SIZE.y * SCALE, point_width)
-			)
-			part.position = Vector3(
-				_half_length() - section_length * (float(section) + 0.5),
-				GROUND_Y + _half_height(),
-				-_half_width() + point_width * (float(slot) + 0.5)
-			)
-			part.damaged.connect(_on_part_damaged)
-			part.destroyed.connect(_on_part_destroyed)
-			add_child(part)
-			_parts.append(part)
+		var part: BossPart = BossPart.new()
+		part.name = "Part%d" % section
+		part.setup(
+			section,
+			section,
+			PART_HP,
+			Vector3(section_length, MODEL_SIZE.y * SCALE, part_width)
+		)
+		part.position = Vector3(
+			_half_length() - section_length * (float(section) + 0.5),
+			GROUND_Y + _half_height(),
+			0.0
+		)
+		part.damaged.connect(_on_part_damaged)
+		part.destroyed.connect(_on_part_destroyed)
+		add_child(part)
+		_parts.append(part)
+
+
+## One lock anchor per section, at the section's centre and at the hull's own mid
+## height, which is where the mark sits so it reads as attached to the ship. They
+## are plain markers, not hitboxes: a shot is aimed here and the hull under it takes
+## the damage, so the anchors never become a second damage path.
+##
+## They hang from the body, not the visual, so they follow the same coordinate space
+## as the target points.
+func _build_lock_anchors() -> void:
+	var length: float = _half_length() * 2.0
+	var section_length: float = length / float(SECTION_COUNT)
+	for section in SECTION_COUNT:
+		var anchor: Marker3D = Marker3D.new()
+		anchor.name = "LockAnchor%d" % section
+		anchor.position = Vector3(
+			_half_length() - section_length * (float(section) + 0.5),
+			GROUND_Y + _half_height(),
+			0.0
+		)
+		add_child(anchor)
+		_lock_anchors.append(anchor)
 
 
 ## One fire per damage station, parented to the hull so it turns with the ship and
@@ -596,10 +623,9 @@ func _build_fires() -> void:
 
 
 ## Fire is a function of each section's pool, not an event: it is recomputed on every
-## hit so the blaze can never drift out of step with the bar. The pool is the sum of
-## the section's two points, so a point falling lights the third even before the
-## section does. Two stations per section, so the fire tells the player which third is
-## wearing down.
+## hit so the blaze can never drift out of step with the bar. The pool is the
+## section's point, so the fire drains as the third is worn down. Two stations per
+## section, so the fire tells the player which third is wearing down.
 func _update_fires() -> void:
 	if (
 		_parts.size() != PART_COUNT
@@ -608,9 +634,7 @@ func _update_fires() -> void:
 		return
 
 	for section in SECTION_COUNT:
-		var ratio: float = (
-			float(section_hp(section)) / float(maxi(PART_HP * PARTS_PER_SECTION, 1))
-		)
+		var ratio: float = float(section_hp(section)) / float(maxi(PART_HP, 1))
 		for station in PART_FIRE_THRESHOLDS.size():
 			var fire: HullFire = _fires[section * PART_FIRE_THRESHOLDS.size() + station]
 			# A destroyed section burns at full intensity: it is the clearest read

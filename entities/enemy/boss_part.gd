@@ -1,13 +1,13 @@
 class_name BossPart
 extends StaticBody3D
-## One of the mothership's six target points: two per section, port and starboard on
-## the bow, the middle and the stern.
+## One of the mothership's three target points, one per section: the bow, the middle
+## and the stern.
 ##
-## The hull is fought as six pools instead of one because a 96-unit ship is already a
-## level. A single hitbox that large turns every shot into the same shot; six points
-## give the player places to attack, and each one can be finished on its own. The
-## section id is what groups them: a third of the ship falls when both of its points
-## do, and that is what silences the section's gun.
+## The hull is fought as three pools instead of one because a 96-unit ship is already
+## a level. A single hitbox that large turns every shot into the same shot; three
+## points give the player places to attack, and each one can be finished on its own.
+## The section id is what groups them: a third of the ship falls when its point does,
+## and that is what silences the section's gun.
 ##
 ## The section is a solid box on the world and enemy layers, so it blocks the player
 ## and every player shot finds it. Destroying it does not open the hull: the wreckage

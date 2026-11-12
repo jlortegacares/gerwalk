@@ -65,16 +65,23 @@ Test runner: `./run.sh --headless tests/smoke_test.tscn`.
   whose corners hang in the air. User: *"quiero que la
   parte tracera el boss ataque con lacer, la delantera con vulcan y la parte media
   con misiles. tambien el target de misiles al boss debe ser visible"*.
-- **S15 — Six target points, two per section.** The hull is fought as six
-  independently damageable points: two on the bow, two on the middle and two on the
-  stern, split port and starboard. Each point owns its own pool, and a section is
-  finished only when both of its points are; the section's gun and fires read the
-  pair, so a half-worn third keeps answering. User: *"quiero que apliques 6 puntos
-  para targear al boss 2 adelante, 2 al medio y 2 atras"*.
+- **S15 — Three target points, one per section.** The hull is fought as three
+  independently damageable points: one on the bow, one on the middle and one on the
+  stern. Each point owns its own pool, and a section is finished when its point is;
+  the section's gun and fires read it, so a destroyed third stops answering and burns
+  at full intensity. The 6-point split was dropped in L9 at the user's request.
+  Original user text: *"quiero que apliques 6 puntos para targear al boss 2 adelante,
+  2 al medio y 2 atras"*; revised by *"deja los principales 3"*.
 - **S16 — The fighters stay when the boss arrives.** The arrival must not clear the
   field: the enemies already fighting stay, and the normal stream keeps producing
   through the set piece. User: *"a su vez quiero que los figther enemigos no
   desaparezcan al aparecer el boss"*.
+- **S17 — The rack can lock the bow, the middle and the stern separately.** Besides
+  the existing centre, the ship exposes two more places a missile can be locked on:
+  one toward the bow and one toward the stern. A salvo splits over the three, and a
+  missile aimed at a third steers to that third so the damage lands on its points.
+  User: *"quiero que na nave boss tenga otros 2 lugares para targearle misiles. en
+  la parte delantera y en la tracera aparte del centro"*.
 
 ### Assumptions
 
@@ -102,6 +109,8 @@ Test runner: `./run.sh --headless tests/smoke_test.tscn`.
 | T9 | S13 | inline | done | `entities/enemy/boss_part.gd`, `boss.gd` three-section build, `ship_explosion.gd` `scale_multiplier`, suite |
 | T10 | S7 S13 S14 | inline | done | `entities/enemy/boss_weapon.gd`, `boss.gd` `_build_weapons`/`lock_mark`, `lock_reticle.gd` `set_mark_size`, `turret.gd` `lock_mark`, `weapon_system.gd` `_sync_marks`, suite |
 | T11 | S15 S16 | inline | done | `boss_part.gd` `section_id`, `boss.gd` six-point build and section helpers, `boss_weapon.gd` section silence, `arena.gd` live stream, suite |
+| T12 | S17 | inline | done | `turret.gd` `lock_mark_anchors`, `boss.gd` `_build_lock_anchors`, `weapon_system.gd` `LockSlot` radar pool, suite |
+| T13 | S15 | inline | done | `boss.gd` `PARTS_PER_SECTION` removed, `PART_COUNT` 3, `PART_HP` 400, one box per section; `boss_part.gd` doc; suite |
 
 ## Log
 
@@ -284,3 +293,39 @@ Test runner: `./run.sh --headless tests/smoke_test.tscn`.
 - Capture: `/tmp/boss_lock_hull.png` (four brackets and the pip on the deck, tally
   below). Suite: **673 PASS / 0 FAIL** (was 672; the lock assertions were rewritten
   to pin the small size, the on-hull height and the over-hull draw).
+- **L8 (user, verbatim):** "quiero que na nave boss tenga otros 2 lugares para
+  targearle misiles. en la parte delantera y en la tracera aparte del centro".
+- The radar used to hold one slot per contact, so a single hull could only ever take
+  one mark. `Enemy` gained `lock_mark_anchors()` (empty by default) and `Boss` hangs
+  one `Marker3D` per section at the section's own centre and the hull's mid height
+  (`LockAnchor0..2`). `WeaponSystem` now pools `LockSlot`s — a contact plus the node
+  its mark hangs from — so one detected ship expands into three slots and a turret
+  still contributes exactly one.
+- Detection stays per body on purpose: a ship in radar range is in range for the
+  whole rack, so all three marks appear even when one anchor sits past
+  `MISSILE_RANGE`. Sorting and the 8-slot cap are per slot, which is what makes the
+  nearest third take the extra missile.
+- The shot steers to `slot.host`, so a missile assigned to the bow crosses the bow's
+  points. `Projectile` flattens `y`, so a hull-height anchor still flies on the play
+  plane and hits the part under it. Slots survive frames by host node identity, and
+  an anchor freed with the wreck takes its reticle with it.
+- Captures: `/tmp/boss_lock_three_full.png` (bow and middle marks at ×3 each; the
+  stern mark falls outside a 1280-px frame because the camera does not follow a
+  `--lock-boss` hull at x=46). Probe measurements at the default framing: the three
+  reticles sit on `LockAnchor0/1/2`, half extents 5.0 x 3.2, screen x 297/663/1028 at
+  y 333. Suite: **688 PASS / 0 FAIL** (was 673).
+- **L9 (user, verbatim):** "quiero que elimines los locks de boss que no sean los 3
+  creados ultimamente" / "deja los principales 3".
+- Clarified with a measurement first: the boss already exposed exactly three lock
+  anchors (one per section) and the radar cannot produce more than one mark per
+  anchor, so the extra "locks" the user meant were the **six damage points**. The
+  fight drops back to **three target points, one per section**.
+- `PARTS_PER_SECTION` is gone: `PART_COUNT = SECTION_COUNT = 3` and `PART_HP =
+  BOSS_HP / 3 = 400`. Each `BossPart` now covers its whole third of the beam (18.8
+  units) at the hull's mid height, so a section and its point are the same unit:
+  the first hit that finishes a point also finishes the section, silences its gun
+  and burns it at full intensity. `section_hp()` is now just the point's pool.
+- The three lock anchors did not move: they still sit on the section centres and the
+  rack still splits a salvo 3/3/2 over them.
+- Suite: **659 PASS / 0 FAIL** (was 688; the pair assertions for the port/starboard
+  halves were removed with the halves themselves).

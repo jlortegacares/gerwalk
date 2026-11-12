@@ -924,16 +924,16 @@ the ship would shoot down its own fire on the frame it left the flank. The boss 
 a planet-only encounter and the planet has no world colliders, so its bullets only
 need the player layer.
 
-The hull is fought as **six target points in three sections**: bow, middle and
-stern, each split port and starboard (`entities/enemy/boss_part.gd`). Every point
-owns its own 200-point pool; a section is finished when both of its points are, so a
-shot wears down the point it crosses and nothing else. That gives the player places
-to commit instead of grazing one hull-wide hitbox, and it gives each third a visible
-milestone before the gun stops answering. Destroying a point does not open the hull
-— the wreckage stays solid — but a finished section stops taking damage, stops
-firing its own gun and burns at full intensity. The ship dies when the third section
-falls, and the bar reads the sum of the six pools, so the fight still reads as one
-hull wearing down. The kill pays 5,000 and breaks the hull up in twelve blasts
+The hull is fought as **three target points in three sections**: bow, middle and
+stern, one per section (`entities/enemy/boss_part.gd`). Every point owns its own
+400-point pool, and a section is finished when its point is, so a shot wears down the
+section it crosses and nothing else. That gives the player places to commit instead
+of grazing one hull-wide hitbox, and it gives each third a visible milestone before
+the gun stops answering. Destroying a point does not open the hull — the wreckage
+stays solid — but a finished section stops taking damage, stops firing its own gun
+and burns at full intensity. The ship dies when the third section falls, and the bar
+reads the sum of the three pools, so the fight still reads as one hull wearing down.
+The kill pays 5,000 and breaks the hull up in twelve blasts
 walked bow to stern, then one detonation at the hull's centre sized to the ship: a
 96-unit hull has to come apart like a capital ship, not like a turret with a longer
 bar. `ShipExplosion` gained a `scale_multiplier` for that last beat; every other
@@ -954,8 +954,21 @@ test, so a mark behind a tower stays behind the tower.
 `LockReticle.set_mark_size()` takes the extents before the mark enters the tree, and
 the bracket arms, line weight, pip and tally scale with the smaller side.
 
+The ship carries **one mark per section**, not one mark for the whole keel
+(`Enemy.lock_mark_anchors()`). `Boss` hangs a `Marker3D` on the centre of the bow,
+the middle and the stern at the hull's own mid height, and the radar expands the one
+detected contact into one lock slot per anchor: the pool a salvo is spread over is a
+list of `WeaponSystem.LockSlot`s, not a list of enemies, and a turret still
+contributes exactly one. Eight missiles over the ship's three slots is the 3/3/2
+split the boxes show, and the shot steers to the anchor it was assigned, so the
+missile crosses the third that was marked and the damage lands on that section's
+points. Detection stays per body — a ship in radar range is in range for the whole
+rack — while the marks are how the salvo is shared across it.
+`Enemy.lock_mark_anchors()` is empty by default, so nothing else in the game changes
+shape.
+
 The HUD bar is one continuous pool (`ui/hud/boss_bar.gd`), not the player's
-segments: it reads the sum of the six target points, and a segmented bar would read
+segments: it reads the sum of the three target points, and a segmented bar would read
 as "six hits left" when the fight is a minute long. It arrives with
 `boss_appeared`, follows `boss_health_changed` and leaves on `boss_defeated`, all
 through the bus.
@@ -1393,7 +1406,7 @@ All values are named constants at the top of each script.
 | Interceptor share of the population | `levels/arena/arena.gd` | `FIGHTER_ENEMY_SHARE` |
 | Mothership hull and arrival | `entities/enemy/boss.gd`, `levels/arena/arena.gd` | `SCALE` (13.8), `MODEL_SIZE`/`MODEL_CENTER`, `GROUND_Y`, `BOSS_HP` (1200), `BOSS_SCORE` (5000), `BOSS_KILL_THRESHOLD` (12), `BOSS_SPAWN_DISTANCE` (150) |
 | Mothership flight and phases | `entities/enemy/boss.gd` | `CRUISE_SPEED` (7), `PHASE_TWO_SPEED` (10), `TURN_RATE_DEGREES` (12), `PHASE_TWO_TURN_RATE` (18), `PHASE_TWO_RATIO` (0.6), `FIRST_BURST_DELAY` (2.2), `FIRST_BURST_STAGGER` (0.9) |
-| Mothership target points | `entities/enemy/boss.gd`, `entities/enemy/boss_part.gd` | `SECTION_COUNT` (3), `PARTS_PER_SECTION` (2), `PART_COUNT` (6), `PART_HP` (200), `PART_FIRE_THRESHOLDS` (0.90, 0.55), `PART_BLAST_SCALE/SHAKE`, `LOCK_MARK_HALF` (5.0 x 3.2) |
+| Mothership target points | `entities/enemy/boss.gd`, `entities/enemy/boss_part.gd` | `SECTION_COUNT` (3), `PARTS_PER_SECTION` (2), `PART_COUNT` (6), `PART_HP` (200), `PART_FIRE_THRESHOLDS` (0.90, 0.55), `PART_BLAST_SCALE/SHAKE`, `LOCK_MARK_HALF` (5.0 x 3.2), one `LockAnchor` per section |
 | Mothership section guns | `entities/enemy/boss.gd`, `entities/enemy/boss_weapon.gd` | `WEAPON_KINDS` (vulcan, missiles, laser); vulcan `VULCAN_WINDUP/BURST/INTERVAL/RECOVER/READY/PELLETS/SPREAD_DEGREES/SPEED`; laser `LASER_WINDUP/DURATION/RECOVER/READY/WIDTH/HIT_RADIUS/DAMAGE/PITCH`; missiles `MISSILE_WINDUP/RECOVER/READY/SALVO/SPREAD_DEGREES`; `PHASE_TWO_HURRY` (0.62) |
 | Mothership ring | `entities/enemy/boss.gd` | `RING_READY` (5), `BOSS_RING_BULLETS` (24), `BOSS_RING_SPEED` (26), `_hull_edge()` |
 | Mothership missiles | `entities/enemy/boss.gd` | `BOSS_MISSILE_SPEED` (33), `BOSS_MISSILE_DAMAGE` (2), `BOSS_MISSILE_TURN_RATE` (1.6), `BOSS_MISSILE_LIFETIME` (6), `BOSS_MISSILE_SIZE` |
@@ -1426,9 +1439,9 @@ entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -
 entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
 entities/enemy/fighter_enemy.gd interceptor: the player's airframe and flight model, a missile pass and a break
 entities/enemy/boss.gd          mothership: GLB hull, slow flight, three section guns, two phases, break-up
-entities/enemy/boss_part.gd     one of the hull's six target points, two per section: pool, collider, damage and destroyed signals
+entities/enemy/boss_part.gd     one of the hull's three target points, one per section: pool, collider, damage and destroyed signals
 entities/enemy/boss_weapon.gd   one section's gun: vulcan, guided pair or laser, with its own clock and telegraph
-entities/enemy/boss.tscn        the hull body, shapeless: the six points own the collision
+entities/enemy/boss.tscn        the hull body, shapeless: the three points own the collision
 entities/enemy/hull_fire.gd     one persistent hull fire: flame, hot core, smoke plume, intensity
 models/boss-1/*.glb             the capital-ship asset, imported once and preloaded by the boss
 ui/hud/                         event-fed bars (health, turbo, pilot level, boss); the radar polls the enemy group for bearings

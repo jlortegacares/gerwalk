@@ -297,6 +297,15 @@ func lock_mark_on_hull() -> bool:
 	return false
 
 
+## Extra places a missile can be locked on, besides the body itself. The default is
+## none, because a turret is one contact and one mark. A capital ship overrides it
+## with one anchor per section, which is what lets the rack split a salvo over parts
+## of the same hull.
+func lock_mark_anchors() -> Array[Node3D]:
+	var none: Array[Node3D] = []
+	return none
+
+
 func take_damage(amount: int) -> void:
 	if _state == State.DEAD:
 		return

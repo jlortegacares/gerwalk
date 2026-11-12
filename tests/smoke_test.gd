@@ -2213,13 +2213,13 @@ func _test_boss() -> void:
 		escort.queue_free()
 	await get_tree().physics_frame
 
-	# S13/S15: the hull is six target points in three sections, not one pool. Each
+	# S13/S15: the hull is three target points, one per section, not one pool. Each
 	# point is a solid box on the world and enemy layers, so it blocks the player and
-	# every shot finds it; each section owns two of them, side by side across the beam.
+	# every shot finds it; each section owns exactly one of them, as wide as the beam.
 	var parts: Array[BossPart] = ship.parts()
 	_check(
 		parts.size() == Boss.PART_COUNT,
-		"the hull is six target points (%d)" % parts.size()
+		"the hull is three target points (%d)" % parts.size()
 	)
 	if parts.size() != Boss.PART_COUNT:
 		GlobalEventBus.boss_appeared.disconnect(on_appeared)
@@ -2230,9 +2230,7 @@ func _test_boss() -> void:
 	var section_length: float = (
 		Boss.MODEL_SIZE.x * Boss.SCALE / float(Boss.SECTION_COUNT)
 	)
-	var point_width: float = (
-		Boss.MODEL_SIZE.z * Boss.SCALE / float(Boss.PARTS_PER_SECTION)
-	)
+	var part_width: float = Boss.MODEL_SIZE.z * Boss.SCALE
 
 	# The encounter fires a laser and homing missiles from three sections now. This
 	# test is about the ship's state, not about surviving it, so the player is made
@@ -2262,7 +2260,7 @@ func _test_boss() -> void:
 			_check(
 				is_equal_approx(
 					weapons[section].position.x,
-					parts[section * Boss.PARTS_PER_SECTION].position.x
+					parts[section].position.x
 				),
 				"section %d fires from its own place on the keel" % section
 			)
@@ -2288,15 +2286,93 @@ func _test_boss() -> void:
 		"the lock mark is drawn over the hull it sits in"
 	)
 
+	# S17: the rack can be spent on any third of the hull. The ship offers one lock
+	# anchor per section, on the hull's own height, and the radar turns that single
+	# contact into three slots so the salvo splits over the bow, the middle and the
+	# stern instead of piling on one mark.
+	var anchors: Array[Node3D] = ship.lock_mark_anchors()
+	_check(
+		anchors.size() == Boss.SECTION_COUNT,
+		"the ship offers one lock anchor per section (%d)" % anchors.size()
+	)
+	if anchors.size() == Boss.SECTION_COUNT:
+		var anchor_x: Array[float] = []
+		for section in anchors.size():
+			var anchor: Node3D = anchors[section]
+			_check(
+				anchor.is_inside_tree() and anchor.get_parent() == ship,
+				"lock anchor %d hangs from the ship" % section
+			)
+			if section < Boss.SECTION_COUNT:
+				_check(
+					is_equal_approx(
+						anchor.position.x,
+						parts[section].position.x
+					),
+					"lock anchor %d sits on its own section" % section
+				)
+			_check(
+				is_equal_approx(
+					anchor.position.y,
+					Boss.GROUND_Y + Boss.MODEL_SIZE.y * Boss.SCALE * 0.5
+				),
+				"lock anchor %d sits at the hull's own height (%.1f)"
+				% [section, anchor.position.y]
+			)
+			anchor_x.append(anchor.position.x)
+		anchor_x.sort()
+		_check(
+			anchor_x[2] - anchor_x[0] > Boss.MODEL_SIZE.x * Boss.SCALE * 0.5,
+			"the anchors spread along the keel, not on one spot (%.1f)"
+			% (anchor_x[2] - anchor_x[0])
+		)
+
+		var lock_weapons: WeaponSystem = _player.get_node("Weapons") as WeaponSystem
+		var bow_dir: Vector3 = Vector3(cos(ship.rotation.y), 0.0, -sin(ship.rotation.y))
+		var radar_origin: Vector3 = ship.global_position + bow_dir * 20.0
+		var pool: Array[WeaponSystem.LockSlot] = lock_weapons.call(
+			"_radar_pool", radar_origin, -bow_dir
+		)
+		var hull_slots: Array[WeaponSystem.LockSlot] = []
+		for slot in pool:
+			if slot.contact == ship:
+				hull_slots.append(slot)
+		_check(
+			hull_slots.size() == Boss.SECTION_COUNT,
+			"the radar sees the hull as three targets (%d)" % hull_slots.size()
+		)
+		if hull_slots.size() == Boss.SECTION_COUNT:
+			var hosts: Array[Node3D] = []
+			for slot in hull_slots:
+				hosts.append(slot.host)
+			_check(
+				hosts.has(anchors[0]) and hosts.has(anchors[1]) and hosts.has(anchors[2]),
+				"the pool is one slot per anchor"
+			)
+			# A full rack over three slots is the 3/3/2 split the marks promise,
+			# and the missiles steer to the anchor, not to the hull's centre.
+			lock_weapons.set("_salvo", Arsenal.MISSILE_MAX_SALVO)
+			lock_weapons.call("_sync_marks", hull_slots)
+			_check(
+				_tally_texts() == ["×2", "×3", "×3"],
+				"the three marks promise the 3/3/2 split (%s)" % str(_tally_texts())
+			)
+			var marked_after: Array = lock_weapons.get("_marked")
+			_check(
+				marked_after.size() == Boss.SECTION_COUNT,
+				"the rack carries one mark per anchor (%d)" % marked_after.size()
+			)
+			lock_weapons.call("_discharge")
+
 	for index in parts.size():
 		var part: BossPart = parts[index]
-		var section: int = index / Boss.PARTS_PER_SECTION
+		var section: int = part.section_id
 		_check(
 			part.current_hp() == Boss.PART_HP,
 			"point %d starts with its own pool (%d)" % [index, part.current_hp()]
 		)
 		_check(
-			part.section_id == section,
+			section == index,
 			"point %d belongs to section %d" % [index, section]
 		)
 		_check(
@@ -2318,8 +2394,8 @@ func _test_boss() -> void:
 				"point %d is as tall as the hull" % index
 			)
 			_check(
-				is_equal_approx(shape.size.z, point_width),
-				"point %d is half the beam wide (%.1f)" % [index, shape.size.z]
+				is_equal_approx(shape.size.z, part_width),
+				"point %d spans the beam (%.1f)" % [index, shape.size.z]
 			)
 		# The box is centred on the hull, not on the body origin: a shape at the
 		# origin leaves the top decks outside the collision, where a shot can
@@ -2333,17 +2409,14 @@ func _test_boss() -> void:
 		)
 
 	_check(
-		parts[0].position.x > parts[2].position.x
-			and parts[2].position.x > parts[4].position.x,
+		parts[0].position.x > parts[1].position.x
+			and parts[1].position.x > parts[2].position.x,
 		"the sections run bow, middle, stern along the keel"
 	)
 	for section in Boss.SECTION_COUNT:
-		var port: BossPart = parts[section * Boss.PARTS_PER_SECTION]
-		var starboard: BossPart = parts[section * Boss.PARTS_PER_SECTION + 1]
 		_check(
-			is_equal_approx(port.position.x, starboard.position.x)
-				and not is_equal_approx(port.position.z, starboard.position.z),
-			"section %d has two points side by side across the beam" % section
+			is_zero_approx(parts[section].position.z),
+			"section %d's point sits on the keel, not on a half of the beam" % section
 		)
 
 	# S6: the bar arrives with the ship, named and full, fed only by the bus.
@@ -2379,13 +2452,11 @@ func _test_boss() -> void:
 
 	# S13/S12/S15: a real player dart lands on the point it crosses. This is the
 	# regression guard for "my shots do nothing on a ship this big", and the guard
-	# that the points are actually independent: the other five stay untouched.
+	# that the points are actually independent: the other two stay untouched.
 	var bow: Vector3 = Vector3(cos(ship.rotation.y), 0.0, -sin(ship.rotation.y))
-	var lateral: Vector3 = Vector3(-bow.z, 0.0, bow.x)
 	var shot_from: Vector3 = (
 		ship.global_position
 		+ bow * (Boss.MODEL_SIZE.x * Boss.SCALE * 0.5 + 5.0)
-		+ lateral * parts[0].position.z
 	)
 	var bow_hp: int = parts[0].current_hp()
 	var total_before: int = ship.current_hp()
@@ -2441,39 +2512,23 @@ func _test_boss() -> void:
 	ship.take_damage(int(float(Boss.BOSS_HP) * 0.12))
 	_check(ship.burning_fires() >= 1, "the first deck lights up after damage")
 
-	# S13/S15: one point falling does not finish its section. The bow keeps answering
-	# while its other half stands, which is what makes the pair a pair and not one
-	# section cut in two for looks.
+	# S13/S15: the bow falls when its point does. One point per section makes the
+	# section and the point the same unit, so the gun goes quiet on that same hit.
 	ship.take_damage(parts[0].current_hp())
-	_check(parts[0].is_destroyed(), "a target point can be destroyed on its own")
+	_check(parts[0].is_destroyed(), "the bow's target point falls")
 	_check(
-		not ship.is_section_destroyed(0),
-		"one point down does not finish its section"
+		ship.is_section_destroyed(0),
+		"the bow section is destroyed with its only point"
 	)
-	_check(
-		not weapons[0].is_silenced(),
-		"a section with a live point keeps its gun"
-	)
-	_check(ship.destroyed_parts() == 1, "one of six target points is down")
-	_check(defeats.is_empty(), "one destroyed point does not end the fight")
-	_check(
-		ship.burning_fires() == 2,
-		"a half-worn section burns at full intensity (%d lit)" % ship.burning_fires()
-	)
-
-	# The section falls when its second point does, and only then its gun goes quiet.
-	ship.take_damage(parts[1].current_hp())
-	_check(parts[1].is_destroyed(), "the bow's other point falls too")
-	_check(ship.is_section_destroyed(0), "the bow section is destroyed")
+	_check(ship.destroyed_parts() == 1, "one of three target points is down")
 	_check(ship.destroyed_sections() == 1, "one of three sections is down")
-	_check(
-		ship.current_hp() == Boss.BOSS_HP - Boss.PART_HP * Boss.PARTS_PER_SECTION,
-		"the hull survives one section (%d)" % ship.current_hp()
-	)
 	_check(defeats.is_empty(), "one destroyed section does not end the fight")
 	_check(
-		ship.section_hp(1) == Boss.PART_HP * Boss.PARTS_PER_SECTION
-			and ship.section_hp(2) == Boss.PART_HP * Boss.PARTS_PER_SECTION,
+		ship.current_hp() == Boss.BOSS_HP - Boss.PART_HP,
+		"the hull survives one section (%d)" % ship.current_hp()
+	)
+	_check(
+		ship.section_hp(1) == Boss.PART_HP and ship.section_hp(2) == Boss.PART_HP,
 		"the surviving sections keep their pools"
 	)
 	_check(
@@ -2519,14 +2574,14 @@ func _test_boss() -> void:
 		"more decks burn as the pool drains (%d lit)" % ship.burning_fires()
 	)
 
-	# S13/S15: the middle section falls when both of its points do; the ship is still
-	# alive with the stern's pair standing.
+	# S13/S15: the middle section falls when its point does; the ship is still alive
+	# with the stern standing.
 	ship.take_damage(ship.section_hp(1))
 	_check(ship.is_section_destroyed(1), "the middle section falls on its own")
 	_check(
 		ship.destroyed_sections() == 2
-			and ship.current_hp() == Boss.PART_HP * Boss.PARTS_PER_SECTION,
-		"two sections down leave one pair standing (%d)" % ship.current_hp()
+			and ship.current_hp() == Boss.PART_HP,
+		"two sections down leave one standing (%d)" % ship.current_hp()
 	)
 	_check(defeats.is_empty(), "two destroyed sections still do not end the fight")
 
@@ -2534,7 +2589,7 @@ func _test_boss() -> void:
 	# frees itself after the break-up.
 	var score_before: int = _arena.score()
 	ship.take_damage(ship.section_hp(2))
-	_check(ship.destroyed_parts() == Boss.PART_COUNT, "all six target points are destroyed")
+	_check(ship.destroyed_parts() == Boss.PART_COUNT, "all three target points are destroyed")
 	_check(ship.destroyed_sections() == Boss.SECTION_COUNT, "all three sections are destroyed")
 	_check(defeats.size() == 1, "the defeat is announced once")
 	_check(
@@ -4135,8 +4190,9 @@ func _test_lock_scan(weapons: WeaponSystem) -> void:
 		"only the newest lock is still being acquired (%d of 3)" % acquired
 	)
 	_check(settled == 2, "the earlier locks have settled back (%d of 3)" % settled)
+	var active: Variant = weapons.get("_active_mark")
 	_check(
-		weapons.get("_active_mark") == by_distance[1],
+		active != null and active.host == by_distance[1],
 		"the scan ends on the contact the last missile takes"
 	)
 

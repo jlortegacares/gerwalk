@@ -25,13 +25,29 @@ var _salvo_timer: float = 0.0
 ## Missiles loaded by the current hold. The radar only decides who they are spread
 ## over; the load itself is pure held time.
 var _salvo: int = 0
-## Enemies carrying a reticle right now, always a subset of the radar pool, so a
+## One place a missile can be sent: a contact and the node its mark hangs from.
+## A fighter or a turret is a single slot — the body itself. A capital ship offers
+## its own anchors, so one hull can be three targets and the salvo can be spent on
+## the bow, the middle or the stern of the same ship.
+class LockSlot:
+	var contact: Enemy
+	## The node the mark hangs from and the point the missile steers to: the contact
+	## itself, or one of its lock anchors.
+	var host: Node3D
+	var reticle: LockReticle = null
+
+	func _init(p_contact: Enemy, p_host: Node3D) -> void:
+		contact = p_contact
+		host = p_host
+
+
+## Slots carrying a reticle right now, always a subset of the radar pool, so a
 ## mark can follow the radar without leaving a stale ring behind.
-var _marked: Array[Enemy] = []
-## The contact the scan is on: the newest lock, the only box still moving. Every
+var _marked: Array[LockSlot] = []
+## The slot the scan is on: the newest lock, the only box still moving. Every
 ## earlier mark is settled, which is what makes the salvo read as one reticle
 ## walking the pool instead of eight boxes appearing together.
-var _active_mark: Enemy = null
+var _active_mark: LockSlot = null
 ## The salvo count already announced. The reticle animation is per assignment, so
 ## the sync needs to know which missiles are new this frame: a single contact fed
 ## eight times has to re-run the lock eight times, not once.
@@ -344,7 +360,7 @@ func _tick_missiles(
 	delta: float, origin: Vector3, direction: Vector3, wants_lock: bool
 ) -> void:
 	_missile_cooldown = maxf(_missile_cooldown - delta, 0.0)
-	var pool: Array[Enemy] = _radar_pool(origin, direction)
+	var pool: Array[LockSlot] = _radar_pool(origin, direction)
 
 	# The cooldown is the gap after a salvo, not a pause: the rack is empty and
 	# unmarked for its whole length.
@@ -383,146 +399,187 @@ func _tick_missiles(
 	_sync_marks(pool)
 
 
-## The contacts the radar holds, nearest first and capped at the rack size: the same
-## list is what the hold loads against and what a salvo is spread over.
-func _radar_pool(origin: Vector3, direction: Vector3) -> Array[Enemy]:
-	var pool: Array[Enemy] = _enemies_in_cone(
+## The places the radar holds, nearest first and capped at the rack size: the same
+## list is what the hold loads against and what a salvo is spread over. A contact
+## with lock anchors contributes one slot per anchor instead of a slot of its own,
+## so a capital ship is three targets while a turret stays one.
+##
+## The radar detects the contact by its body, not by its anchors: a ship that is in
+## range is in range for the whole rack, and its marks are how the salvo splits over
+## it. Sorting is by the slot itself, so the near third is the one that takes the
+## extra missile.
+func _radar_pool(origin: Vector3, direction: Vector3) -> Array[LockSlot]:
+	var contacts: Array[Enemy] = _enemies_in_cone(
 		origin, direction, Arsenal.MISSILE_RANGE, Arsenal.MISSILE_RADAR_CONE_DEGREES
+	)
+	var pool: Array[LockSlot] = []
+	for enemy in contacts:
+		var anchors: Array[Node3D] = enemy.lock_mark_anchors()
+		if anchors.is_empty():
+			pool.append(LockSlot.new(enemy, enemy))
+			continue
+		for anchor in anchors:
+			if is_instance_valid(anchor):
+				pool.append(LockSlot.new(enemy, anchor))
+	pool.sort_custom(
+		func(a: LockSlot, b: LockSlot) -> bool:
+			return (
+				a.host.global_position.distance_squared_to(origin)
+				< b.host.global_position.distance_squared_to(origin)
+			)
 	)
 	if pool.size() > Arsenal.MISSILE_MAX_SALVO:
 		pool.resize(Arsenal.MISSILE_MAX_SALVO)
 	return pool
 
 
-## Rings the contacts the load will chase, nearest first, and writes on each one the
+## Rings the slots the load will chase, nearest first, and writes on each one the
 ## number of missiles it will take. The salvo is spread round-robin over the pool
 ## (`_fire_salvo` walks `pool[index % pool.size()]`), so the tally is that same walk:
-## each contact takes one per pass and the earlier ones take the extra when the load
+## each slot takes one per pass and the earlier ones take the extra when the load
 ## does not divide evenly. Showing the count instead of a rank is what makes the box
 ## promise the split the salvo will actually produce — eight over three is 3/3/2,
-## and the box reading ×2 is the contact the rack only chases twice.
+## and the box reading ×2 is the slot the rack only chases twice.
 ##
 ## The count is what decides, not the pool, which is why the brackets appear one at a
 ## time as the hold fills the rack.
 ##
 ## Only the newest box is being acquired; the rest settle. The scan is the point: a
-## multi-lock that paints every contact at once reads as a field of boxes, while one
-## box walking the pool reads as the rack filling one contact at a time. A contact
-## that receives another missile takes the scan back, so an extra assignment is
-## visible instead of a silent counter bump.
-func _sync_marks(pool: Array[Enemy]) -> void:
+## multi-lock that paints every slot at once reads as a field of boxes, while one box
+## walking the pool reads as the rack filling one target at a time. A slot that
+## receives another missile takes the scan back, so an extra assignment is visible
+## instead of a silent counter bump.
+func _sync_marks(pool: Array[LockSlot]) -> void:
 	var tally: Dictionary = {}
-	var marks: Array[Enemy] = []
+	var marks: Array[LockSlot] = []
 	if not pool.is_empty():
 		for index in _salvo:
-			var target: Enemy = pool[index % pool.size()]
+			var target: LockSlot = pool[index % pool.size()]
 			tally[target] = int(tally.get(target, 0)) + 1
-			if not marks.has(target):
+			if _find_slot(marks, target.host) == null:
 				marks.append(target)
 
 	for index in range(_marked.size() - 1, -1, -1):
-		var marked: Enemy = _marked[index]
-		# A turret can die under its own ring. A freed mark is dropped from the
-		# list without a call: it took its reticle with it, and handing the freed
-		# reference to _drop_reticle fails the parameter type check.
-		if not is_instance_valid(marked):
+		var marked: LockSlot = _marked[index]
+		# A turret can die under its own ring and a capital ship takes its anchors
+		# with it. A freed host already took its reticle, so the slot is dropped
+		# without a call: a freed reference cannot be handed to one.
+		if not is_instance_valid(marked.host) or not is_instance_valid(marked.contact):
 			_marked.remove_at(index)
 			continue
-		if marks.has(marked):
+		if _find_slot(marks, marked.host) != null:
 			continue
-		_drop_reticle(marked)
+		_drop_mark(marked)
 		_marked.remove_at(index)
 
-	for enemy in marks:
-		if _marked.has(enemy):
-			continue
-		if enemy.get_node_or_null(^"LockReticle") == null:
-			var reticle: LockReticle = LockReticle.new()
-			reticle.name = "LockReticle"
-			# The contact owns the mark's footprint: a turret leaves it at the
-			# resting size, a capital ship frames its own hull. It is set before the
-			# mark enters the tree, because the box is built once in `_ready`.
-			var mark: Vector3 = enemy.lock_mark()
-			if mark != Vector3.ZERO:
-				reticle.set_mark_size(
-					Vector2(mark.x, mark.z), mark.y, enemy.lock_mark_on_hull()
-				)
-			enemy.add_child(reticle)
-		_marked.append(enemy)
+	for slot in marks:
+		var held: LockSlot = _find_slot(_marked, slot.host)
+		if held == null:
+			_make_mark(slot)
+			_marked.append(slot)
+		else:
+			slot.reticle = held.reticle
 
-	# The scan sits on the contact the last missile takes. When it moves, the box it
+	# The scan sits on the slot the last missile takes. When it moves, the box it
 	# leaves settles and the new one is acquired.
-	var active: Enemy = null
+	var active: LockSlot = null
 	if not pool.is_empty() and _salvo > 0:
 		active = pool[(_salvo - 1) % pool.size()]
-	if active != _active_mark:
+	if not _same_slot(active, _active_mark):
 		_settle_active_mark()
 		_active_mark = active
 		_acquire(active)
 
-	# Every new missile re-runs the lock on its own target, even when that target is
-	# the contact the previous missile already locked. The animation belongs to the
-	# assignment, not to the active target: one contact fed eight times has to
-	# announce eight locks, which is the whole point of the scan.
+	# Every new missile re-runs the lock on its own slot, even when that slot is the
+	# one the previous missile already locked. The animation belongs to the
+	# assignment, not to the active target: one slot fed eight times has to announce
+	# eight locks, which is the whole point of the scan.
 	if not pool.is_empty() and _salvo > _synced_salvo:
 		for index in range(_synced_salvo, _salvo):
 			_acquire(pool[index % pool.size()])
 		_synced_salvo = _salvo
 		# Only the last assignment keeps moving. A long frame that loads two missiles
 		# must not leave two boxes acquiring, so everything else settles now.
-		for enemy in marks:
-			if enemy == _active_mark or not is_instance_valid(enemy):
+		for slot in marks:
+			if _same_slot(slot, _active_mark):
 				continue
-			var box: LockReticle = enemy.get_node_or_null(^"LockReticle") as LockReticle
-			if box != null and not box.is_held():
-				box.hold()
+			if is_instance_valid(slot.reticle) and not slot.reticle.is_held():
+				slot.reticle.hold()
 
 	# The tally is recomputed every sync because the pool order can change under it:
-	# a nearer contact entering the radar reshuffles who takes which missile, and the
+	# a nearer slot entering the radar reshuffles who takes which missile, and the
 	# picture has to agree with what `_fire_salvo` will do.
-	for enemy in marks:
-		if not is_instance_valid(enemy):
-			continue
-		var box: LockReticle = enemy.get_node_or_null(^"LockReticle") as LockReticle
-		if box != null:
-			box.set_missiles(int(tally.get(enemy, 0)))
+	for slot in marks:
+		if is_instance_valid(slot.reticle):
+			slot.reticle.set_missiles(int(tally.get(slot, 0)))
 
 
-## Runs the lock-in on a contact's box, if the mark exists and the contact is alive.
-func _acquire(enemy: Enemy) -> void:
-	if not is_instance_valid(enemy):
+## Puts a mark on the slot's host. The contact owns the shape: a turret leaves the
+## resting square, a capital ship reports its own small box. An anchor already sits
+## on the hull, so its box takes no lift of its own and keeps the contact's draw
+## rule.
+func _make_mark(slot: LockSlot) -> void:
+	slot.reticle = slot.host.get_node_or_null(^"LockReticle") as LockReticle
+	if slot.reticle != null:
 		return
-	var box: LockReticle = enemy.get_node_or_null(^"LockReticle") as LockReticle
-	if box != null:
-		box.acquire()
-
-
-## Hands the scan to a new contact: the box that had it settles where it stands.
-func _settle_active_mark() -> void:
-	if _active_mark != null and is_instance_valid(_active_mark):
-		var reticle: LockReticle = (
-			_active_mark.get_node_or_null(^"LockReticle") as LockReticle
+	var reticle: LockReticle = LockReticle.new()
+	reticle.name = "LockReticle"
+	var mark: Vector3 = slot.contact.lock_mark()
+	if mark != Vector3.ZERO:
+		# The anchor already stands on the hull; only the body needs the lift.
+		var lift: float = 0.0 if slot.host != slot.contact else mark.y
+		reticle.set_mark_size(
+			Vector2(mark.x, mark.z), lift, slot.contact.lock_mark_on_hull()
 		)
-		if reticle != null:
-			reticle.hold()
+	slot.host.add_child(reticle)
+	slot.reticle = reticle
+
+
+## Runs the lock-in on a slot's box, if the mark exists and the contact is alive.
+func _acquire(slot: LockSlot) -> void:
+	if slot == null or not is_instance_valid(slot.contact):
+		return
+	if is_instance_valid(slot.reticle):
+		slot.reticle.acquire()
+
+
+## Hands the scan to a new slot: the box that had it settles where it stands.
+func _settle_active_mark() -> void:
+	if _active_mark != null and is_instance_valid(_active_mark.reticle):
+		_active_mark.reticle.hold()
 	_active_mark = null
 
 
-func _drop_reticle(enemy: Enemy) -> void:
-	if enemy == _active_mark:
+func _drop_mark(slot: LockSlot) -> void:
+	if _same_slot(slot, _active_mark):
 		_active_mark = null
-	if not is_instance_valid(enemy):
-		return
-	var reticle: Node = enemy.get_node_or_null(^"LockReticle")
-	if reticle != null:
-		reticle.queue_free()
+	if is_instance_valid(slot.reticle):
+		slot.reticle.queue_free()
+
+
+## The slot hanging from this host, or null. Slots are rebuilt every frame, so the
+## host is what survives between them: the contact for a turret, its own anchor for
+## a capital ship.
+func _find_slot(slots: Array[LockSlot], host: Node3D) -> LockSlot:
+	for slot in slots:
+		if is_instance_valid(slot.host) and slot.host == host:
+			return slot
+	return null
+
+
+func _same_slot(a: LockSlot, b: LockSlot) -> bool:
+	if a == null or b == null:
+		return false
+	return (
+		is_instance_valid(a.host) and is_instance_valid(b.host) and a.host == b.host
+	)
 
 
 ## The whole load leaves at once, one missile per mark: the pool is walked from the
 ## nearest contact outwards and wraps when the load is longer than the radar, so a
 ## lone contact still takes every missile. This is the same order `_sync_marks`
 ## rings, which is what makes the brackets the load's promise.
-func _fire_salvo(pool: Array[Enemy], origin: Vector3, direction: Vector3) -> void:
+func _fire_salvo(pool: Array[LockSlot], origin: Vector3, direction: Vector3) -> void:
 	var count: int = _salvo
 	_discharge()
 	if count == 0 or pool.is_empty():
@@ -530,8 +587,8 @@ func _fire_salvo(pool: Array[Enemy], origin: Vector3, direction: Vector3) -> voi
 
 	_missile_cooldown = Arsenal.MISSILE_SALVO_COOLDOWN
 	for index in count:
-		var target: Enemy = pool[index % pool.size()]
-		if is_instance_valid(target):
+		var target: LockSlot = pool[index % pool.size()]
+		if is_instance_valid(target.contact) and is_instance_valid(target.host):
 			_launch_missile(target, origin, direction, index)
 
 
@@ -539,12 +596,16 @@ func _fire_salvo(pool: Array[Enemy], origin: Vector3, direction: Vector3) -> voi
 ## the first frame instead of looking like a straight shot. Same salvo, different
 ## line: the load decides how many, the radar decides who.
 ##
+## The shot steers to the slot's host, which for a capital ship is the section the
+## mark sits on: the missile crosses the part it was aimed at, so the split the
+## marks promise is the split the damage produces.
+##
 ## The fan opens in pairs outwards (11, -11, 22, -22...), so every missile of the
 ## load has a heading of its own. The angle also picks the wing: the missile leaves
 ## from the pylon it is angling towards, which is what keeps the picture and the
 ## trajectory agreeing.
 func _launch_missile(
-	target: Enemy, origin: Vector3, direction: Vector3, index: int
+	target: LockSlot, origin: Vector3, direction: Vector3, index: int
 ) -> void:
 	var side: float = 1.0 if index % 2 == 0 else -1.0
 	var pair: int = index / 2 + 1
@@ -575,7 +636,7 @@ func _launch_missile(
 		Arsenal.MISSILE_DAMAGE,
 		Arsenal.MISSILE_SIZE,
 		Arsenal.MISSILE_COLOR,
-		target,
+		target.host,
 		Arsenal.MISSILE_TURN_RATE,
 		Projectile.LIFETIME,
 		Projectile.Style.MISSILE
@@ -607,9 +668,7 @@ func _launch_missile(
 ## turret killed under its ring is dropped without a call and the rack still empties.
 func _discharge() -> void:
 	for index in range(_marked.size() - 1, -1, -1):
-		var enemy: Enemy = _marked[index]
-		if is_instance_valid(enemy):
-			_drop_reticle(enemy)
+		_drop_mark(_marked[index])
 		_marked.remove_at(index)
 	_active_mark = null
 	_synced_salvo = 0
