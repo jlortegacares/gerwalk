@@ -80,10 +80,14 @@ const STAR_MAX_DISTANCE: float = 430.0
 const STAR_SEED: int = 20261021
 
 const SURFACE_SHADER: Shader = preload("res://levels/arena/planet_surface.gdshader")
+const PLANET_FIELD: String = "res://levels/arena/planet_field.res"
+const PLANET_DETAIL: String = "res://levels/arena/planet_detail.res"
 
 var _spawn_timer: float = 0.0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _planet: Node3D
+var _sun: DirectionalLight3D
+var _surface: ShaderMaterial
 var _last_player_position: Vector3 = Vector3.ZERO
 ## The run's score. The arena owns it because the arena is the run: reloading the
 ## scene on a death starts a fresh one at zero.
@@ -129,6 +133,7 @@ func _physics_process(delta: float) -> void:
 
 	_planet.global_position = Vector3(current.x, GROUND_Y - PLANET_RADIUS, current.z)
 	_roll_planet(movement)
+	_update_sun()
 	_maintain_population(delta)
 
 
@@ -144,6 +149,17 @@ func _roll_planet(movement: Vector3) -> void:
 	var spin: Basis = Basis(axis, distance / PLANET_RADIUS)
 	var basis: Basis = (spin * _planet.global_transform.basis).orthonormalized()
 	_planet.global_transform = Transform3D(basis, _planet.global_position)
+
+
+## The relief normals and the painted shadows live in object space, so the shader
+## needs the sun expressed in the planet's own frame. It changes every frame: the
+## planet rolls under a sun that does not.
+func _update_sun() -> void:
+	if _sun == null or _surface == null:
+		return
+	var toward_sun: Vector3 = _sun.global_transform.basis.z
+	var local_sun: Vector3 = (_planet.global_transform.basis.inverse() * toward_sun).normalized()
+	_surface.set_shader_parameter("sun_direction", local_sun)
 
 
 func _build_environment() -> void:
@@ -167,6 +183,7 @@ func _build_environment() -> void:
 	sun.shadow_blur = 2.0
 	sun.shadow_enabled = true
 	add_child(sun)
+	_sun = sun
 
 
 func _build_stars() -> void:
@@ -221,6 +238,30 @@ func _build_planet() -> void:
 	# The city chart is measured in units, so the shader needs the radius to turn
 	# its cube-sphere coordinates into distances.
 	material.set_shader_parameter("planet_radius", PLANET_RADIUS)
+
+	# The terrain's macro structure is baked, because it needs the whole planet at
+	# once: a drainage network cannot be computed per pixel, and neither can the
+	# answer to "is this inland of a coast". Six faces, one cubemap, sampled by the
+	# object-space direction so the field belongs to the planet and rolls with it.
+	var field: Resource = load(PLANET_FIELD)
+	if field != null:
+		var cube: Cubemap = Cubemap.new()
+		cube.create_from_images(field.faces)
+		material.set_shader_parameter("planet_field", cube)
+		material.set_shader_parameter("relief_units", field.relief_units)
+		material.set_shader_parameter("river_max_distance", field.river_max_distance)
+		_surface = material
+
+	# The detail layer is baked for a different reason: not because it needs the
+	# whole planet, but because it was a fifth of the frame. Its gradient and cavity
+	# are precomputed, so the fragment reads them instead of synthesising a
+	# three-chain ridged field three times.
+	var detail: Resource = load(PLANET_DETAIL)
+	if detail != null:
+		var detail_cube: Cubemap = Cubemap.new()
+		detail_cube.create_from_images(detail.faces)
+		material.set_shader_parameter("planet_detail", detail_cube)
+		material.set_shader_parameter("detail_slope_range", detail.slope_range)
 
 	var ground: MeshInstance3D = MeshInstance3D.new()
 	ground.name = "Ground"
