@@ -263,7 +263,7 @@ Three constraints shaped the camera and the geometry, and each is load-bearing:
    straight on screen. Rotating it with the ship's heading would make every
    bullet appear to curve and P1's readability would collapse.
 3. **The camera pitch is a compromise between depth and framing.** The rig sits
-   at `(0, 50, 13.4)` with a `-75°` pitch and a `58°` field of view. That reads
+   at `(0, 65, 17.42)` with a `-75°` pitch and a `58°` field of view. That reads
    as a top-down shooter while still giving the surface a horizon and enough of a
    side-on view that the ship shows its wings and tail instead of reading as a
    flat silhouette.
@@ -309,7 +309,7 @@ radius means a longer lap and a flatter horizon; a smaller one means a curvier
 surface with the limb closer to the ship. At 1600 a lap is ≈ 10053 units, which
 is the "there is a lot of planet to cross" the design wants, and the curvature is
 flat enough that the local surface never betrays the sphere. The
-price is curvature: the camera looks 75° down from 51.5 units above the surface,
+price is curvature: the camera looks 75° down from 65 units above the surface,
 so past a radius of about 100 the top of the screen meets the ground before the
 horizon and the limb leaves the frame. The planet then reads as a continuous
 surface, not a globe. Getting the limb back would need a camera about
@@ -324,6 +324,25 @@ UV layout collapses. 3D noise has no poles and is uniform over the whole planet.
 The topographic isolines are the motion reference: on a uniform surface the player
 cannot tell they are moving.
 
+### Air: aerial perspective, because there is no sky in frame
+
+The camera is pitched 75° down, so the top of the frame meets the ground about 46°
+below the horizon while the planet's limb sits about 16° below it. **The sky is
+never on screen in gameplay**, and neither is the star shell: what the player reads
+as "up" is ground about 90 units away. The atmosphere is therefore painted into
+`planet_surface.gdshader` as aerial perspective instead of carried by a skybox.
+Distance is `length(VERTEX)` in view space; `HAZE_START = 61` and `HAZE_END = 138`
+leave the ground under the ship alone (65 units), carry about a third of the air
+over the top edge (~90 units) and two thirds over the corners (past 100, because
+the horizontal field of view is 89°). The fade mixes `ALBEDO` toward one cool
+slate so distant land and water converge on the same tone, and it also flattens
+`ROUGHNESS` and dims city `EMISSION`: a sun glitter or a lit roof seen through that
+much air is a glow, not a hard spot.
+
+Enemies, projectiles and the missile telegraphs are separate meshes, so the haze
+never touches them. That is deliberate: the fade is a depth cue, not weather the
+fight can hide in.
+
 ### Islands: a sea level, not a texture
 
 The land field is three octaves with three different jobs. A continental term at
@@ -334,12 +353,64 @@ stretched before it is composed: value noise averages 0.5 and `fbm3` sums to a
 mean of 0.4375, so a field used raw sits on the sea level and every island becomes
 one soft smudge with no shoreline at all.
 
-Everything below `0.50` is water: deep, dark and glossy (`ROUGHNESS = 0.18`) so it
+Everything below `0.50` is water: deep, dark and glossy (`ROUGHNESS = 0.16`) so it
 picks up the sun, with a shallow shelf around every coast. Everything above rises
 through a narrow sand ring into vegetation and high ground, and a thin foam line
 marks the waterline — a beach is a couple of pixels wide from 50 units up, so the
 foam is what actually draws the coastline. Water is painted only: no collision, no
 nodes, the play plane is untouched.
+
+### Sea: bathymetry and weather, because sines read as corduroy
+
+The sea is the only thing on this surface that moves, so it is the only thing that
+reads `TIME`. It is sampled in object space, because the pattern belongs to the water
+and has to roll with the planet: a world-space one would sit still while the
+coastlines slid underneath it.
+
+**Sine trains were built twice and thrown away twice.** A train of sines is what a
+first pass reaches for, and it never works: one wavelength everywhere, perfectly
+parallel, identical across the whole sea. On screen it is corduroy. Crossing a second
+train of comparable weight is worse, not better — the second train modulates the first
+one's troughs *along* the crest and beads them, and the sea becomes a lattice of
+ovals. Each train was rendered alone to prove it: each is clean parallel bands, the
+sum is a grid of blobs. Both versions are gone.
+
+What replaced them is noise plus the seabed, in four layers:
+
+- **Bathymetry, static.** Deep water is never one colour from above: you are seeing
+  the seabed through it. One noise field banks shoals up out of the deep and lightens
+  them to turquoise. This is the strongest cue that the surface is water at all, and
+  it costs one lookup.
+- **A narrow coastal ramp.** `shore` runs over the first tenth of the depth range
+  only. The depth field reaches 0.3 across most of the open sea, so a wide ramp paints
+  the entire ocean turquoise and the islands stop reading as islands.
+- **Weather.** A slow, low-contrast tonal drift so the open sea is not a flat fill.
+  It is the sea breathing, not a wave, and it barely moves in a match.
+- **Ripples and whitecaps.** Three octaves of value noise scrolled down one wind
+  direction, mildly stretched across it. Roughness follows the same field, so the
+  sheen breaks into flecks and the surface reads as moving even in a still frame.
+  Whitecaps are a sparse threshold on a finer noise, gated by a broad `gust` field:
+  sprinkled evenly they read as video noise, so the gust opens and closes patches of
+  chop and leaves calm water between them.
+
+Everything is animated by scrolling a noise offset along the wind vector, never by
+advancing a phase. A phase has a period and the eye finds it; a scrolled noise field
+does not repeat at any scale the camera can see.
+
+A physical highlight is not an option: the sun's glitter normal sits about 14° off
+vertical while the whole visible patch of sea spans under 4°, so a real specular lobe
+can never enter the frame. What the sea has instead is a painted glare on the chop,
+added straight to `EMISSION` — in albedo it would only dim the diffuse term, and this
+water is bright mostly from its specular sheen, which albedo never touches.
+
+Two traps worth knowing:
+
+- **A sphere's tangent frame is useless here.** `dot(p, tangent)` is identically zero,
+  because `p` lies along the normal and the frame is perpendicular to it. The pattern
+  that appears is float-cancellation noise, not water.
+- **The pale ovals over the sea are cloud-deck puffs.** Painting the ocean flat red
+  left every one of them in place. Judging the water shader from a normal capture
+  means mentally subtracting them.
 
 ### Cities: districts painted into the surface
 
@@ -371,16 +442,38 @@ missile loses the ship and flies on straight.
 
 **One field drives both jobs.** `CloudField` samples a `FastNoiseLite` bank in
 world space on the play plane, and the same number decides how many billboards a
-cell draws and whether a point counts as cover. A bank that looks thick is
+site draws and whether a point counts as cover. A bank that looks thick is
 therefore a bank that actually breaks a lock; there is no second, invisible rule
-to drift out of sync. The puffs are four `MultiMesh` layers, one per
-procedurally generated texture variant, so the deck never reads as one repeated
-stamp. Each is a billboarded quad with an irregular, domain-warped silhouette and
-mipmapped anisotropic filtering, streamed in 18-unit cells around the ship. A
-wide, faint haze quad per cell binds the detail puffs into one volume instead of a
-pile of discs, and per-instance alpha lets haze and detail share the same texture
-variant. The texture also bakes a vertical light falloff — bright top, shaded
-base — so an unshaded billboard still reads as a volume.
+to drift out of sync.
+
+**A puff has to be much smaller than the cell that places it.** This is the whole
+of the deck's look, and it took a rewrite to get there. The first version placed
+one 8-16 unit puff per 18-unit cell, gated on the density at the *cell centre*.
+Two things followed, both of them on screen: every cell that only just cleared the
+threshold drew exactly one billboard, so the fringe of a bank became a lattice of
+separate discs, and gating the whole cell quantised the bank's edge to 18 units.
+Over the sea that read as a field of pale ovals — which is easy to mistake for
+water, and cost a whole afternoon of chasing the ocean shader.
+
+What replaced it: four candidates per axis on a jittered grid (16 per cell), each
+one testing the density *at its own position*, so the edge of a bank is as ragged
+as the noise field and a core fills in as its puffs overlap. Size and opacity both
+ramp with the local density: the fringe is small and faint, the core grows to solid.
+
+**There is no haze layer.** One wide, faint quad per cell was meant to bind the
+puffs into a volume. At 40-72 units across it is 450-800 pixels of soft radial
+falloff and reads as a single pale oval; shrunk to 20-34 units it still showed its
+square edges where quads overlapped. Small overlapping puffs do the blending job
+and none of them is large enough to be a visible shape on its own.
+
+Each puff is a billboarded quad with a domain-warped silhouette and mipmapped
+anisotropic filtering, streamed in 18-unit cells around the ship. Eight
+procedurally generated variants share the load so the deck does not read as one
+repeated stamp. Inside the texture the low-frequency lobe *multiplies* the radial
+falloff instead of merely dimming it, which carves the boundary: with the lobe as a
+multiplier the silhouette is decided by the noise rather than by the circle, and a
+puff stops looking stamped. The texture also bakes a vertical light falloff — bright
+top, shaded base — so an unshaded billboard still reads as a volume.
 
 The field is atmosphere, not terrain: it does not roll with the planet, so the
 deck adds a second layer of parallax against the surface.
@@ -1383,8 +1476,9 @@ All values are named constants at the top of each script.
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
 | Planet scale and lap length | `levels/arena/arena.gd` | `PLANET_RADIUS` (lap = `2 * PI * PLANET_RADIUS`), `PLANET_SEGMENTS`, `PLANET_RINGS` |
-| Cloud deck | `levels/arena/cloud_field.gd` | `DENSITY_SCALE` (bank size), `DENSE_THRESHOLD` (cover), `VISUAL_MIN_DENSITY` (first visible cloud), `VISUAL_FULL_DENSITY` (ramps saturate), `CLEAR_INNER`/`CLEAR_OUTER` (opening ring), `STREAM_RADIUS`, `CELL_SIZE`, `MAX_PUFFS_PER_CELL`, `MAX_PUFFS`, `PUFF_MIN/MAX_SIZE`, `PUFF_MIN/MAX_Y`, `HAZE_MIN/MAX_SIZE`, `HAZE_ALPHA`, `DETAIL_ALPHA_MIN/MAX`, `CLOUD_TINT`, `PUFF_VARIANTS`, `PUFF_TEXTURE_SIZE`, `CLOUD_SEED` |
+| Cloud deck | `levels/arena/cloud_field.gd` | `DENSITY_SCALE` (bank size), `DENSE_THRESHOLD` (cover), `VISUAL_MIN_DENSITY` (first visible cloud), `VISUAL_FULL_DENSITY` (ramps saturate), `CLEAR_INNER`/`CLEAR_OUTER` (opening ring), `STREAM_RADIUS`, `CELL_SIZE`, `SUBGRID` (candidates per cell axis), `MAX_PUFFS`, `PUFF_MIN/MAX_SIZE`, `PUFF_MIN/MAX_Y`, `DETAIL_ALPHA_MIN/MAX`, `CLOUD_TINT`, `PUFF_VARIANTS`, `PUFF_TEXTURE_SIZE`, `CLOUD_SEED` |
 | Islands and sea level | `levels/arena/planet_surface.gdshader` | `SEA_LEVEL`, `REGION_SCALE` (continents), `ISLAND_SCALE` (islands), `COAST_SCALE` (shoreline) |
+| Sea | `levels/arena/planet_surface.gdshader` | `deep_water`/`reef_water`/`shallow_water` (palette), `shore` (coastal ramp), `bank` (reefs), `drift` (weather), `ripple`, `wind`, `gust`/`caps` (whitecaps) |
 | City districts | `levels/arena/planet_surface.gdshader` | `CITY_CELL` (density), `CITY_HALF` (district size), `CITY_BLOCK`, `CITY_ROAD`, `CITY_ROOF` (street and roof scale), `CITY_LIT` (share of lit roofs) |
 | City grid | `levels/city/city.gd` | `BLOCK` (26), `STREET` (12), `PITCH` (38), `SIDEWALK` (2.5), `FOOTPRINT` (21), `BLOCKS` (8), `START_CELL`, `GRID_ORIGIN`; the outer ring is filled to the full pitch |
 | City skyline and plazas | `levels/city/city.gd` | `TOWER_HEIGHT_MIN/MAX`, `PERIMETER_HEIGHT_MIN/MAX`, `PLAZA_CHANCE` (0.14), `LAYOUT_SEED` |
@@ -1771,6 +1865,29 @@ actions, so it exercises the same path a player does.
   with two degenerate poles, which the roll crosses constantly.
 - **Cities have no suburbs.** A district is a hard-edged square of asphalt that
   stops at the coastline, and nothing else on the surface is built up.
+- **The sea has no reflection or refraction.** It is painted, not shaded: the sun's
+  glitter normal sits about 14° off vertical while the visible patch spans under 4°,
+  so no real specular lobe can enter the frame. What it has is bathymetry, a coastal
+  ramp, noise chop and whitecaps — enough to read as moving water from 65 units up,
+  and nothing more. It also has no waves you could point at: the open sea is calm by
+  design, because every attempt at a visible crest turned into corduroy.
+- **A sphere's tangent frame is a trap.** Sampling a sea pattern as
+  `dot(p, tangent)` looks right and returns identically zero, because `p` lies along
+  the normal and the frame is perpendicular to it. The pattern that appears is
+  float-cancellation noise. Sample in 3D.
+- **Two crossed sine trains are not a sea.** Equal trains sum into a lattice of
+  ovals; a dominant train plus a weaker crossing one beads its troughs along the
+  crest. Both were built and both were rejected on screen.
+- **Clouds were one billboard per cell, and it showed.** A puff the size of the
+  cell that places it makes every cell a disc, and a per-cell density gate turns
+  the fringe of a bank into a lattice of ovals. Puffs must be much smaller than the
+  cell, placed inside it, and tested for density where they stand.
+- **A haze quad bigger than a cell is an oval, not a volume.** It was meant to
+  blend the puffs; at 40-72 units it was a 450-800 pixel soft blob over the sea, and
+  at 20-34 its square edges showed where two overlapped. Removed entirely.
+- **The deck's ovals were once mistaken for water.** Painting the ocean flat red
+  proved the puffs were clouds. Before blaming a surface shader for a soft patch,
+  isolate the other layers.
 - **The skid has no airspeed cue.** During a hard turn the nose and the ground
   track diverge, and the divergence is only visible as the terrain drifting
   sideways. Nothing draws the velocity vector, so the drift is felt before it is
