@@ -36,26 +36,29 @@ const CLEAR_OUTER: float = 120.0
 ## is comfortably past the frame and still cheap to rebuild.
 const STREAM_RADIUS: float = 150.0
 const CELL_SIZE: float = 18.0
-const MAX_PUFFS_PER_CELL: int = 16
-const MAX_PUFFS: int = 3000
+## Candidate puffs per cell, on a 4x4 jittered grid. A puff much smaller than the
+## cell is the whole trick: with one 16-unit puff per 18-unit cell every cell is a
+## visible disc, and the bank reads as a lattice of pale ovals instead of a mass.
+const SUBGRID: int = 4
+const MAX_PUFFS: int = 4000
 
-## Detail puffs build the silhouette; haze puffs are the wide, faint wash that
-## blends neighbouring cells into one volume instead of a pile of discs.
-const PUFF_MIN_SIZE: float = 8.0
-const PUFF_MAX_SIZE: float = 16.0
+## Detail puffs build the whole silhouette. There is no separate haze layer: a wide,
+## faint quad drawn per cell was the deck's worst artefact. At 40-72 units across it
+## is 450-800 pixels of soft radial falloff over the sea, which reads as a pale oval,
+## and at 20-34 it still showed its square edges where two of them overlapped. Small
+## overlapping puffs do the same blending job without ever being one visible shape.
+const PUFF_MIN_SIZE: float = 3.5
+const PUFF_MAX_SIZE: float = 14.0
 const PUFF_MIN_Y: float = -1.5
 const PUFF_MAX_Y: float = 1.5
-const HAZE_MIN_SIZE: float = 40.0
-const HAZE_MAX_SIZE: float = 72.0
-const HAZE_ALPHA: float = 0.06
 
-const DETAIL_ALPHA_MIN: float = 0.16
-const DETAIL_ALPHA_MAX: float = 0.34
+const DETAIL_ALPHA_MIN: float = 0.14
+const DETAIL_ALPHA_MAX: float = 0.62
 
 const CLOUD_TINT: Color = Color(0.90, 0.93, 0.99, 1.0)
-## One texture per variant. Four irregular shapes are enough to stop the deck
+## One texture per variant. Eight irregular shapes are enough to stop the deck
 ## reading as one repeated stamp, and each MultiMesh is one draw call.
-const PUFF_VARIANTS: int = 4
+const PUFF_VARIANTS: int = 8
 const PUFF_TEXTURE_SIZE: int = 256
 const CLOUD_SEED: int = 20261106
 
@@ -152,8 +155,8 @@ func _build_visual() -> void:
 		material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 		material.vertex_color_use_as_albedo = true
 		material.albedo_texture = _build_puff_texture(variant)
-		# The instance colour carries the per-puff opacity, so the material stays
-		# at full alpha and haze and detail share the same variant.
+		# The instance colour carries the per-puff opacity, so the material can stay
+		# at full alpha and every puff share the same variant set.
 		material.albedo_color = Color(1.0, 1.0, 1.0, 1.0)
 		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		material.texture_repeat = false
@@ -213,15 +216,18 @@ func _build_puff_texture(variant: int) -> ImageTexture:
 			var fy: float = float(y)
 
 			# Warp the circle before measuring it: the edge stops being a rim.
-			var wu: float = u + warp.get_noise_2d(fx, fy) * 0.22
-			var wv: float = v + warp.get_noise_2d(fx + 1000.0, fy - 500.0) * 0.22
+			var wu: float = u + warp.get_noise_2d(fx, fy) * 0.30
+			var wv: float = v + warp.get_noise_2d(fx + 1000.0, fy - 500.0) * 0.30
 			var radial: float = clampf(1.0 - sqrt(wu * wu + wv * wv), 0.0, 1.0)
 			var body: float = smoothstep(0.0, 0.90, radial)
 
 			# Lumps at the low end, grain at the high end: billow plus texture.
 			var lobe: float = shape.get_noise_2d(fx, fy) * 0.5 + 0.5
 			var grain: float = detail.get_noise_2d(fx, fy) * 0.5 + 0.5
-			var alpha: float = pow(body, 1.4) * (0.55 + 0.30 * lobe + 0.15 * grain)
+			# The lobe multiplies the disc instead of merely dimming it, so it carves
+			# the boundary. That is what stops a puff reading as a stamped circle: the
+			# silhouette is decided by the noise, not by the radial falloff.
+			var alpha: float = pow(body, 1.35) * (0.28 + 1.10 * lobe) * (0.78 + 0.22 * grain)
 
 			# The warp can push density to the square's edge, so force the border
 			# back to zero or the quad would show as a rectangle.
@@ -266,23 +272,36 @@ func _rebuild() -> void:
 			var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 			rng.seed = _cell_seed(cx, cz)
 
-			# Haze first: a wide, faint wash that binds the cell to its neighbours.
-			for _puff in _haze_count(density):
-				_add_puff(rng, cell_center, density, true)
-
-			for _puff in _puff_count(density):
-				_add_puff(rng, cell_center, density, false)
+			# One candidate per sub-cell, placed on a jittered grid. Uniform scatter
+			# inside the cell clumps and leaves holes, and with a hard density gate the
+			# holes are what the eye sees: a lattice of separate discs.
+			var step: float = CELL_SIZE / float(SUBGRID)
+			var cell_origin: Vector2 = cell_center - Vector2(CELL_SIZE, CELL_SIZE) * 0.5
+			for sz in SUBGRID:
+				for sx in SUBGRID:
+					var site: Vector2 = cell_origin + Vector2(
+						(float(sx) + rng.randf()) * step,
+						(float(sz) + rng.randf()) * step
+					)
+					# Density is read at the puff, never at the cell centre. Gating the
+					# whole cell quantises the edge of a bank to 18 units, and the cells
+					# that only just qualify draw a single disc each -- which is exactly
+					# how the deck used to look over the water.
+					var site_density: float = density_at(Vector3(site.x, 0.0, site.y))
+					if site_density <= VISUAL_MIN_DENSITY:
+						continue
+					_add_puff(rng, site, site_density)
 
 	for variant in _multimeshes.size():
 		_multimeshes[variant].visible_instance_count = _indices[variant]
 	_visible_puffs = _written
 
 
-## Writes one puff into a variant's MultiMesh. The variant is chosen per puff, so
-## the deck never repeats the same silhouette in a visible cluster.
-func _add_puff(
-	rng: RandomNumberGenerator, cell_center: Vector2, density: float, haze: bool
-) -> void:
+## Writes one detail puff into a variant's MultiMesh. Size and opacity both follow
+## the local density, so the fringe stays wispy and a core builds up to solid as the
+## puffs overlap. The variant is chosen per puff, so a cluster never repeats the same
+## silhouette twice in a row.
+func _add_puff(rng: RandomNumberGenerator, site: Vector2, density: float) -> void:
 	if _written >= MAX_PUFFS:
 		return
 	var variant: int = rng.randi_range(0, PUFF_VARIANTS - 1)
@@ -290,36 +309,16 @@ func _add_puff(
 	if index >= MAX_PUFFS:
 		return
 
-	var offset: Vector2 = (
-		(Vector2(rng.randf(), rng.randf()) - Vector2(0.5, 0.5)) * CELL_SIZE
-	)
-	var height: float
-	var size: float
-	var alpha: float
-	if haze:
-		height = rng.randf_range(-1.0, 0.8)
-		size = rng.randf_range(HAZE_MIN_SIZE, HAZE_MAX_SIZE)
-		alpha = HAZE_ALPHA * lerpf(
-			0.70, 1.0, smoothstep(VISUAL_MIN_DENSITY, VISUAL_FULL_DENSITY, density)
-		)
-	else:
-		height = rng.randf_range(PUFF_MIN_Y, PUFF_MAX_Y)
-		size = rng.randf_range(PUFF_MIN_SIZE, PUFF_MAX_SIZE) * lerpf(0.85, 1.15, density)
-		alpha = lerpf(
-			DETAIL_ALPHA_MIN,
-			DETAIL_ALPHA_MAX,
-			smoothstep(VISUAL_MIN_DENSITY, VISUAL_FULL_DENSITY, density)
-		)
-
+	var growth: float = smoothstep(VISUAL_MIN_DENSITY, VISUAL_FULL_DENSITY, density)
+	var size: float = lerpf(PUFF_MIN_SIZE, PUFF_MAX_SIZE, growth) * rng.randf_range(0.80, 1.25)
+	var height: float = rng.randf_range(PUFF_MIN_Y, PUFF_MAX_Y)
+	var alpha: float = lerpf(DETAIL_ALPHA_MIN, DETAIL_ALPHA_MAX, growth)
 	var tint: float = rng.randf_range(0.94, 1.03)
-	var brightness: float = lerpf(
-		0.92, 1.0, smoothstep(VISUAL_MIN_DENSITY, VISUAL_FULL_DENSITY, density)
-	)
+	var brightness: float = lerpf(0.92, 1.0, growth)
 	var basis: Basis = Basis().scaled(Vector3(size, size, size))
-	var origin: Vector3 = Vector3(
-		cell_center.x + offset.x, height, cell_center.y + offset.y
+	_multimeshes[variant].set_instance_transform(
+		index, Transform3D(basis, Vector3(site.x, height, site.y))
 	)
-	_multimeshes[variant].set_instance_transform(index, Transform3D(basis, origin))
 	_multimeshes[variant].set_instance_color(
 		index,
 		Color(
@@ -331,23 +330,6 @@ func _add_puff(
 	)
 	_indices[variant] = index + 1
 	_written += 1
-
-
-## Puffs ramp with density instead of switching on at the threshold: a bank has a
-## visible fringe, and the core is what reads as a wall.
-func _puff_count(density: float) -> int:
-	if density <= VISUAL_MIN_DENSITY:
-		return 0
-	var weight: float = smoothstep(VISUAL_MIN_DENSITY, VISUAL_FULL_DENSITY, density)
-	return int(round(weight * float(MAX_PUFFS_PER_CELL)))
-
-
-## Dense cores get a second haze quad, so the wall of white has depth instead of a
-## single flat sheet.
-func _haze_count(density: float) -> int:
-	if density <= VISUAL_MIN_DENSITY:
-		return 0
-	return 2 if density >= DENSE_THRESHOLD else 1
 
 
 func _cell_of(point: Vector3) -> Vector2i:
