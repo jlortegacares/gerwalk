@@ -29,6 +29,10 @@ extends Node
 ## lock-in, a long one the settled spin. Add `--contacts N` to spread N turrets
 ## across the radar: the scan only reads against several, because the rack walks
 ## them nearest first and that order has to be visible.
+## `--window WxH` sets the window before the capture and `--governor 0` switches the
+## resolution governor off, so the same frame can be compared rendered natively and
+## upscaled from its cap.
+##
 ## `--roll N` (with `--fighter 1`) starts a left barrel roll and captures N frames
 ## into it, which is how the slower turn-over and the roll's own side are
 ## reviewed. Add `--close` to read the hull coming over at the game camera's
@@ -91,6 +95,26 @@ func _ready() -> void:
 	var ruin: bool = _argument("ruin", "0") == "1"
 	var chip: int = int(_argument("chip", "0"))
 	var city: bool = _argument("city", "0") == "1"
+
+	# `--window WxH` and `--governor 0` exist so the resolution governor can be
+	# judged the way it is actually seen: the same frame rendered natively and
+	# upscaled from its cap, at the same window size, side by side.
+	var window_size: String = _argument("window", "")
+	if not window_size.is_empty():
+		var parts: PackedStringArray = window_size.split("x")
+		if parts.size() == 2:
+			DisplayServer.window_set_size(Vector2i(int(parts[0]), int(parts[1])))
+	var governor: Node = get_node_or_null("/root/RenderScale")
+	if governor != null:
+		# Steering off in both cases: a capture is one frame, and a governor that
+		# decides during the settle would make the two sides of the comparison differ
+		# in more than the upscaler.
+		governor.set("steering", false)
+		if _argument("governor", "1") == "0":
+			governor.set("enabled", false)
+			get_window().scaling_3d_scale = 1.0
+		else:
+			governor.call("apply")
 
 	var arena: Node = load(CITY_SCENE if city else ARENA_SCENE).instantiate()
 	add_child(arena)
