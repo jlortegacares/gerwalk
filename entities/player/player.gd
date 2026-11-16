@@ -115,12 +115,14 @@ const FIGHTER_TRIM_DEGREES: float = 8.0
 const FIGHTER_YAW_TRIM: float = 60.0
 const FIGHTER_ROLL_TIME: float = 0.20
 const FIGHTER_ROLL_SPEED: float = 55.0
-## The jink and the roll are two clocks. 0.20 s is the rule: the sideways step and
-## the i-frames it buys. The airframe's turn-over is presentation, and at 0.20 s it
-## was twelve frames of blur that read as a teleport. 0.45 s is the same 360
-## degrees at 2.25x the time, long enough to see the wings come over, and it
-## changes nothing about the distance covered or how long the dodge protects.
-const FIGHTER_ROLL_ANIM_TIME: float = 0.45
+## How long the airframe takes to come over, shared by both modes. The turn-over is
+## presentation, and at the fighter's own 0.20 s step it was twelve frames of blur
+## that read as a teleport; 0.45 s is the same 360 degrees at 2.25x the time, long
+## enough to see the wings come over. It is not only cosmetic: the button dash sets
+## no step at all, so this clock is the whole of that dodge, and `is_evading()`
+## follows it. A roll outliving a 0.12 s burst is the point -- the ship is seen
+## spinning rather than blinking sideways.
+const ROLL_ANIM_TIME: float = 0.45
 const FIGHTER_NOSE_PITCH: float = -5.0
 const TRANSFORM_TIME: float = 0.28
 
@@ -441,9 +443,10 @@ func _move_fighter(delta: float) -> void:
 	# course by a few degrees, which is enough to line up a pass without ever
 	# taking the gun off the nose.
 	# A roll is a commitment: the trim must not steer the nose while the ship is
-	# busy stepping sideways, or the jink bends the course it was dodging.
+	# busy coming over, or the spin bends the course it was dodging. The button's
+	# spin sets no jink at all, so the roll clock is the one that has to hold it.
 	var trim: float = 0.0
-	if _dash_time <= 0.0:
+	if _dash_time <= 0.0 and _roll_anim_time <= 0.0:
 		trim = Input.get_axis(&"aim_left", &"aim_right")
 	var yaw: float = atan2(-_heading.z, _heading.x)
 
@@ -698,44 +701,66 @@ func _tick_double_tap(delta: float) -> void:
 func _tap_dash(direction: Vector2) -> void:
 	if _dash_cooldown > 0.0:
 		return
-	if _mode == Mode.FIGHTER:
-		_start_barrel_roll(direction)
-		return
+	# The gesture always carries a direction: `_tick_double_tap` only arms a tap
+	# on a deflected stick. That is what makes it the jink in both modes while a
+	# bare button press is the spin.
 	_start_dash(direction)
 
 
-## `direction` is the stick that asked for the dash, already deadzoned. It is
-## empty when the button fired on a centred stick, which is the "dash down the
-## nose" case.
-func _start_dash(direction: Vector2 = Vector2.ZERO) -> void:
+## `tapped` is the stick a double tap asked for, already deadzoned. It is empty
+## when the button fired, which is the spin on its own.
+func _start_dash(tapped: Vector2 = Vector2.ZERO) -> void:
 	if _mode == Mode.FIGHTER:
-		_start_barrel_roll()
+		_start_barrel_roll(tapped)
 		return
+	_start_gerwalk_dash(tapped)
 
+
+## GERWALK's half of the same contract the fighter follows: a gesture that chose a
+## direction gets the 0.12 s burst, the button comes over without moving the ship.
+## The spin itself is the dodge either way, and it is what carries the i-frames.
+##
+## The side is read against the aim -- the model's own nose, since this mode turns
+## its nose independently of where it flies -- because that is the frame the roll
+## axis lives in. A tap straight down the nose has no side of its own, so the aim
+## stick picks one and a centred stick repeats the last one, exactly like a
+## fighter jink.
+func _start_gerwalk_dash(tapped: Vector2) -> void:
 	Sfx.play(&"dash")
-	var input_direction: Vector2 = direction
-	if input_direction.length_squared() <= 0.0:
-		input_direction = Input.get_vector(
-			&"move_left", &"move_right", &"move_up", &"move_down", MOVE_DEADZONE
-		)
-	var flat: Vector3 = Vector3(input_direction.x, 0.0, input_direction.y)
-	_dash_direction = flat.normalized() if flat.length_squared() > 0.0 else _aim_direction
-	_dash_time = DASH_DURATION
+	var world: Vector3 = Vector3(tapped.x, 0.0, tapped.y)
+	var stepping: bool = world.length_squared() > 0.0
+	if stepping:
+		_dash_direction = world.normalized()
+	_dash_time = DASH_DURATION if stepping else 0.0
+	var right: Vector3 = Vector3(-_aim_direction.z, 0.0, _aim_direction.x)
+	var side: float = signf(_dash_direction.dot(right)) if stepping else 0.0
+	if is_zero_approx(side):
+		side = signf(Input.get_axis(&"aim_left", &"aim_right"))
+	if is_zero_approx(side):
+		side = _roll_side
+	_roll_side = side
+	_roll_anim_time = ROLL_ANIM_TIME
 	_dash_cooldown = DASH_COOLDOWN
 	# The nozzle flash outlives the 0.12 s burst, then decays on its own.
 	_thrust_kick = 1.0
 	_spawn_impact()
 
 
-## In Fighter the dash is the roll the spec puts on the right stick: the ship steps
-## without changing where it points, and the airframe spins around its own nose.
-## The capsule never spins, so it is a jink with i-frames, not a free turn.
+## In Fighter the dash is the roll the spec puts on the right stick: the ship spins
+## around its own nose. The capsule never spins, so it is a jink with i-frames, not
+## a free turn.
+##
+## The button and the gesture are two different dodges. Space is the spin on its
+## own: the hull comes over, nothing else moves, and the i-frames the animation
+## carries are the whole of it. A double tap is the jink, because the tap chose a
+## direction and a step the player aimed is exactly what the gesture is for.
 ##
 ## `tapped` is the stick a double tap asked for, in the same world axes the flight
 ## model reads, so any direction is a valid jink and diagonals are just a
 ## direction. It is converted to the airframe's own frame, which is what lets the
 ## step turn with the nose. Without a tap (the button) the aim axis picks the
-## side, and a centred stick repeats the last one instead of defaulting right.
+## side the spin goes, and a centred stick repeats the last one instead of
+## defaulting right.
 func _start_barrel_roll(tapped: Vector2 = Vector2.ZERO) -> void:
 	Sfx.play(&"dash")
 	var world: Vector3 = Vector3.ZERO
@@ -755,8 +780,11 @@ func _start_barrel_roll(tapped: Vector2 = Vector2.ZERO) -> void:
 		var spin_side: float = signf(_roll_local.y)
 		if not is_zero_approx(spin_side):
 			_roll_side = spin_side
-	_dash_time = FIGHTER_ROLL_TIME
-	_roll_anim_time = FIGHTER_ROLL_ANIM_TIME
+	# A tapped roll also steps; the button only spins. The step is what makes the
+	# gesture a jink, and the spin is what makes the button a dodge: neither needs
+	# the other's part.
+	_dash_time = FIGHTER_ROLL_TIME if world.length_squared() > 0.0 else 0.0
+	_roll_anim_time = ROLL_ANIM_TIME
 	_dash_cooldown = DASH_COOLDOWN
 	_thrust_kick = 1.0
 	_spawn_impact()
@@ -784,12 +812,13 @@ func _update_bank(delta: float) -> void:
 		)
 	_visual_yaw_prev = _visual_yaw
 
-	# The barrel roll owns the roll axis for its own 0.45 s, which outlives the
-	# 0.20 s jink: the ship has already stepped aside before the airframe has
-	# finished coming over, and the bank must not fight it. The sign follows the
-	# side, so a left dodge rolls left and the animation agrees with the step.
+	# The barrel roll owns the roll axis for its own 0.45 s, which outlives both the
+	# fighter's 0.20 s jink and GERWALK's 0.12 s burst, and outlives the button's
+	# spin by the whole 0.45 s. Whatever the ship is doing underneath, the bank must
+	# not fight the turn-over. The sign follows the side, so a left dodge rolls left
+	# and the animation agrees with the direction the ship went.
 	if _roll_anim_time > 0.0:
-		var spun: float = 1.0 - _roll_anim_time / FIGHTER_ROLL_ANIM_TIME
+		var spun: float = 1.0 - _roll_anim_time / ROLL_ANIM_TIME
 		_visual.rotation.x = _roll_side * spun * TAU
 		_bank = 0.0
 		return
@@ -956,12 +985,18 @@ func _tick_timers(delta: float) -> void:
 ## True while the hull is mid-dash or mid-roll. The dash is a jink, not a screen
 ## clear: a shot that reaches the ship inside this window is evaded, so the
 ## projectile keeps flying instead of being spent on an invulnerable hull.
+##
+## The window is the animation, not the distance. The spin outlives the step in
+## every path -- 0.45 s against 0.12 s in GERWALK, against 0.20 s in a fighter
+## jink, and against nothing at all when the button spins in place -- so a dodge
+## the player can see is protected for as long as it is visible. Any shorter and
+## the hull gets shot while it is visibly upside down.
 func is_evading() -> bool:
-	return _alive and _dash_time > 0.0
+	return _alive and (_dash_time > 0.0 or _roll_anim_time > 0.0)
 
 
 func take_damage(amount: int, source_position: Vector3 = Vector3.ZERO) -> void:
-	if not _alive or _invulnerable > 0.0 or _dash_time > 0.0:
+	if not _alive or _invulnerable > 0.0 or is_evading():
 		return
 
 	_hp = maxi(_hp - amount, 0)

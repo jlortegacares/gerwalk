@@ -508,8 +508,9 @@ the player needs, and the genre forgives neither. The split this build uses is
 | Shot direction | instant: the stick angle of this frame | `_aim_direction` |
 | Hull direction | 1800 deg/s, so a 180 flip lands in six frames | `VISUAL_TURN_RATE = 1800` |
 | Bank | up to 32 deg in GERWALK from lateral drift plus turn rate; a fighter rolls 50 deg into a full-rate turn | `MAX_BANK`, `YAW_BANK`, `FIGHTER_BANK`, `BANK_RATE` |
-| Dash | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one, enemy fire evaded for the whole burst | `DASH_SPEED`, `DASH_DURATION` |
-| Dash trigger | double tap the movement stick the way you want to go, any direction; Space / L3 click still works | `DOUBLE_TAP_WINDOW = 0.28`, `DOUBLE_TAP_SIMILARITY = 0.5` |
+| Dash (double tap) | 3.17x cruise, flat for 0.12 s, inertia dropped on frame one | `DASH_SPEED`, `DASH_DURATION` |
+| Dash (Space / L3) | the 360 degree turn-over alone: no displacement, no thrust | `ROLL_ANIM_TIME = 0.45` |
+| Dash trigger | double tap the movement stick the way you want to go, any direction; Space / L3 is the spin without the burst | `DOUBLE_TAP_WINDOW = 0.28`, `DOUBLE_TAP_SIMILARITY = 0.5` |
 | Camera lead | `velocity * 0.02`, about 8 px at cruise and 12 under the burner, saturating at 0.6 units | `LAG_SECONDS`, `LAG_RATE`, `LAG_MAX` |
 
 **Acceleration is quantised, so it has to fit in whole frames.** At 60 physics
@@ -547,23 +548,39 @@ full-rate turn rolls `FIGHTER_BANK` (50 deg) into the inside of the arc, so the
 wing drops on the side the nose is going. Reading the drift term there as well
 would have been worse than ignoring it, because in that mode the drift is the
 skid — the course trailing the nose — so the two terms would bank twice for one
-turn. Both rules settle back to level in about a fifth of a second.
+turn. Both rules settle back to level in about a fifth of a second. A dash takes
+the axis away from both of them: the barrel roll owns it for its own 0.45 s, so
+the hull spins instead of leaning while the bank decays underneath.
 
-**The dash is an injection, not an acceleration.** The dash branch overwrites
-`velocity` with `_dash_direction * DASH_SPEED` for 0.12 s, so the old inertia is
-gone on the first frame and the speed profile is flat. The direction is the stick
-when it is deflected past the movement deadzone and the nose when it is not, which
-means "dash where I am going" and "dash where I am looking" never need a modifier.
+**The dash is an injection, not an acceleration.** A dash the double tap asked
+for overwrites `velocity` with `_dash_direction * DASH_SPEED` for 0.12 s, so the
+old inertia is gone on the first frame and the speed profile is flat. The
+direction is the stick that was tapped, which means "dash where I am going" and
+"dash where I am looking" never need a modifier. The button injects nothing at
+all: it only starts the turn-over described below.
+
+**Both modes split the button from the gesture the same way.** Space is the spin
+on its own: the hull comes over, nothing else moves, and the turn-over is the
+whole of the dodge. A double tap is the jink, because the tap chose a direction
+and a step the player aimed is exactly what the gesture is for. The spin is the
+same 360 degrees over `ROLL_ANIM_TIME = 0.45 s` in both modes, and they share the
+timer because the reason is the same in each: the motion the old dash gave was
+twelve frames of blur that read as a teleport, and the wings have to be seen
+coming over. The side comes from the step when a tap gave one — against the aim
+in GERWALK, since that mode turns its nose independently of where it flies, and
+against the heading in FIGHTER. With the button the aim axis picks it, and a
+centred stick repeats the last side instead of defaulting right.
 
 **The dash evades fire; it does not delete it.** The window is invulnerable, and
 that used to be invisible: a bullet that touched the hull mid-dash dealt no damage
 but was still spent, so the dash read as a screen clear that quietly removed the
 shots it touched. Now `Player.is_evading()` reports the window and `Projectile`
 returns early on a dashing hull — no damage, no impact, and the shot keeps flying,
-so it can still catch the ship once the window closes. The evasion is the dash's
-own 0.12 s (0.20 s for the fighter's roll) rather than a separate timer: the ship
-that phases through a bullet is the ship that is moving through it, and a longer
-window would make the dash a defensive cooldown instead of a jink.
+so it can still catch the ship once the window closes. The evasion follows the
+turn-over — 0.45 s — rather than the step: the button's spin sets no step at all,
+so a hull that was only invulnerable while `_dash_time` ran would be shot halfway
+through a roll it can see itself doing. A longer window still would make the dash
+a defensive cooldown instead of a dodge, so the animation is exactly the rule.
 
 **The dash is a double tap, and the second tap is the direction.** A tap is the
 movement vector leaving the deadzone, so the gesture is two rising edges inside
@@ -573,7 +590,9 @@ movement vector leaving the deadzone, so the gesture is two rising edges inside
 not a click, and the gesture is the same on keyboard, pad and any remap. Two taps
 that disagree are a direction change and spend nothing, which is what keeps a
 quick left-then-up flick a turn instead of an accidental dash. Space and L3 stay
-as the alternative for a player who would rather press once.
+as the one-press alternative, and they fire the spin instead: the hull comes over
+and nothing moves. That is the dodge for a player who wants the protection without
+the displacement, and it is why the gesture and the button are not the same tool.
 
 In FIGHTER the jink follows the tap on both axes, so up, down and the diagonals
 are all valid: the stick is read in the same world axes the flight model uses, so
@@ -780,12 +799,13 @@ air is read, so the jink is a scripted 55 u/s step and never airspeed. Without
 that subtraction the roll is additive: a measured 393 u/s sideways against an
 intended 55, and the step grows from 7 units to 46 until the grip can shed it.
 
-**The roll and the jink run on separate clocks.** 0.20 s is the rule: the 55 u/s
-step and the i-frames it buys. The airframe's turn-over is presentation, and at
-0.20 s it was twelve frames of blur that read as a teleport;
-`FIGHTER_ROLL_ANIM_TIME` takes the same 360 degrees over 0.45 s, so the wings come
-over where they can be seen while the distance covered and the protection window
-stay exactly as they were. The side is remembered too: a centred stick repeats the
+**The roll and the jink run on separate clocks, and the i-frames follow the roll.**
+0.20 s is the step: the 55 u/s push and the distance it covers. The airframe's
+turn-over is presentation, and at 0.20 s it was twelve frames of blur that read as
+a teleport; `ROLL_ANIM_TIME` takes the same 360 degrees over 0.45 s, so the wings
+come over where they can be seen. The protection window moved with it, because the
+button's spin has no step under it and the hull must not be shootable while it is
+visibly upside down. The side is remembered too: a centred stick repeats the
 last roll instead of defaulting right, and the spin follows that side, so a left
 dodge rolls left and the animation agrees with the step. A jink with no side of its
 own — straight ahead, or straight back — keeps the side it last rolled to, because
@@ -804,8 +824,8 @@ identity in the hover. Missiles and the bomb are untouched: they are
 fire-and-forget systems of their own, not the main gun, and the spec's constraint
 is about where the gun points. The right stick keeps two small jobs instead of an
 aim: it bends the requested bearing by up to 8° and nudges the course at 60 °/s
-while coasting, and the dash becomes a barrel roll that steps the ship in the
-tapped direction without turning the nose.
+while coasting, and the dash becomes a barrel roll: a tap steps the ship in the
+tapped direction without turning the nose, and the button comes over in place.
 
 **The burner is speed, not a shield.** It used to carry a frontal cone that
 destroyed enemy fire — 7 units, ±30° off the nose — and the cone outlived its own
@@ -1376,10 +1396,11 @@ that ships.
    - **Salvo** — 2 guided missiles that outrun the hover's cruise. Spend the
      burner, transform, turn, dash, drop a decoy or shoot them down. Tests
      whether a warning window can be spent.
-4. **Is the dash a decision or a reflex?** 0.12 s burst at 3.17x cruise, 0.85 s
-   cooldown, and it grants invulnerability, so it doubles as an escape. The
-   gesture is a double tap on the direction you want, so the way out and the way
-   you asked for it are the same input.
+4. **Is the dash a decision or a reflex?** The double tap is a 0.12 s burst at
+   3.17x cruise with a 0.85 s cooldown, and the turn-over it starts guards the
+   whole 0.45 s: the gesture asks for an escape and its direction in the same
+   input. Space fires the turn-over alone, so a player who wants the dodge and not
+   the displacement gets the same window from one press.
 5. **Can speed itself be a resource?** The afterburner is a tank, not a cooldown:
    holding it tops out at 42 instead of 26.8 and drains the reserve in about
    2.2 s, and the reserve only fills back while the burner is off (about 4.2 s
@@ -1431,7 +1452,7 @@ All values are named constants at the top of each script.
 | Mode split | `entities/player/player.gd` | `FIGHTER_SPEED`, `FIGHTER_BOOST_SPEED`, `FIGHTER_ACCELERATION`, `FIGHTER_TURN_RATE` |
 | Fighter flight model | `entities/player/player.gd` | `FIGHTER_STALL_SPEED` (glide floor), `FIGHTER_DRAG` (cruise to stall), `FIGHTER_GRIP` (course lag) |
 | Transformation | `entities/player/player.gd` | `TRANSFORM_TIME`, `FIGHTER_NOSE_PITCH` |
-| Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED`, `FIGHTER_ROLL_ANIM_TIME` |
+| Yaw trim and barrel roll | `entities/player/player.gd` | `FIGHTER_TRIM_DEGREES`, `FIGHTER_YAW_TRIM`, `FIGHTER_ROLL_TIME`, `FIGHTER_ROLL_SPEED`, `ROLL_ANIM_TIME` |
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load time and derived load interval, max salvo, salvo cooldown, damage, turn rate, range, launch fan step and cap, weave amplitude/rate/hit range/fade); `MISSILE_SALVO_LOAD_TIME` is the commitment, the interval follows from it |
@@ -1449,13 +1470,13 @@ All values are named constants at the top of each script.
 | Sound synthesis | `tools/generate_sfx.gd` | `RATE`, `PEAK`, `SHAPE_SINE/SAW/SQUARE`, `FILTER_LOW/HIGH`, `_tone`, `_noise` (with a cutoff sweep), `_ring` (inharmonic metal), `_crush` (sample-and-hold and quantisation, the console grain of the lock tone), one builder per key in `_catalogue()`; each sound seeds the noise from its name, so the WAVs are reproducible and one builder cannot shift the others |
 | Blast spectrum | `tools/generate_sfx.gd` | `_explosion` crack sweeping ~7 kHz to 3.6 kHz, body opening 2.4 kHz to 900 Hz, sub and rumble; the suite requires at least 30% of the energy above 1 kHz |
 | Weapon sound cues | `entities/player/weapon_system.gd` | one `Sfx.play` per shot; `_laser_sounding` gates the beam ignition; `missile_launch` pitch climbs with the salvo index |
-| Ship sound cues | `entities/player/player.gd` | `Sfx.play` on `_start_transform`, `_start_dash` and `take_damage`; `_burning` hysteresis for the ignition; `Sfx.engine()` every frame |
+| Ship sound cues | `entities/player/player.gd` | `Sfx.play` on `_start_transform`, `_start_gerwalk_dash`, `_start_barrel_roll` and `take_damage`; `_burning` hysteresis for the ignition; `Sfx.engine()` every frame |
 | Enemy sound cues | `entities/enemy/*.gd` | `Sfx.play_at` on `_fire_pattern` (`enemy_fire`, `missile_warning`) and on `_spawn_explosion` (`explosion`) |
 | Enemy score | `entities/enemy/*.gd` | `Enemy.SCORE_VALUE` (100), `FighterEnemy.KILL_SCORE` (200), `MissileEnemy.KILL_SCORE` (250); the arena sums them into the run total |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
 | Detonation wave | `common/shock_wave.gd` | `FLASH_START`, `FLASH_END`, `FLASH_TIME`, `RING_HOT`, `RING_COOL`, `RING_START`, `RING_END_RADIUS`, `RING_TIME`, `RING_BAND`; `Projectile._spawn_impact` picks it for `Style.MISSILE`, `ShipExplosion` adds it to every hull death with `WAVE_SCALE` (1.1) and `flash_enabled` off |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
-| Evasion | `entities/player/player.gd`, `combat/projectile.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN`; `Player.is_evading()` gates the early return in `Projectile._on_body_entered` |
+| Evasion | `entities/player/player.gd`, `combat/projectile.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN`, `ROLL_ANIM_TIME`; `Player.is_evading()` gates the early return in `Projectile._on_body_entered` |
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Pilot level curve and save | `common/game_progress.gd` | `MAX_LEVEL` (100), the two `kills_for_level()` coefficients, `CONFIG_PATH`, `VERSION`; the level is derived, never stored |

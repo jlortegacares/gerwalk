@@ -1066,7 +1066,8 @@ func _test_maneuverability() -> void:
 	)
 	_player.velocity = Vector3.ZERO
 
-	# Dash: 3x cruise from the first frame, and it must wipe the inertia it had.
+	# Dash: the double tap is still the jink -- 3x cruise from the first frame, and
+	# it must wipe the inertia it had.
 	Input.action_press(&"move_left")
 	for _i in 20:
 		await get_tree().physics_frame
@@ -1077,33 +1078,48 @@ func _test_maneuverability() -> void:
 	# Input injected from a coroutine lands after the physics step, so the
 	# just_pressed latch never reaches _physics_process; call the handler the
 	# frame would.
-	_player.call("_start_dash")
+	_player.call("_start_dash", Vector2.RIGHT)
 	await get_tree().physics_frame
 	var dash_speed: float = _flat_speed()
 	var dash_x: float = _player.velocity.x
 	_check(
 		dash_speed >= Player.MAX_SPEED * 3.0,
-		"the dash injects %.2fx cruise on frame one" % (dash_speed / Player.MAX_SPEED)
+		"the tapped dash injects %.2fx cruise on frame one" % (dash_speed / Player.MAX_SPEED)
 	)
 	_check(
 		dash_x > 0.0 and before_dash < -Player.MAX_SPEED * 0.5,
-		"the dash cancels the inherited inertia (%.1f -> %.1f u/s)" % [before_dash, dash_x]
+		"the tapped dash cancels the inherited inertia (%.1f -> %.1f u/s)" % [before_dash, dash_x]
 	)
+	var tap_spin: float = float(_player.get("_roll_anim_time"))
+	_check(tap_spin > 0.0, "the tapped dash also comes over (%.2f s)" % tap_spin)
 	Input.action_release(&"move_right")
 
-	# A neutral stick dashes down the nose instead of guessing a direction.
-	Input.action_press(&"aim_up")
-	for _i in 60:
-		await get_tree().physics_frame
+	# Space is the spin on its own: a key pressed to "come over" must not also shove
+	# the ship somewhere, and the roll is what carries the i-frames. The side is the
+	# aim axis, the same control the fighter's button reads.
 	_player.velocity = Vector3.ZERO
+	_player.set("_roll_anim_time", 0.0)
+	_player.set("_dash_cooldown", 0.0)
+	Input.action_press(&"aim_right")
 	_player.call("_start_dash")
 	await get_tree().physics_frame
-	var nose_speed: float = _flat_speed()
+	var spin_speed: float = _flat_speed()
+	var gerwalk_spin: float = float(_player.get("_roll_anim_time"))
+	var gerwalk_side: float = float(_player.get("_roll_side"))
+	var gerwalk_roll: float = (_player.get("_visual") as Node3D).rotation.x
 	_check(
-		nose_speed >= Player.MAX_SPEED * 3.0 and _player.velocity.z < -Player.MAX_SPEED * 2.0,
-		"a neutral stick dashes down the nose (%.1f u/s)" % nose_speed
+		spin_speed < Player.MAX_SPEED * 0.25 and gerwalk_spin > 0.0,
+		"a GERWALK button roll spins without dashing (%.1f u/s, %.2f s)"
+		% [spin_speed, gerwalk_spin]
 	)
-	Input.action_release(&"aim_up")
+	_check(
+		gerwalk_side > 0.0 and gerwalk_roll > 0.0,
+		"the GERWALK button roll comes over on the side the aim asked (side %+.0f, %.0f deg)"
+		% [gerwalk_side, rad_to_deg(gerwalk_roll)]
+	)
+	_check(_player.is_evading(), "the GERWALK button roll still carries its i-frames")
+	Input.action_release(&"aim_right")
+	_player.set("_roll_anim_time", 0.0)
 
 	# Aim is instant while the model eases in at 1800 deg/s: the shot never waits
 	# for the animation, and the animation still finishes a 180 in about 0.1 s.
@@ -1438,7 +1454,9 @@ func _test_transformation() -> void:
 		target.queue_free()
 	await get_tree().physics_frame
 
-	# S5: the dash becomes a jink: it steps sideways and keeps the nose.
+	# S5: the button is the spin on its own. Space must not step the ship -- a
+	# dodge that teleports sideways under a key the player pressed to "come over"
+	# is a movement they never asked for -- and the double tap is still the jink.
 	_player.set("_heading", Vector3.RIGHT)
 	_player.velocity = Vector3.RIGHT * 30.0
 	Input.action_press(&"aim_left")
@@ -1453,34 +1471,41 @@ func _test_transformation() -> void:
 	var lateral: float = travelled.dot(Vector3(-heading_before.z, 0.0, heading_before.x))
 	var heading_after: Vector3 = _player.get("_heading")
 	_check(
-		lateral < -2.0,
-		"the barrel roll steps left on command (%.1f units)" % lateral
+		absf(lateral) < 1.0,
+		"the button roll spins without stepping the ship (%.1f units)" % lateral
 	)
 	_check(heading_after.dot(heading_before) > 0.99, "the roll leaves the nose where it was")
+	_check(
+		float(_player.get("_dash_time")) <= 0.0,
+		"the button roll opens no jink window"
+	)
+	_check(_player.is_evading(), "the button roll still carries its i-frames")
 
-	# The roll animation runs on its own, slower clock: when the 0.20 s jink is
-	# over the airframe is still coming over, and it is coming over to the side
-	# the step went to.
+	# The roll animation runs on its own, slower clock: it is still coming over,
+	# and it is coming over to the side the aim picked.
 	var spin: float = _player.get("_visual").rotation.x
 	_check(
 		spin < -1.0,
-		"the roll is still turning after the jink (%.0f deg)" % rad_to_deg(spin)
+		"the roll is still turning when the spinner is done (%.0f deg)" % rad_to_deg(spin)
 	)
 	_check(
 		float(_player.get("_roll_side")) < 0.0,
 		"the roll remembers the side it went to"
 	)
 
-	# A centred stick repeats that side instead of defaulting to the right.
+	# A tapped roll is still the jink: it steps to the side the tap asked for. The
+	# tap is given in world axes, so with the nose on +X a stick pushed up-screen is
+	# a step to the hull's own left. This is the entry the double-tap gesture calls.
 	Input.action_release(&"aim_left")
 	_player.set("_dash_cooldown", 0.0)
+	_player.set("_roll_anim_time", 0.0)
 	_player.set("_heading", Vector3.RIGHT)
 	_player.velocity = Vector3.RIGHT * 30.0
 	position_before = _player.global_position
-	_player.call("_start_dash")
+	_player.call("_start_barrel_roll", Vector2.UP)
 	_check(
-		float(_player.get("_roll_side")) < 0.0,
-		"a neutral stick repeats the last side"
+		float(_player.get("_dash_time")) > 0.0,
+		"a tapped roll opens the jink window"
 	)
 	for _i in 12:
 		await get_tree().physics_frame
@@ -1488,10 +1513,21 @@ func _test_transformation() -> void:
 	lateral = travelled.dot(Vector3(-heading_before.z, 0.0, heading_before.x))
 	_check(
 		lateral < -2.0,
-		"the repeat roll still steps left (%.1f units)" % lateral
+		"a tapped roll still steps left (%.1f units)" % lateral
+	)
+
+	# A centred stick repeats that side instead of defaulting to the right.
+	_player.set("_dash_cooldown", 0.0)
+	_player.set("_roll_anim_time", 0.0)
+	_player.set("_heading", Vector3.RIGHT)
+	_player.velocity = Vector3.RIGHT * 30.0
+	_player.call("_start_dash")
+	_check(
+		float(_player.get("_roll_side")) < 0.0,
+		"a neutral stick repeats the last side"
 	)
 	# And the slower spin lands back on the bank axis instead of parking a turn.
-	for _i in 20:
+	for _i in 32:
 		await get_tree().physics_frame
 	var settle: float = _player.get("_visual").rotation.x
 	_check(
@@ -2061,6 +2097,7 @@ func _test_audio() -> void:
 	_player.call("_start_dash")
 	_check(Sfx.played(&"dash") == 1, "the dash asks for its whoosh")
 	_player.set("_dash_time", 0.0)
+	_player.set("_roll_anim_time", 0.0)
 	_player.set("_dash_cooldown", 0.0)
 
 	# Heal first: a run that reaches this probe on its last hull point would die to
@@ -2767,6 +2804,9 @@ func _reset_dash_gesture() -> void:
 	_player.velocity = Vector3.ZERO
 	_player.set("_dash_cooldown", 0.0)
 	_player.set("_dash_time", 0.0)
+	# The spin clock outlives the step, so it has to be cleared too or the next
+	# check would start mid-roll and read the previous roll's side.
+	_player.set("_roll_anim_time", 0.0)
 	_player.set("_tap_timer", 0.0)
 	_player.set("_move_engaged", false)
 	await get_tree().physics_frame
@@ -4978,6 +5018,7 @@ func _test_dash_evasion() -> void:
 	_player.set("_hp", Player.MAX_HP)
 	_player.set("_invulnerable", 0.0)
 	_player.set("_dash_time", 0.0)
+	_player.set("_roll_anim_time", 0.0)
 	_player.set("_dash_cooldown", 0.0)
 	await get_tree().physics_frame
 
@@ -5014,6 +5055,30 @@ func _test_dash_evasion() -> void:
 		"the dash evades the shot instead of destroying it"
 	)
 	_player.set("_dash_time", 0.0)
+
+	# The protection window is the animation, not the step. The button's fighter
+	# spin sets no jink at all, so a hull that was only protected while
+	# `_dash_time` ran would be shot halfway through the roll it can see itself
+	# doing. A live spin clock alone must keep the ship evading.
+	_player.set("_invulnerable", 0.0)
+	_player.set("_dash_time", 0.0)
+	_player.set("_roll_anim_time", Player.ROLL_ANIM_TIME * 0.5)
+	_check(_player.is_evading(), "the spin alone still counts as evading")
+	_player.set("_hp", Player.MAX_HP)
+	var spun: Projectile = _spawn_enemy_bullet(
+		_player.global_position - Vector3.RIGHT * 2.5
+	)
+	for _i in 12:
+		await get_tree().physics_frame
+	_check(
+		int(_player.get("_hp")) == Player.MAX_HP,
+		"a spinning ship takes no damage past the step (hp %d)" % int(_player.get("_hp"))
+	)
+	_check(
+		spun != null and is_instance_valid(spun) and not spun.is_queued_for_deletion(),
+		"the spin evades the shot past the step"
+	)
+	_player.set("_roll_anim_time", 0.0)
 
 	_clear_projectiles()
 	await get_tree().physics_frame

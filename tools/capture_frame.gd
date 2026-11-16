@@ -35,7 +35,9 @@ extends Node
 ##
 ## `--roll N` (with `--fighter 1`) starts a left barrel roll and captures N frames
 ## into it, which is how the slower turn-over and the roll's own side are
-## reviewed. Add `--close` to read the hull coming over at the game camera's
+## reviewed. `--dash-roll N` does the same for GERWALK's button dash, which comes
+## over without moving the ship: the aim stick asks for the side. Add `--close` to
+## read the hull coming over at the game camera's
 ## distance. `--zoom F` scales the close stand-off, so `--close 1 --zoom 0.4` fills
 ## the frame with the hull for a lighting or material check. `--nosmoke 1` hides
 ## the wake and `--noshadow 1` turns the sun's shadow map off, which is how a dark
@@ -83,6 +85,7 @@ func _ready() -> void:
 	var lock_frames: int = int(_argument("lock", "0"))
 	var salvo_delay: int = int(_argument("salvo-delay", "4"))
 	var roll_frames: int = int(_argument("roll", "0"))
+	var dash_roll_frames: int = int(_argument("dash-roll", "0"))
 	var close: bool = _argument("close", "0") == "1"
 	var zoom: float = float(_argument("zoom", "1.0"))
 	var no_smoke: bool = _argument("nosmoke", "0") == "1"
@@ -188,7 +191,25 @@ func _ready() -> void:
 	if missile_frames == 0 and lock_frames == 0 and not no_fire:
 		Input.action_press(&"fire")
 
-	if fighter_frames > 0:
+	if dash_roll_frames > 0:
+		# GERWALK's button dash comes over without moving the ship, so it is
+		# reviewed the same way the fighter's spin is. Space reads its side from the
+		# aim axis and the hull spins about that same aim axis, so the aim stick is
+		# held left: the hull rolls left. The dash latch is the transform's problem,
+		# so the handler is called directly instead of pressing `dash`.
+		var rolling: Player = arena.get_node("%Player") as Player
+		Input.action_release(&"aim_right")
+		Input.action_release(&"fire")
+		Input.action_press(&"aim_up")
+		Input.action_press(&"aim_left")
+		for _i in 2:
+			await get_tree().physics_frame
+		rolling.call("_start_dash")
+		for _i in dash_roll_frames:
+			await get_tree().physics_frame
+		Input.action_release(&"aim_left")
+		Input.action_release(&"aim_up")
+	elif fighter_frames > 0:
 		# The transform latch has to be driven from the handler: an action pressed
 		# from a coroutine lands after the physics step and never reads as just
 		# pressed, the same reason the smoke test calls the method directly.
