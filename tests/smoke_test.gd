@@ -45,6 +45,7 @@ func _ready() -> void:
 	await _test_pilot_progression()
 	_test_render_scale()
 	await _test_main_menu()
+	await _test_pad_bindings()
 	await _test_livery_paint()
 	await _test_movement()
 	await _test_firing()
@@ -251,6 +252,7 @@ func _test_main_menu() -> void:
 	var start_button: Button = menu.get_node("%StartButton") as Button
 	var city_button: Button = menu.get_node("%CityButton") as Button
 	var options_button: Button = menu.get_node("%OptionsButton") as Button
+	var quit_button: Button = menu.get_node("%QuitButton") as Button
 	var options: Control = menu.get_node("%Options") as Control
 	var back_button: Button = menu.get_node("%BackButton") as Button
 	var hull_row: HBoxContainer = menu.get_node("%HullRow") as HBoxContainer
@@ -262,6 +264,10 @@ func _test_main_menu() -> void:
 	_check(start_button != null, "the menu offers a start button")
 	_check(city_button != null, "the menu offers a second scenario")
 	_check(options_button != null, "the menu offers an options button")
+	_check(
+		quit_button != null and quit_button.text == "QUIT",
+		"the menu offers a way out of the build"
+	)
 	_check(options != null, "the menu carries an options panel")
 	_check(
 		ResourceLoader.exists(MainMenu.ARENA_SCENE),
@@ -284,21 +290,27 @@ func _test_main_menu() -> void:
 	_check(options.visible, "the options button opens the panel")
 	_check(Sfx.played(&"ui_select") == 1, "opening the options panel asks for a menu blip")
 
-	# The controls reference is the second half of the panel, so a row has to be
-	# there and it has to name a control the build really has.
-	var grid: GridContainer = options.get_node(
-		"Center/Panel/Margin/Body/Columns/Right/Grid"
-	) as GridContainer
+	# The controls table is the second half of the panel, so a row has to be there,
+	# it has to name a control the build really has, and it has to offer the pad
+	# button that control is on -- the table is the reference and the editor at once.
+	var grid: GridContainer = menu.get_node("%ControlGrid") as GridContainer
 	_check(grid != null, "the options panel lists the controls")
 	if grid != null:
 		_check(
-			grid.get_child_count() == 22,
-			"every control row has an action and its keys (%d cells)"
+			grid.get_child_count() == MainMenu.ROWS.size() * 3,
+			"every control row has a name, its keys and its pad cell (%d cells)"
 			% grid.get_child_count()
 		)
 		_check(
 			_has_label_text(grid, "Decoy"),
 			"the controls reference names the decoy"
+		)
+		var decoy_button: Button = _control_button(grid, "Decoy")
+		_check(
+			decoy_button != null and decoy_button.text == PadBindings.label_for(
+				int(PadBindings.defaults()[&"decoy"])
+			),
+			"the decoy row is the button the decoy is on"
 		)
 
 	_check(
@@ -517,6 +529,217 @@ func _test_main_menu() -> void:
 
 	menu.queue_free()
 	await get_tree().process_frame
+
+
+## The pad is the one input the player can rearrange, so the contract has three
+## halves: the factory map is the one the project ships, a bind never takes a key
+## or a mouse button with it, and the file either describes a working pad or has
+## no say at all. The suite keeps flying after this, so it ends on the factory pad.
+func _test_pad_bindings() -> void:
+	var factory: Dictionary = PadBindings.defaults()
+	_check(
+		int(factory[&"fire"]) == JOY_BUTTON_RIGHT_SHOULDER
+		and int(factory[&"missile"]) == JOY_BUTTON_X
+		and int(factory[&"dash"]) == JOY_BUTTON_LEFT_SHOULDER
+		and int(factory[&"transform"]) == JOY_BUTTON_BACK
+		and int(factory[&"bomb"]) == JOY_BUTTON_Y
+		and int(factory[&"decoy"]) == JOY_BUTTON_GUIDE
+		and int(factory[&"weapon_prev"]) == JOY_BUTTON_DPAD_LEFT
+		and int(factory[&"weapon_next"]) == JOY_BUTTON_DPAD_RIGHT
+		and int(factory[&"restart"]) == JOY_BUTTON_START,
+		"the factory pad is the one the project ships"
+	)
+
+	PadBindings.apply(factory)
+	var live: Dictionary = PadBindings.current()
+	_check(
+		int(live[&"fire"]) == JOY_BUTTON_RIGHT_SHOULDER
+		and int(live[&"dash"]) == JOY_BUTTON_LEFT_SHOULDER,
+		"applying the factory pad is what the engine reads"
+	)
+
+	# A pad remap may not take a key or a mouse button away from its action.
+	var mouse_kept: bool = false
+	var key_kept: bool = false
+	for event: InputEvent in InputMap.action_get_events(&"fire"):
+		if event is InputEventMouseButton:
+			mouse_kept = true
+	for event: InputEvent in InputMap.action_get_events(&"dash"):
+		var key: InputEventKey = event as InputEventKey
+		if key != null and key.physical_keycode == KEY_SPACE:
+			key_kept = true
+	_check(mouse_kept, "a pad bind keeps the fire mouse button")
+	_check(key_kept, "a pad bind keeps Space on the dash")
+
+	# The swap: fire takes the missile's button, and the missile inherits fire's.
+	var swapped: Dictionary = PadBindings.defaults()
+	PadBindings.assign(swapped, &"fire", JOY_BUTTON_X)
+	_check(
+		int(swapped[&"missile"]) == JOY_BUTTON_RIGHT_SHOULDER,
+		"assigning a taken button swaps the other action"
+	)
+	_check(
+		int(swapped[&"fire"]) == JOY_BUTTON_X,
+		"the edited action keeps the button that was pressed"
+	)
+	_check(
+		swapped.size() == PadBindings.ACTIONS.size(),
+		"a swap never leaves an action without a button"
+	)
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SETTINGS))
+	PadBindings.save_bindings(swapped, TEST_SETTINGS)
+	var reloaded: Dictionary = PadBindings.load_bindings(TEST_SETTINGS)
+	_check(
+		int(reloaded[&"fire"]) == JOY_BUTTON_X
+		and int(reloaded[&"missile"]) == JOY_BUTTON_RIGHT_SHOULDER,
+		"a save round-trips through the settings file"
+	)
+
+	# The pad shares the file with the display and livery sections, so writing it
+	# may not erase either of them.
+	GameSettings.save_fullscreen(true, TEST_SETTINGS)
+	GameSettings.save_livery(
+		MainMenu.PALETTE[2],
+		MainMenu.PALETTE[8],
+		MainMenu.PALETTE[3],
+		MainMenu.PALETTE[1],
+		MainMenu.PALETTE[6],
+		TEST_SETTINGS
+	)
+	_check(
+		GameSettings.load_fullscreen(TEST_SETTINGS),
+		"saving the pad keeps the fullscreen choice"
+	)
+	_check(
+		GameSettings.load_hull(TEST_SETTINGS).is_equal_approx(MainMenu.PALETTE[2]),
+		"saving the pad keeps the livery"
+	)
+
+	# A file that cannot describe a working pad falls back instead of half working.
+	var config: ConfigFile = ConfigFile.new()
+	config.load(TEST_SETTINGS)
+	config.set_value(PadBindings.SECTION, "dash", 999)
+	config.save(TEST_SETTINGS)
+	_check(
+		int(PadBindings.load_bindings(TEST_SETTINGS)[&"dash"]) == JOY_BUTTON_LEFT_SHOULDER,
+		"an out of range button falls back to the factory button"
+	)
+	config.set_value(PadBindings.SECTION, "dash", JOY_BUTTON_B)
+	config.set_value(PadBindings.SECTION, "bomb", JOY_BUTTON_B)
+	config.save(TEST_SETTINGS)
+	var collided: Dictionary = PadBindings.load_bindings(TEST_SETTINGS)
+	_check(
+		int(collided[&"dash"]) == JOY_BUTTON_LEFT_SHOULDER
+		and int(collided[&"bomb"]) == JOY_BUTTON_Y,
+		"two actions on one button is not a pad worth trusting"
+	)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SETTINGS))
+
+	# The editor is the controls table inside OPTIONS, so the panel is opened the
+	# way a player opens it and the row is found where the panel draws it.
+	var scene: PackedScene = load("res://ui/menu/main_menu.tscn")
+	var menu: MainMenu = scene.instantiate() as MainMenu
+	menu.settings_path = TEST_SETTINGS
+	add_child(menu)
+	await get_tree().process_frame
+
+	var options_button: Button = menu.get_node("%OptionsButton") as Button
+	var options: Control = menu.get_node("%Options") as Control
+	var grid: GridContainer = menu.get_node("%ControlGrid") as GridContainer
+	var hint: Label = menu.get_node("%ControlHint") as Label
+	var reset: Button = menu.get_node("%PadResetButton") as Button
+	var back: Button = menu.get_node("%BackButton") as Button
+	var bomb_button: Button = _control_button(grid, "Bomb") if grid != null else null
+	_check(options != null and not options.visible, "the pad editor lives inside options")
+	_check(
+		grid != null and grid.get_child_count() == MainMenu.ROWS.size() * 3,
+		"the panel draws one row per control, pad cell included (%d cells)"
+		% (grid.get_child_count() if grid != null else 0)
+	)
+	_check(bomb_button != null, "the panel has a row for the bomb")
+	_check(
+		bomb_button != null and bomb_button.text == "Y",
+		"the row names the button the bomb is on"
+	)
+	if options_button == null or bomb_button == null:
+		PadBindings.apply(PadBindings.defaults())
+		menu.queue_free()
+		return
+
+	options_button.pressed.emit()
+	await get_tree().process_frame
+	_check(options.visible, "the options button opens the panel that holds the editor")
+	_check(hint.text == MainMenu.IDLE_HINT, "the panel explains how to bind")
+
+	bomb_button.pressed.emit()
+	await get_tree().process_frame
+	_check(
+		bomb_button.text == "PRESS A BUTTON",
+		"the row asks for a press once it is picked"
+	)
+	_check(hint.text.contains("Bomb"), "the hint names the action being bound")
+
+	var press: InputEventJoypadButton = InputEventJoypadButton.new()
+	press.button_index = JOY_BUTTON_A
+	press.pressed = true
+	menu._input(press)
+	await get_tree().process_frame
+	_check(
+		bomb_button.text == "A",
+		"the pressed button becomes the action's button (%s)" % bomb_button.text
+	)
+	_check(
+		int(PadBindings.load_bindings(TEST_SETTINGS)[&"bomb"]) == JOY_BUTTON_A,
+		"the bind is written as soon as it is made"
+	)
+	_check(
+		int(PadBindings.current()[&"bomb"]) == JOY_BUTTON_A,
+		"and the run reads the new button"
+	)
+
+	# Escape cancels the next one instead of binding anything to it.
+	bomb_button.pressed.emit()
+	await get_tree().process_frame
+	var escape: InputEventKey = InputEventKey.new()
+	escape.keycode = KEY_ESCAPE
+	escape.pressed = true
+	menu._input(escape)
+	await get_tree().process_frame
+	_check(bomb_button.text == "A", "Escape leaves the binding alone")
+
+	# Reset is a choice like any other: it restores and it writes.
+	reset.pressed.emit()
+	await get_tree().process_frame
+	_check(bomb_button.text == "Y", "reset puts the factory button back")
+	_check(
+		int(PadBindings.load_bindings(TEST_SETTINGS)[&"bomb"]) == JOY_BUTTON_Y,
+		"and reset is saved too"
+	)
+
+	# Closing the panel is the cancel: a listener that outlived the panel would eat
+	# the next pad press in the main menu.
+	bomb_button.pressed.emit()
+	await get_tree().process_frame
+	back.pressed.emit()
+	await get_tree().process_frame
+	_check(not options.visible, "the back button closes the panel")
+	_check(hint.text == MainMenu.IDLE_HINT, "closing the panel drops the waiting bind")
+	options_button.pressed.emit()
+	await get_tree().process_frame
+	_check(
+		bomb_button.text == "Y",
+		"and the row is not still asking for a press when the panel comes back"
+	)
+
+	menu.queue_free()
+	await get_tree().process_frame
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SETTINGS))
+	PadBindings.apply(PadBindings.defaults())
+	_check(
+		int(PadBindings.current()[&"fire"]) == JOY_BUTTON_RIGHT_SHOULDER,
+		"the suite leaves the factory pad behind"
+	)
 
 
 ## The livery has to land on the right surfaces and nowhere else: the hull is one
@@ -862,6 +1085,18 @@ func _has_label_text(parent: Node, text: String) -> bool:
 		if label != null and label.text == text:
 			return true
 	return false
+
+
+## The controls table is three cells per row, so a row is found by the name in its
+## first cell. A row the player cannot rearrange answers null, and so does the
+## weapon row, whose third cell is a pair of buttons rather than one.
+func _control_button(grid: GridContainer, action: String) -> Button:
+	for index: int in range(0, grid.get_child_count(), 3):
+		var label: Label = grid.get_child(index) as Label
+		if label == null or label.text != action:
+			continue
+		return grid.get_child(index + 2) as Button
+	return null
 
 
 func _test_player_is_centered() -> void:

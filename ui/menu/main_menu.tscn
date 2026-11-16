@@ -202,6 +202,24 @@ theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
 theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
 text = "OPTIONS"
 
+[node name="Spacer2" type="Control" parent="Center/Menu"]
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+
+[node name="QuitButton" type="Button" parent="Center/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.92)
+theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 22
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "QUIT"
+
 [node name="Options" type="Control" parent="."]
 unique_name_in_owner = true
 visible = false
@@ -236,9 +254,9 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
 [node name="Margin" type="MarginContainer" parent="Options/Center/Panel"]
 layout_mode = 2
 theme_override_constants/margin_left = 40
-theme_override_constants/margin_top = 32
+theme_override_constants/margin_top = 28
 theme_override_constants/margin_right = 40
-theme_override_constants/margin_bottom = 32
+theme_override_constants/margin_bottom = 28
 
 [node name="Body" type="VBoxContainer" parent="Options/Center/Panel/Margin"]
 layout_mode = 2
@@ -350,125 +368,43 @@ theme_override_colors/font_color = Color(1, 1, 1, 0.5)
 theme_override_font_sizes/font_size = 13
 text = "CONTROLS"
 
-[node name="Grid" type="GridContainer" parent="Options/Center/Panel/Margin/Body/Columns/Right"]
-layout_mode = 2
-theme_override_constants/h_separation = 32
-theme_override_constants/v_separation = 6
-columns = 2
-
-[node name="MoveAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Move"
-
-[node name="MoveKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "WASD / left stick"
-
-[node name="AimAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Aim"
-
-[node name="AimKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "Mouse / right stick"
-
-[node name="FireAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Fire"
-
-[node name="FireKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "Left mouse / right stick"
-
-[node name="SalvoAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Missile salvo (hold)"
-
-[node name="SalvoKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "Right mouse / F / X"
-
-[node name="WeaponAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Select weapon"
-
-[node name="WeaponKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "1 - 3 / D-pad"
-
-[node name="BombAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Bomb"
-
-[node name="BombKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "E / Y"
-
-[node name="DecoyAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Decoy"
-
-[node name="DecoyKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "C / right bumper"
-
-[node name="AfterburnerAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Afterburner (hold)"
-
-[node name="AfterburnerKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "Shift / right trigger"
-
-[node name="DashAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Dash"
-
-[node name="DashKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "Double tap WASD / Space / L3"
-
-[node name="TransformAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Transform"
-
-[node name="TransformKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "Q / left bumper"
-
-[node name="RestartAction" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.92)
-text = "Restart"
-
-[node name="RestartKeys" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right/Grid"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 1, 1, 0.6)
-text = "R / Start"
-
-[node name="BackButton" type="Button" parent="Options/Center/Panel/Margin/Body"]
+[node name="ControlHint" type="Label" parent="Options/Center/Panel/Margin/Body/Columns/Right"]
 unique_name_in_owner = true
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.55)
+theme_override_font_sizes/font_size = 12
+text = "Click a pad button, then press the one you want."
+autowrap_mode = 2
+
+[node name="ControlGrid" type="GridContainer" parent="Options/Center/Panel/Margin/Body/Columns/Right"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 4
+columns = 3
+
+[node name="PanelActions" type="HBoxContainer" parent="Options/Center/Panel/Margin/Body"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PadResetButton" type="Button" parent="Options/Center/Panel/Margin/Body/PanelActions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.72, 0.34, 0.95)
+theme_override_colors/font_hover_color = Color(1, 0.85, 0.55, 1)
+theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_pressed")
+theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
+text = "RESET PAD TO DEFAULTS"
+
+[node name="BackButton" type="Button" parent="Options/Center/Panel/Margin/Body/PanelActions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_colors/font_color = Color(1, 1, 1, 0.92)
 theme_override_colors/font_hover_color = Color(0.55, 0.98, 0.9, 1)
 theme_override_colors/font_pressed_color = Color(0.02, 0.03, 0.05, 1)

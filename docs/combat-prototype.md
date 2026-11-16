@@ -14,28 +14,33 @@ decision D-03.
 
 Opens `ui/menu/main_menu.tscn`, the boot menu: **PLANET** loads the arena,
 **CITY** loads the night district, **CONTINUE** (offered once a save exists)
-reopens the last scenario, **PILOT** shows the level and the five tracks, and
-**OPTIONS** opens the fullscreen toggle, the livery picker and the controls
-reference. Engine pinned to **Godot 4.7.2 stable, Forward+**.
+reopens the last scenario, **PILOT** shows the level and the five tracks,
+**OPTIONS** opens the fullscreen toggle, the livery picker and the controls table
+that also remaps the pad, and **QUIT** closes the build. Engine pinned to
+**Godot 4.7.2 stable, Forward+**.
 `./run.sh --editor` opens the editor instead; `./run.sh --headless` runs without a
 window and is what CI uses.
 
 ## Controls
 
-| Action | Keyboard / mouse | Gamepad |
-|--------|------------------|---------|
+| Action | Keyboard / mouse | Gamepad (factory) |
+|--------|------------------|-------------------|
 | Move | WASD | Left stick |
 | Aim | Mouse position | Right stick |
-| Fire | Left mouse button | Right stick deflection, or right shoulder |
+| Fire | Left mouse button | Right stick deflection, or RB |
 | Missile salvo (hold) | Right mouse button / F | X |
 | Select weapon | 1 / 2 / 3 | D-pad left / right (cycle) |
 | Bomb | E | Y |
-| Decoy | C | Right bumper |
+| Decoy | C | Guide |
 | Afterburner (hold) | Shift | Right trigger |
-| Dash | Double tap WASD, or Space | Double tap left stick, or left stick click |
-| Transform | Q | Left bumper |
+| Dash | Double tap WASD, or Space | Double tap left stick, or LB |
+| Transform | Q | Back |
 | Restart | R (on the death screen) | Start |
 | Main menu | Escape (on the death screen) | B |
+
+The gamepad column is the map `project.godot` ships, not a fixed one: the nine
+button actions below can be moved from the menu, and the sticks, the afterburner
+trigger, every key and every mouse button cannot. See "Remapping the pad".
 
 Aiming and firing are independent of movement by construction: `_move_gerwalk()`
 never reads the aim vector and `_update_aim()` never reads the movement vector.
@@ -44,7 +49,48 @@ That independence is a GERWALK property; FIGHTER deliberately gives it up, which
 is what the next section is about.
 
 The boot menu takes the same keys: `ui_accept` activates the focused button and
-Escape closes the options panel.
+Escape closes the open panel.
+
+### Remapping the pad
+
+**Nine actions live on a button, and those are the ones that move.** The controls
+table in OPTIONS lists every control in three columns: the action, the keys or
+mouse button that also answer to it, and the pad button it sits on. Fire, missile
+salvo, weapon previous, weapon next, bomb, decoy, dash, transform and restart are
+the rows with a pad cell, and those are the ones that move; the rows without one
+-- the sticks, the afterburner trigger, the weapon number keys -- are the shape of
+the ship's control rather than a preference. Picking a pad button starts
+listening, the next pad button pressed becomes that action's button, and listening
+ends; Escape cancels a listening row and closes the panel when nothing is
+listening, and closing the panel drops a half-finished bind so a listener cannot
+outlive the table and eat the next press in the menu. The press is read in
+`_input`, before GUI dispatch, so the focused row cannot swallow the button meant
+for it. **RESET PAD TO DEFAULTS**, sharing the bottom row with BACK, restores the
+factory pad and writes it like any other edit.
+
+**Assigning a taken button swaps the two actions.** Fire taking X leaves the
+missile salvo on RB. The alternative — dropping the displaced action to no button
+— can leave a player without a way to fire or transform, which is worse than an
+exchange they can immediately re-edit.
+
+**The bind is written the moment it is made.** `user://settings.cfg` gains a
+`[pad]` section next to `[display]` and `[livery]`, and the menu applies it in
+`_ready` before any run can start. `PadBindings.apply()` rewrites only the
+`InputEventJoypadButton` of each action and re-adds every other event it had,
+because `InputMap.action_erase_events` drops keyboard and mouse alike: `fire`
+keeps its mouse button, `dash` keeps Space, `missile` keeps F and `transform`
+keeps Q.
+
+**A file that cannot describe a working pad has no say.** A missing section means
+factory bindings; an out-of-range button costs that one action its choice; two
+actions on the same button means the pad is not trusted at all and comes back
+factory rather than half working. The face buttons are named the way Godot names
+them — A bottom, B right, X left, Y top — which is the physical button in the same
+place whatever letter the pad prints on it.
+
+The pad column of the OPTIONS table and the in-run hint line are rebuilt from the
+applied bindings, so a remap never leaves the player reading a button the ship no
+longer has.
 
 ## The arsenal
 
@@ -1490,6 +1536,7 @@ All values are named constants at the top of each script.
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |
 | Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH`/`NOSE_MATERIAL`/`NOSE_GAP` for the cone cut out of the forward fuselage; every other material keeps the file's paint |
 | Livery preview | `ui/menu/livery_preview.gd` | `TURN_SPEED`, `CAMERA_POSITION`, `CAMERA_TARGET` |
+| Pad bindings | `common/pad_bindings.gd` | `SECTION` (`pad`), `ACTIONS` (the nine movable actions), `DEFAULTS` (the factory map `project.godot` ships), `LABELS`, `BUTTON_LABELS`; `apply()` rewrites only the pad event, `assign()` swaps, `load_bindings()` discards a file where two actions share a button |
 | Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD` (0 deg), `WING_SWEEP_CRUISE` (14 deg), `WING_SWEEP_BACK` (38 deg), `WING_SWEEP_RATE` (60 deg/s), applied to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |
 | Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter\|game`, `--fighter 1`, `--size`, `--nosun 1`, `--sunrot`, `--out` (orthographic turntable for silhouette and lighting checks) |
@@ -1560,8 +1607,9 @@ entities/enemy/boss.tscn        the hull body, shapeless: the three points own t
 entities/enemy/hull_fire.gd     one persistent hull fire: flame, hot core, smoke plume, intensity
 models/boss-1/*.glb             the capital-ship asset, imported once and preloaded by the boss
 ui/hud/                         event-fed bars (health, turbo, pilot level, boss); the radar polls the enemy group for bearings
-ui/menu/                        boot menu: the planet and the city, CONTINUE and the pilot panel, the display and livery settings, the controls reference
+ui/menu/                        boot menu: the planet and the city, CONTINUE and the pilot panel, the display and livery settings, the pad remap panel and the controls reference
 ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
+common/pad_bindings.gd          the nine movable pad actions: factory map, swap, file, and the InputMap rewrite
 levels/arena/arena.gd           rolling planet sphere, stars, cloud deck, encounter streaming, mothership trigger
 levels/arena/cloud_field.gd     streamed cloud deck: one density field for the puffs and the missile cover
 levels/city/city.gd             night district: block grid, street-snapped streaming, sight-line occlusion, score

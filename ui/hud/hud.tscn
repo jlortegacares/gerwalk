@@ -203,6 +203,7 @@ mouse_filter = 2
 script = ExtResource("5_radar")
 
 [node name="HintLabel" type="Label" parent="HudRoot"]
+unique_name_in_owner = true
 layout_mode = 1
 offset_left = 36.0
 offset_top = 24.0

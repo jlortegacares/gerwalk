@@ -20,6 +20,7 @@ const MENU_SCENE: String = "res://ui/menu/main_menu.tscn"
 @onready var _score_label: Label = %ScoreLabel
 @onready var _level_label: Label = %LevelLabel
 @onready var _level_bar: Control = %LevelBar
+@onready var _hint: Label = %HintLabel
 @onready var _boss_root: Control = %BossRoot
 @onready var _boss_name: Label = %BossName
 @onready var _boss_bar: Control = %BossBar
@@ -47,6 +48,29 @@ func _ready() -> void:
 	# the first frame, so reading it here is the run's opening state instead of
 	# waiting for a signal that only fires on the next kill.
 	_show_pilot(GameProgress.instance())
+	_refresh_controls_hint()
+
+
+## The hint is the flight reference, so it names the buttons the pad is on right
+## now. Reading `InputMap` instead of the settings file keeps it honest even if the
+## file was edited by hand after the menu loaded the pad.
+func _refresh_controls_hint() -> void:
+	var pad: Dictionary = PadBindings.current()
+	_hint.text = (
+		"WASD / left stick: move    mouse or right stick: aim    %s: fire    "
+		+ "1-3 or %s/%s: weapon    hold RMB / %s: missile salvo    E / %s: bomb    "
+		+ "C / %s: decoy    Shift / RT: afterburner    Space / %s: dash    "
+		+ "Q / %s: transform    R: restart"
+	) % [
+		PadBindings.label_for(int(pad[&"fire"])),
+		PadBindings.label_for(int(pad[&"weapon_prev"])),
+		PadBindings.label_for(int(pad[&"weapon_next"])),
+		PadBindings.label_for(int(pad[&"missile"])),
+		PadBindings.label_for(int(pad[&"bomb"])),
+		PadBindings.label_for(int(pad[&"decoy"])),
+		PadBindings.label_for(int(pad[&"dash"])),
+		PadBindings.label_for(int(pad[&"transform"])),
+	]
 
 
 ## The countdown and the buttons both end a run the same way: the arena is rebuilt
