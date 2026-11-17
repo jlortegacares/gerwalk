@@ -18,6 +18,16 @@ extends Control
 ## state and the file, and `PadBindings` owns everything the run loop needs. A
 ## bind is written as soon as it is made, so a crash after the press still leaves
 ## the pad the player chose.
+##
+## The same scene is also the pause screen. A run that is interrupted needs a way
+## back more than it needs a way to start another fight, so `in_game` swaps the
+## destinations for RESUME and leaves the panel untouched: the pad and the livery
+## are the same decisions whether the player came from the boot screen or from a
+## frozen fight.
+
+## Raised by RESUME (and by Escape on the pause screen) so the run that opened the
+## menu is the one that closes it: the menu asks, the HUD owns the tree's pause.
+signal resume_requested
 
 const ARENA_SCENE: String = "res://levels/arena/arena.tscn"
 const CITY_SCENE: String = "res://levels/city/city.tscn"
@@ -75,6 +85,10 @@ const ROWS: Array = [
 ## Tests point this at a scratch file so a swatch click never rewrites the real
 ## settings. Nothing in the game changes it.
 var settings_path: String = GameSettings.CONFIG_PATH
+## True when the menu was opened over a running fight instead of at boot. It is set
+## by whoever instantiates the menu and read once in `_ready`, because the entries
+## it hides are hidden for the menu's whole lifetime.
+var in_game: bool = false
 
 var _hull: Color = GameSettings.DEFAULT_HULL
 var _nose: Color = GameSettings.DEFAULT_NOSE
@@ -93,6 +107,7 @@ var _reset_armed: bool = false
 
 @onready var _start_button: Button = %StartButton
 @onready var _city_button: Button = %CityButton
+@onready var _resume_button: Button = %ResumeButton
 @onready var _continue_button: Button = %ContinueButton
 @onready var _pilot_button: Button = %PilotButton
 @onready var _options_button: Button = %OptionsButton
@@ -123,6 +138,7 @@ func _ready() -> void:
 
 	_start_button.pressed.connect(_on_start_pressed)
 	_city_button.pressed.connect(_on_city_pressed)
+	_resume_button.pressed.connect(_on_resume_pressed)
 	_continue_button.pressed.connect(_on_continue_pressed)
 	_pilot_button.pressed.connect(_on_pilot_pressed)
 	_options_button.pressed.connect(_on_options_pressed)
@@ -162,7 +178,17 @@ func _ready() -> void:
 	_build_swatches(_canopy_row, _canopy, _on_canopy_picked)
 	_build_swatches(_lines_row, _lines, _on_lines_picked)
 
-	_start_button.grab_focus()
+	# A paused run has one obvious answer, and it is not a new fight: the two
+	# destinations that replace the current arena are hidden rather than left to
+	# throw the run away by accident.
+	_resume_button.visible = in_game
+	_start_button.visible = not in_game
+	_city_button.visible = not in_game
+
+	if in_game:
+		_resume_button.grab_focus()
+	else:
+		_start_button.grab_focus()
 
 
 ## Repaints the pilot readout and decides whether CONTINUE is offered. Public
@@ -172,7 +198,7 @@ func refresh() -> void:
 	var progress: GameProgress = GameProgress.instance()
 	var stats: PilotStats = PilotStats.new(progress.level())
 
-	_continue_button.visible = GameProgress.has_save()
+	_continue_button.visible = GameProgress.has_save() and not in_game
 	_pilot_level.text = "LEVEL %d" % progress.level()
 	_pilot_kills.text = "%d KILLS   ·   %s" % [
 		progress.total_kills,
@@ -232,7 +258,9 @@ func _input(event: InputEvent) -> void:
 
 
 ## Escape is the way out of the panel, the same way it is out of every other panel
-## a player has ever opened.
+## a player has ever opened. On the pause screen it is also the way back into the
+## fight, so the key that opened the menu is the key that closes it: the panel gets
+## the first press, the run gets the second.
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"ui_cancel"):
 		if _pilot.visible:
@@ -241,6 +269,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _options.visible:
 			get_viewport().set_input_as_handled()
 			_close_options()
+		elif in_game:
+			get_viewport().set_input_as_handled()
+			_on_resume_pressed()
 
 
 func _on_start_pressed() -> void:
@@ -251,6 +282,13 @@ func _on_start_pressed() -> void:
 func _on_city_pressed() -> void:
 	Sfx.play(&"ui_select")
 	_open_scene(CITY_SCENE)
+
+
+## The pause screen has no scene of its own to open: the run that paused is still
+## there, and the HUD is the node that owns it, so the menu only asks.
+func _on_resume_pressed() -> void:
+	Sfx.play(&"ui_select")
+	resume_requested.emit()
 
 
 ## CONTINUE reopens the scenario the last run started. The path comes from the
@@ -266,8 +304,11 @@ func _on_continue_pressed() -> void:
 
 
 ## Both destinations are one decision -- which run to start -- so they take the
-## same path and report a missing scene the same way.
+## same path and report a missing scene the same way. A pause screen can reach this
+## path too, and a scene change requested while the tree is paused would build the
+## new arena frozen, so the tree is always running before the switch.
 func _open_scene(path: String) -> void:
+	get_tree().paused = false
 	var error: Error = get_tree().change_scene_to_file(path)
 	if error != OK:
 		push_error("Could not open %s: %s" % [path, error_string(error)])

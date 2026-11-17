@@ -16,8 +16,9 @@ Opens `ui/menu/main_menu.tscn`, the boot menu: **PLANET** loads the arena,
 **CITY** loads the night district, **CONTINUE** (offered once a save exists)
 reopens the last scenario, **PILOT** shows the level and the five tracks,
 **OPTIONS** opens the fullscreen toggle, the livery picker and the controls table
-that also remaps the pad, and **QUIT** closes the build. Engine pinned to
-**Godot 4.7.2 stable, Forward+**.
+that also remaps the pad, and **QUIT** closes the build. The same menu is the pause
+screen: Escape (or B) in flight opens it over the run with **RESUME** in place of
+the destinations. Engine pinned to **Godot 4.7.2 stable, Forward+**.
 `./run.sh --editor` opens the editor instead; `./run.sh --headless` runs without a
 window and is what CI uses.
 
@@ -37,6 +38,7 @@ window and is what CI uses.
 | Transform | Q | Back |
 | Restart | R (on the death screen) | Start |
 | Main menu | Escape (on the death screen) | B |
+| Pause menu | Escape (in flight) | B (in flight) |
 
 The gamepad column is the map `project.godot` ships, not a fixed one: the nine
 button actions below can be moved from the menu, and the sticks, the afterburner
@@ -49,7 +51,7 @@ That independence is a GERWALK property; FIGHTER deliberately gives it up, which
 is what the next section is about.
 
 The boot menu takes the same keys: `ui_accept` activates the focused button and
-Escape closes the open panel.
+Escape closes the open panel, then leaves the pause screen once no panel is open.
 
 ### Remapping the pad
 
@@ -1215,6 +1217,28 @@ assigning `global_position`, which tunnels through a tower; both now steer throu
 `Enemy._move_step()` into `move_and_slide()`, and the planet behaves exactly as
 before because it has no world colliders. The interceptor already flew through
 `move_and_slide`.
+
+## Pause
+
+Escape (or the pad's B, both `ui_cancel`) opens the boot menu over a live run.
+B is the engine's cancel button, so a player who binds an action to it should know
+they are giving that button two meanings: the action fires and the pause opens.
+It is the same scene with `MainMenu.in_game` set, so the pad table and the livery
+picker are the settings the player already knows, and there is only one menu to
+keep working. The half that only makes sense at boot is hidden: **RESUME** takes
+the place of PLANET and CITY, and CONTINUE is not offered because the run it would
+reopen is the one already on screen. PILOT and OPTIONS stay available.
+
+The menu is built on the first press, not carried by every level, because its
+livery preview renders a live airframe in its own SubViewport. The HUD owns the
+instance, `get_tree().paused = true` freezes the world, and the menu is the one
+node set to `PROCESS_MODE_ALWAYS`, so it is the only thing still reading input.
+The engine hum is silenced when the menu opens: the synthesised voices are
+always-on so a menu blip still plays, and the ship claims the hum back on its
+first live frame. Escape closes OPTIONS first and the run second, and RESUME does
+the same thing with a button; every scene change clears the pause before the
+switch, so a new arena never starts frozen. While the death screen owns the run
+there is no pause to offer, so Escape keeps its meaning there.
 
 ## Death and the next run
 

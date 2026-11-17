@@ -6,8 +6,14 @@ extends CanvasLayer
 ## The death screen is the exception: it asks the player a question, so its answers
 ## have to become scene changes somewhere, and the HUD is the node that already
 ## owns the run's lifetime.
+##
+## The same ownership makes it the pause screen's host. Escape can arrive at any
+## moment of a live run, and the answer is always the same node: a lazily built
+## menu over a frozen tree, so an interrupted fight costs nothing until the player
+## asks for it.
 
-## The boot scene, which is where the death screen's other answer goes.
+## The boot scene, which is where the death screen's other answer goes. The pause
+## screen is the same scene with `in_game` set, so the two never drift apart.
 const MENU_SCENE: String = "res://ui/menu/main_menu.tscn"
 
 @onready var _health_bar: Control = %HealthBar
@@ -25,6 +31,16 @@ const MENU_SCENE: String = "res://ui/menu/main_menu.tscn"
 @onready var _boss_name: Label = %BossName
 @onready var _boss_bar: Control = %BossBar
 @onready var _game_over: GameOver = %GameOver
+
+## The menu currently open over the run, or null. One at a time: a second Escape
+## is the pause menu's key to close, not a reason to build a second menu.
+var _pause: MainMenu = null
+## A dead pilot has no run to come back to, so Escape belongs to the death screen
+## and never opens the pause.
+var _dead: bool = false
+## Tests point the pause menu at a scratch file, the same way they point the boot
+## menu's `settings_path`. Nothing in the game changes it.
+var pause_settings_path: String = GameSettings.CONFIG_PATH
 
 
 func _ready() -> void:
@@ -73,13 +89,64 @@ func _refresh_controls_hint() -> void:
 	]
 
 
+## Escape is the player's own key, so it is read while the run is live rather than
+## through a menu button. The pause is the only thing that stops the tree here: the
+## death screen asks its question on a world that keeps flying, and the pause does
+## not take that screen's key away.
+func _unhandled_input(event: InputEvent) -> void:
+	if _dead or is_instance_valid(_pause):
+		return
+	if event.is_action_pressed(&"ui_cancel"):
+		# The press is consumed before the menu is built: the node that just
+		# appeared must not be handed the same Escape and resume on its first frame.
+		get_viewport().set_input_as_handled()
+		_open_pause()
+
+
+## The menu is built on the first Escape and lives only while the run is stopped.
+## It is the one node in the run that keeps processing: everything else, the ship
+## included, inherits the pause. The engine hum is silenced by hand because the
+## audio voices are always-on so a menu blip still plays.
+func _open_pause() -> void:
+	var scene: PackedScene = load(MENU_SCENE)
+	if scene == null:
+		return
+	var pause: MainMenu = scene.instantiate() as MainMenu
+	if pause == null:
+		return
+	pause.in_game = true
+	pause.settings_path = pause_settings_path
+	pause.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause.resume_requested.connect(_close_pause)
+	_pause = pause
+	add_child(pause)
+	Sfx.engine(false)
+	get_tree().paused = true
+
+
+## The menu goes away before the tree resumes, so the frame that unpauses is the
+## frame that already shows the fight. The hum comes back on its own: the ship's
+## next frame sets it from the speed it is actually flying at.
+func _close_pause() -> void:
+	if _pause == null:
+		return
+	var pause: MainMenu = _pause
+	_pause = null
+	if is_instance_valid(pause):
+		pause.hide()
+		pause.queue_free()
+	get_tree().paused = false
+
+
 ## The countdown and the buttons both end a run the same way: the arena is rebuilt
 ## from the scene, so a death never leaves half a fight behind.
 func _restart_run() -> void:
+	get_tree().paused = false
 	get_tree().reload_current_scene()
 
 
 func _back_to_menu() -> void:
+	get_tree().paused = false
 	get_tree().change_scene_to_file(MENU_SCENE)
 
 
@@ -167,6 +234,9 @@ func _on_boss_defeated() -> void:
 
 
 func _on_player_died() -> void:
+	# The pause is closed to the dead: the run cannot be resumed, so Escape belongs
+	# to the screen that offers the two real answers.
+	_dead = true
 	# The blast gets the frame to itself: the panel is dark enough to hide it, so
 	# the death screen arrives once the fireball has opened.
 	await get_tree().create_timer(GameOver.BLAST_DELAY).timeout

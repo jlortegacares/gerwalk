@@ -18,6 +18,11 @@ var _died_count: int = 0
 
 
 func _ready() -> void:
+	# The suite drives the pause menu, which stops the tree, so the suite itself has
+	# to keep running while the world it tests is frozen. The arena is pinned back to
+	# PAUSABLE below: an always-on suite must not make the world always-on with it.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+
 	# The arena reads and writes the pilot record in its own `_ready`, so the
 	# scratch path is installed before the scene enters the tree.
 	GameProgress.use_path(TEST_PROGRESS)
@@ -26,6 +31,9 @@ func _ready() -> void:
 	GlobalEventBus.player_died.connect(func() -> void: _died_count += 1)
 
 	_arena = load(ARENA_SCENE).instantiate()
+	# PAUSABLE is the absolute "stop when the tree stops" mode, so the world really
+	# freezes even though its parent is always-on.
+	_arena.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(_arena)
 
 	await get_tree().physics_frame
@@ -79,6 +87,7 @@ func _ready() -> void:
 	await _test_gerwalk_silhouette()
 	await _test_audio()
 	await _test_hud_layout()
+	await _test_pause_menu()
 	await _test_score()
 	await _test_boss()
 
@@ -2473,6 +2482,101 @@ func _test_hud_layout() -> void:
 		clashes.is_empty(),
 		"no two readouts share a band (%s)" % ", ".join(clashes)
 	)
+
+
+## The pause screen is the player's way out of a run that is still alive: Escape
+## opens it at any moment, the world stops behind it, and RESUME hands the fight
+## back exactly where it was left. The menu is the boot scene, so the test also pins
+## the half of it a paused run must not offer: a destination that would throw the
+## current arena away.
+func _test_pause_menu() -> void:
+	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
+	# The menu reads the pad and the livery when it is built, so it is pointed at the
+	# scratch file before any press: the suite never reads the real settings.
+	hud.set("pause_settings_path", TEST_SETTINGS)
+
+	var cancel: InputEventAction = InputEventAction.new()
+	cancel.action = &"ui_cancel"
+	cancel.pressed = true
+
+	_check(not get_tree().paused, "a live run is not paused")
+
+	hud._unhandled_input(cancel)
+	await get_tree().process_frame
+
+	var menu: MainMenu = _pause_overlay(hud)
+	_check(menu != null, "escape opens the menu over the run")
+	_check(get_tree().paused, "the menu stops the world behind it")
+	if menu == null:
+		# A menu that never arrived would leave the tree paused for every later test,
+		# so the failure is repaired before the suite goes on.
+		get_tree().paused = false
+		return
+
+	var resume: Button = menu.get_node("%ResumeButton") as Button
+	var continue_button: Button = menu.get_node("%ContinueButton") as Button
+	var start_button: Button = menu.get_node("%StartButton") as Button
+	var options_button: Button = menu.get_node("%OptionsButton") as Button
+	var options: Control = menu.get_node("%Options") as Control
+	_check(menu.in_game, "the menu knows it was opened over a run")
+	_check(
+		resume != null and resume.visible and resume.has_focus(),
+		"resume is the answer the pause screen offers first"
+	)
+	_check(
+		continue_button != null and not continue_button.visible,
+		"a paused run does not offer continue"
+	)
+	_check(
+		start_button != null and not start_button.visible,
+		"a paused run does not offer a fresh planet"
+	)
+	_check(options != null, "the pause screen keeps the options panel")
+
+	# Stopped, not merely covered: the ship keeps the position it had when Escape
+	# arrived, because nothing in the run processes while the tree is paused.
+	var frozen_at: Vector3 = _player.global_position
+	await get_tree().physics_frame
+	_check(
+		_player.global_position.is_equal_approx(frozen_at),
+		"the ship does not fly while the menu is open"
+	)
+
+	options_button.pressed.emit()
+	await get_tree().process_frame
+	_check(options.visible, "options opens from the pause screen")
+	menu._unhandled_input(cancel)
+	await get_tree().process_frame
+	_check(not options.visible, "escape closes the panel first")
+	_check(
+		get_tree().paused,
+		"and the panel's escape does not resume the run"
+	)
+
+	if resume == null:
+		menu.queue_free()
+		get_tree().paused = false
+		return
+	resume.pressed.emit()
+	await get_tree().process_frame
+	_check(not get_tree().paused, "resume restarts the fight")
+	_check(_pause_overlay(hud) == null, "and takes the menu with it")
+
+	# The hum was silenced by hand when the menu opened, so the ship has to claim it
+	# back on its first live frame rather than being left in a quiet cockpit. The
+	# signal fires before the ship processes, so the second frame is the first one
+	# that can observe the claim.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_check(Sfx.engine_active(), "the engine hum comes back with the ship")
+
+
+## One menu at a time, and it is a child of the HUD because the HUD owns the run.
+func _pause_overlay(hud: CanvasLayer) -> MainMenu:
+	for child in hud.get_children():
+		if child is MainMenu:
+			return child
+	return null
 
 
 ## The run pays for every kill, and the HUD projects the total. The three hulls are
