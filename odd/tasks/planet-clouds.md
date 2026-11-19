@@ -127,3 +127,24 @@ clear sky. Reviewed frames: `/tmp/cloud_low_core.png`, `/tmp/cloud_low_thin.png`
 dense probe fell from 1519 to 839 puffs, which is the coverage cut showing up in the
 total; the probe cell itself still draws a full core, and the smoke test still
 reports 560 `PASS` with `SMOKE TEST PASSED`.
+
+L13. Follow-up request, verbatim: "baja el porcentaje de nubes en PLANET un 50%".
+Measured first, with a probe that samples `density_at` on a 2000x2000 patch: the
+deck covered 29.6% of the map at `VISUAL_MIN_DENSITY = 0.58` and the cover was
+20.7% at `DENSE_THRESHOLD = 0.62`. Halving the deck while keeping the cover was
+impossible by construction, because cover has to stay inside the visible deck: a
+14.8% deck cannot contain a 20.7% cover. So both thresholds moved up the field's
+distribution, which halves the deck *and* the cover it carries:
+`VISUAL_MIN_DENSITY` 0.58 -> 0.65, `DENSE_THRESHOLD` 0.62 -> 0.68,
+`VISUAL_FULL_DENSITY` 0.66 -> 0.71 (the midpoint of the new band, so a core at the
+cover threshold still reads at half mass). Re-measured: the deck covers 14.9% (a
+49.7% cut) and the cover is 10.0%. The fringe band is 4.9 points wide, so there is
+still thin weather between open sky and a lock-breaking core. Consequence worth
+knowing: guided missiles can be shaken in half as much of the map as before, which
+is what "half the clouds" means when the clouds are the cover. The alternate lever
+-- leave the footprint and halve the puffs per cell -- was rejected because the
+deck would then look thinner than the rule it advertises. The streamed count at the
+dense probe fell 839 -> 357. The smoke test now also asserts the "thin" probe is
+visible cloud rather than open sky, so a future retune cannot leave that check
+proving nothing. Frames: `/tmp/cloud_half_core.png`, `/tmp/cloud_half_fringe.png`,
+`/tmp/cloud_half_clear.png`. 770 `PASS`, `SMOKE TEST PASSED`.

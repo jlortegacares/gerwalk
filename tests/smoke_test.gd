@@ -3546,6 +3546,11 @@ func _test_clouds() -> void:
 	_check(thin != Vector3.INF, "the deck has thin gaps")
 	if dense == Vector3.INF or thin == Vector3.INF:
 		return
+	_check(
+		field.density_at(thin) >= CloudField.VISUAL_MIN_DENSITY,
+		"the thin gap is visible weather, not open sky (%.3f)"
+		% field.density_at(thin)
+	)
 
 	# The visual stream has to populate the deck where the gameplay says it is
 	# dense, or the cover would be invisible.
@@ -3595,8 +3600,10 @@ func _test_clouds() -> void:
 	await get_tree().physics_frame
 
 
-## The strongest dense point and the thinnest gap on a coarse grid outside the
-## opening clearing. Scanning is what keeps the test honest about the current tuning.
+## The strongest dense point and the thinnest *visible* bank on a coarse grid outside
+## the opening clearing. A "thin gap" below `VISUAL_MIN_DENSITY` would be open sky,
+## and a lock test against open sky proves nothing, so the fringe has to be cloud the
+## player can actually see. Scanning is what keeps the test honest about the tuning.
 func _find_cloud_point(field: CloudField, want_dense: bool) -> Vector3:
 	var best: Vector3 = Vector3.INF
 	var best_score: float = -INF
@@ -3607,6 +3614,8 @@ func _find_cloud_point(field: CloudField, want_dense: bool) -> Vector3:
 			if want_dense and density < CloudField.DENSE_THRESHOLD:
 				continue
 			if not want_dense and density >= CloudField.DENSE_THRESHOLD:
+				continue
+			if not want_dense and density < CloudField.VISUAL_MIN_DENSITY:
 				continue
 			var score: float = density if want_dense else -density
 			if score > best_score:

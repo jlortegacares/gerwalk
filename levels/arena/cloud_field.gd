@@ -16,19 +16,20 @@ extends Node3D
 ## seconds, which is long enough to use as cover and short enough to read as weather.
 const DENSITY_SCALE: float = 0.012
 ## Where a bank stops being scenery and starts breaking locks. Kept above the visual
-## floor so the fringe is visible but harmless and only the core is cover.
-const DENSE_THRESHOLD: float = 0.62
+## floor so the fringe is visible but harmless and only the core is cover. It sits
+## in the field's top decile: cover is about a tenth of the map, rare enough to be
+## an opportunity the player takes and common enough to find while crossing.
+const DENSE_THRESHOLD: float = 0.68
 ## Below this the field is invisible. The threshold sits high in the field's
-## distribution, so the deck covers a quarter of the map and the rest is open sky;
+## distribution, so the deck covers an eighth of the map and the rest is open sky;
 ## the band between this and DENSE_THRESHOLD is the thin cloud that warns a core is
 ## coming.
-const VISUAL_MIN_DENSITY: float = 0.58
-## Where a bank reads at full weight. Anchored just above DENSE_THRESHOLD, so a core
-## keeps the same mass it had when the deck started lower down the field; above this
-## density every ramp is already saturated.
-const VISUAL_FULL_DENSITY: float = 0.66
-## The opening clearing. The first turret spawns 30 units out, so the run has to
-## start with open sky; the deck begins past this ring.
+const VISUAL_MIN_DENSITY: float = 0.65
+## Where a bank reads at full weight. The midpoint of the visible band, so a core at
+## the cover threshold still reads at half mass and anything denser is saturated.
+const VISUAL_FULL_DENSITY: float = 0.71
+## The opening clearing. The first contact spawns 70 units out, and the ring leaves
+## that in clear sky, so the run still starts in the open; the deck begins past it.
 const CLEAR_INNER: float = 45.0
 const CLEAR_OUTER: float = 120.0
 

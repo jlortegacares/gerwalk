@@ -527,13 +527,15 @@ The field is atmosphere, not terrain: it does not roll with the planet, so the
 deck adds a second layer of parallax against the surface.
 
 Two thresholds split that field into weather and cover. Below `VISUAL_MIN_DENSITY`
-(0.58, high in the field's distribution) the sky is clear, so the deck covers about
-a quarter of the map; between it and `DENSE_THRESHOLD` the bank is thin cloud that
-warns a core is coming; at or above `DENSE_THRESHOLD` it hides the ship. Every
-visual ramp saturates at `VISUAL_FULL_DENSITY` (0.66), just above the cover
-threshold, so raising the floor thinned the deck without hollowing out its cores.
-The opening ring (`CLEAR_INNER`..`CLEAR_OUTER`) keeps the first contact in open sky,
-because a run that starts inside a wall of white has nothing to read.
+(0.65, high in the field's distribution) the sky is clear, so the deck covers about
+an eighth of the map; between it and `DENSE_THRESHOLD` (0.68) the bank is thin cloud
+that warns a core is coming; at or above `DENSE_THRESHOLD` it hides the ship, and
+that cover is about a tenth of the map. Every visual ramp saturates at
+`VISUAL_FULL_DENSITY` (0.71), the midpoint of the visible band, so a core at the
+cover threshold reads at half mass and anything denser is saturated: raising the
+floor thins the deck without hollowing out its cores. The opening ring
+(`CLEAR_INNER`..`CLEAR_OUTER`) keeps the first contact in open sky, because a run
+that starts inside a wall of white has nothing to read.
 
 The lock loss is permanent for that shot. `Projectile._steer` drops the target
 when the ship is in a dense bank, and a shot with no target flies straight: the
@@ -1786,9 +1788,9 @@ the scene file.
 # not have to fly there. Retuning the field moves these points; the smoke test
 # scans for them at runtime instead of trusting these coordinates.
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
-    -- --nofire 1 --px 35 --pz 435 --out /tmp/cloud_core.png
+    -- --nofire 1 --px -410 --pz 270 --out /tmp/cloud_core.png
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
-    -- --nofire 1 --px 230 --pz 390 --out /tmp/cloud_fringe.png
+    -- --nofire 1 --px 370 --pz 330 --out /tmp/cloud_fringe.png
 /Applications/Godot.app/Contents/MacOS/Godot --path . tools/capture_frame.tscn \
     -- --nofire 1 --out /tmp/cloud_clear.png
 
