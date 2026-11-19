@@ -1,24 +1,27 @@
 class_name GameProgress
 extends RefCounted
-## The pilot's persistent record: how many enemies they have downed and which
-## scenario they flew last.
+## The pilot's persistent record: how many enemies they have downed, which
+## scenario they flew last and when they last flew it.
 ##
-## Only the kill count and the scenario are stored. The level and every bonus are
-## derived from the count, so a save can never hold a level that disagrees with the
-## kills that earned it. That is also what lets the curve be retuned later without
-## migrating old files: an old save simply reads at the level its kills are worth
-## today.
+## Only the kill count, the scenario and the timestamp are stored. The level and
+## every bonus are derived from the count, so a save can never hold a level that
+## disagrees with the kills that earned it. That is also what lets the curve be
+## retuned later without migrating old files: an old save simply reads at the
+## level its kills are worth today.
 ##
-## The class keeps one cached instance because every kill writes the file and the
-## HUD reads the same record: reloading the file per kill would put disk I/O on the
-## firing path for no benefit.
+## The file this record reads is one save card, chosen by `SaveSlots`. The class
+## keeps one cached instance because every kill writes the file and the HUD reads
+## the same record: reloading the file per kill would put disk I/O on the firing
+## path for no benefit. `CONFIG_PATH` is the single save the first build shipped,
+## kept as the source `SaveSlots` imports from.
 
 const CONFIG_PATH: String = "user://progress.cfg"
 const SECTION: String = "pilot"
 const KILLS_KEY: String = "total_kills"
 const SCENARIO_KEY: String = "last_scenario"
+const LAST_PLAYED_KEY: String = "last_played"
 const VERSION_KEY: String = "version"
-const VERSION: int = 1
+const VERSION: int = 2
 
 const MAX_LEVEL: int = 100
 
@@ -29,6 +32,9 @@ static var _cache: GameProgress = null
 
 var total_kills: int = 0
 var last_scenario: String = ""
+## Unix seconds of the last scenario start. It dates the save card; it is not
+## read by anything in the run loop.
+var last_played: int = 0
 var path: String = CONFIG_PATH
 
 
@@ -43,14 +49,16 @@ static func instance() -> GameProgress:
 
 
 ## Points the record at another file and drops the cache, so the next `instance()`
-## reads that file. Nothing in the game calls this; the smoke suite does.
+## reads that file. `SaveSlots` calls it when the player picks a card; the smoke
+## suite calls it to keep the player's real saves out of the run.
 static func use_path(path: String) -> void:
 	_path = path
 	_cache = null
 
 
-## True when a save exists. The menu uses it to decide whether CONTINUE is offered:
-## an absent file is not an empty save, it is no run to resume.
+## True when the active card has a file. Nothing in the game gates on it any more
+## -- CONTINUE opens the card list whether or not one has flown -- but it stays
+## as the direct answer to "has this record ever been written".
 static func has_save() -> bool:
 	return FileAccess.file_exists(_path)
 
@@ -98,9 +106,12 @@ func register_kill() -> void:
 
 
 ## The scenario a run is starting. Called by the level itself, so any future
-## scenario that wants to be resumable only has to call this.
+## scenario that wants to be resumable only has to call this. The timestamp is
+## taken here rather than on every kill: a card is dated by its last flight, not
+## by its last kill.
 func remember_scenario(scene_path: String) -> void:
 	last_scenario = scene_path
+	last_played = int(Time.get_unix_time_from_system())
 	write_to_disk()
 
 
@@ -109,6 +120,7 @@ func remember_scenario(scene_path: String) -> void:
 func reset() -> void:
 	total_kills = 0
 	last_scenario = ""
+	last_played = 0
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	_emit()
@@ -117,6 +129,7 @@ func reset() -> void:
 func read_from_disk() -> void:
 	total_kills = 0
 	last_scenario = ""
+	last_played = 0
 
 	var config: ConfigFile = ConfigFile.new()
 	if config.load(path) != OK:
@@ -132,6 +145,10 @@ func read_from_disk() -> void:
 	if typeof(stored_scenario) == TYPE_STRING:
 		last_scenario = stored_scenario
 
+	var stored_played: Variant = config.get_value(SECTION, LAST_PLAYED_KEY, 0)
+	if typeof(stored_played) == TYPE_INT:
+		last_played = maxi(stored_played, 0)
+
 
 func write_to_disk() -> void:
 	# The load keeps any other section the file may hold, the same way GameSettings
@@ -140,6 +157,7 @@ func write_to_disk() -> void:
 	config.load(path)
 	config.set_value(SECTION, KILLS_KEY, total_kills)
 	config.set_value(SECTION, SCENARIO_KEY, last_scenario)
+	config.set_value(SECTION, LAST_PLAYED_KEY, last_played)
 	config.set_value(SECTION, VERSION_KEY, VERSION)
 	config.save(path)
 

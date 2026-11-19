@@ -10,6 +10,10 @@ const TEST_SETTINGS: String = "user://test-settings.cfg"
 ## The same rule for the pilot record: the suite runs at level 1 and must never
 ## earn (or erase) levels on the machine that runs it.
 const TEST_PROGRESS: String = "user://test-progress.cfg"
+## And for the save cards: six scratch cards under their own directory, plus a
+## scratch copy of the single save the migration imports from.
+const TEST_SAVES: String = "user://test-saves"
+const TEST_LEGACY: String = "user://test-saves/legacy.cfg"
 
 var _failures: Array[String] = []
 var _arena: Arena = null
@@ -24,9 +28,10 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 	# The arena reads and writes the pilot record in its own `_ready`, so the
-	# scratch path is installed before the scene enters the tree.
-	GameProgress.use_path(TEST_PROGRESS)
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS))
+	# scratch card is installed before the scene enters the tree.
+	SaveSlots.configure(TEST_SAVES, TEST_LEGACY)
+	_clean_saves()
+	SaveSlots.ensure(TEST_SETTINGS)
 
 	GlobalEventBus.player_died.connect(func() -> void: _died_count += 1)
 
@@ -51,6 +56,7 @@ func _ready() -> void:
 
 	_test_player_is_centered()
 	await _test_pilot_progression()
+	_test_save_slots()
 	_test_render_scale()
 	await _test_main_menu()
 	await _test_pad_bindings()
@@ -493,29 +499,91 @@ func _test_main_menu() -> void:
 		"a missing file falls back to the factory nose"
 	)
 
-	# The pilot panel and CONTINUE. The arena that is already running wrote a save
-	# when it started, so the no-save state is tested by removing the file first.
+	# The save list and the pilot panel. CONTINUE is the door to the cards, so it
+	# is offered even before any card has flown: an empty card is how a second
+	# pilot is created. The arena that is already running wrote a card when it
+	# started, so the empty state is built by clearing the scratch cards first.
 	var continue_button: Button = menu.get_node("%ContinueButton") as Button
+	var saves_panel: Control = menu.get_node("%Saves") as Control
+	var slot_line: Label = menu.get_node("%SlotLine") as Label
+	var slot_primary: Button = menu.get_node("%SlotPrimary") as Button
+	var slot_secondary: Button = menu.get_node("%SlotSecondary") as Button
+	var saves_back: Button = menu.get_node("%SavesBackButton") as Button
 	var pilot_button: Button = menu.get_node("%PilotButton") as Button
 	var pilot: Control = menu.get_node("%Pilot") as Control
 	var pilot_level: Label = menu.get_node("%Level") as Label
 	var pilot_tracks: Label = menu.get_node("%Tracks") as Label
 	var reset_button: Button = menu.get_node("%ResetButton") as Button
 	var pilot_back: Button = menu.get_node("%PilotBackButton") as Button
-	_check(continue_button != null, "the menu offers a continue button")
+	_check(
+		continue_button != null and continue_button.visible,
+		"the menu always offers continue"
+	)
+	_check(saves_panel != null and not saves_panel.visible, "the save list starts hidden")
 	_check(pilot_button != null, "the menu offers a pilot panel")
 	_check(pilot != null and not pilot.visible, "the pilot panel starts hidden")
 
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS))
-	GameProgress.use_path(TEST_PROGRESS)
+	_clean_saves()
+	SaveSlots.select(1, TEST_SETTINGS)
+	SaveSlots.select(2, TEST_SETTINGS)
+	GameProgress.instance().total_kills = 37
+	GameProgress.instance().remember_scenario(City.SCENE_PATH)
+	SaveSlots.select(1, TEST_SETTINGS)
 	menu.refresh()
-	_check(not continue_button.visible, "continue is hidden without a save")
+	_check(
+		slot_line.text.begins_with("SLOT 1") and slot_line.text.contains("NEW PILOT"),
+		"the menu names the active card (%s)" % slot_line.text
+	)
 
+	continue_button.pressed.emit()
+	await get_tree().process_frame
+	_check(saves_panel.visible, "continue opens the save list")
+	var card1: Button = menu.slot_button(1)
+	var card2: Button = menu.slot_button(2)
+	_check(
+		card2 != null and card2.text.contains("37 KILLS") and card2.text.contains("CITY"),
+		"a card names its pilot, kills and scenario"
+	)
+	_check(
+		card1 != null and card1.text.contains("EMPTY SLOT"),
+		"an unused card reads empty"
+	)
+
+	card2.pressed.emit()
+	_check(slot_primary.text == "LOAD", "an occupied card offers a load")
+	_check(slot_secondary.text == "DELETE", "and a delete")
+	menu.slot_button(3).pressed.emit()
+	_check(slot_primary.text == "START PLANET", "an empty card offers the first flight")
+	_check(slot_secondary.text == "START CITY", "on either scenario")
+
+	# The delete presses only run when the card really is occupied: on an empty
+	# card the secondary button starts a run, and one squashed failure would take
+	# the whole suite with it.
+	var seeded: bool = FileAccess.file_exists(SaveSlots.path_for(2))
+	_check(seeded, "the scratch card reaches the disk")
+	if seeded:
+		card2.pressed.emit()
+		slot_secondary.pressed.emit()
+		_check(
+			FileAccess.file_exists(SaveSlots.path_for(2)),
+			"the first delete press only arms the card"
+		)
+		slot_secondary.pressed.emit()
+		_check(
+			not FileAccess.file_exists(SaveSlots.path_for(2)),
+			"the second delete press clears the card"
+		)
+		_check(menu.slot_button(2).text.contains("EMPTY SLOT"), "the cleared card reads empty")
+	saves_back.pressed.emit()
+	await get_tree().process_frame
+	_check(not saves_panel.visible, "back closes the save list")
+
+	# The pilot panel shows the active card, and its reset is that card's
+	# two-press delete.
+	SaveSlots.select(1, TEST_SETTINGS)
 	GameProgress.instance().total_kills = 37
 	GameProgress.instance().remember_scenario(City.SCENE_PATH)
 	menu.refresh()
-	_check(continue_button.visible, "continue appears once a save exists")
-
 	pilot_button.pressed.emit()
 	await get_tree().process_frame
 	_check(pilot.visible, "the pilot button opens the panel")
@@ -526,10 +594,15 @@ func _test_main_menu() -> void:
 	_check(pilot_tracks.text.contains("THRUSTERS"), "the panel lists the five tracks")
 
 	reset_button.pressed.emit()
-	_check(continue_button.visible, "the first reset press only arms the button")
+	_check(
+		FileAccess.file_exists(SaveSlots.path_for(1)),
+		"the first reset press only arms the button"
+	)
 	reset_button.pressed.emit()
-	_check(not FileAccess.file_exists(TEST_PROGRESS), "the second reset press clears the save")
-	_check(not continue_button.visible, "continue disappears after a reset")
+	_check(
+		not FileAccess.file_exists(SaveSlots.path_for(1)),
+		"the second reset press clears the active card"
+	)
 	_check(pilot_level.text == "LEVEL 1", "the panel returns to level 1")
 
 	pilot_back.pressed.emit()
@@ -1120,6 +1193,104 @@ func _test_player_is_centered() -> void:
 	_check(offset < 1.0, "player projects to the screen centre (off by %.2f px)" % offset)
 
 
+## A save card is a pilot: the kills, the level derived from them, the scenario
+## they flew last and when. The suite runs on scratch cards, so it can create,
+## erase and migrate them freely.
+func _test_save_slots() -> void:
+	_check(SaveSlots.SLOT_COUNT == 6, "a memory card holds six pilots")
+
+	SaveSlots.configure(TEST_SAVES, TEST_LEGACY)
+	_clean_saves()
+	SaveSlots.ensure(TEST_SETTINGS)
+	_check(SaveSlots.active_slot(TEST_SETTINGS) == 1, "a fresh card is on slot 1")
+	_check(not SaveSlots.summary(1)["occupied"], "a fresh card has no save")
+
+	SaveSlots.select(2, TEST_SETTINGS)
+	_check(SaveSlots.active_slot(TEST_SETTINGS) == 2, "picking a card makes it active")
+	_check(
+		GameProgress.instance().path == SaveSlots.path_for(2),
+		"the record follows the card"
+	)
+
+	GameProgress.instance().total_kills = 40
+	GameProgress.instance().remember_scenario(ARENA_SCENE)
+	var slot2: Dictionary = SaveSlots.summary(2)
+	_check(slot2["occupied"], "a flown card holds a save")
+	_check(int(slot2["kills"]) == 40, "the card records the kills")
+	_check(
+		int(slot2["level"]) == GameProgress.level_for_kills(40),
+		"the card derives the level"
+	)
+	_check(String(slot2["scenario"]) == ARENA_SCENE, "the card records the scenario")
+	_check(int(slot2["played"]) > 0, "the card records when it was last flown")
+	_check(not SaveSlots.summary(1)["occupied"], "the other cards stay empty")
+
+	SaveSlots.select(1, TEST_SETTINGS)
+	_check(GameProgress.instance().total_kills == 0, "another card starts at level 1")
+	SaveSlots.select(2, TEST_SETTINGS)
+	_check(GameProgress.instance().total_kills == 40, "coming back keeps the kills")
+
+	SaveSlots.erase(2)
+	_check(
+		not FileAccess.file_exists(SaveSlots.path_for(2)),
+		"deleting a card removes its file"
+	)
+	_check(not SaveSlots.summary(2)["occupied"], "and the card reads empty")
+	_check(
+		GameProgress.instance().total_kills == 0,
+		"deleting the active card resets the pilot"
+	)
+
+	# The old single save lands on card 1 exactly once, and the original is renamed
+	# so a later launch can neither import it twice nor resurrect an erased card.
+	_clean_saves()
+	SaveSlots.select(1, TEST_SETTINGS)
+	GameProgress.instance().total_kills = 55
+	GameProgress.instance().remember_scenario(City.SCENE_PATH)
+	DirAccess.copy_absolute(
+		ProjectSettings.globalize_path(SaveSlots.path_for(1)),
+		ProjectSettings.globalize_path(TEST_LEGACY)
+	)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SaveSlots.path_for(1)))
+	SaveSlots.ensure(TEST_SETTINGS)
+	_check(int(SaveSlots.summary(1)["kills"]) == 55, "the old single save lands on card 1")
+	_check(
+		FileAccess.file_exists("%s.imported" % TEST_LEGACY),
+		"the old save is kept as a backup"
+	)
+	_check(not FileAccess.file_exists(TEST_LEGACY), "and it is not left to be imported twice")
+	GameProgress.instance().total_kills = 5
+	GameProgress.instance().write_to_disk()
+	SaveSlots.ensure(TEST_SETTINGS)
+	_check(int(SaveSlots.summary(1)["kills"]) == 5, "a second launch does not import again")
+
+	# A pointer outside the card range must not leave the game on a file nobody
+	# can see.
+	var config: ConfigFile = ConfigFile.new()
+	config.load(TEST_SETTINGS)
+	config.set_value(SaveSlots.SECTION, SaveSlots.ACTIVE_KEY, 99)
+	config.save(TEST_SETTINGS)
+	_check(
+		SaveSlots.active_slot(TEST_SETTINGS) == SaveSlots.SLOT_COUNT,
+		"an out of range card is clamped"
+	)
+
+	_clean_saves()
+	SaveSlots.select(1, TEST_SETTINGS)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SETTINGS))
+
+
+## Six scratch cards and their scratch legacy file, removed without ever touching
+## the player's real memory card.
+func _clean_saves() -> void:
+	for slot: int in range(1, SaveSlots.SLOT_COUNT + 1):
+		DirAccess.remove_absolute(
+			ProjectSettings.globalize_path(SaveSlots.path_for(slot))
+		)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_LEGACY))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("%s.imported" % TEST_LEGACY))
+
+
 ## The pilot record is the one piece of state that survives a session, so it is
 ## tested as a model: the curve, the two save fields, the corrupt-file fallback and
 ## the kill hook. The suite ends this check on level 1 again, because every later
@@ -1169,8 +1340,9 @@ func _test_pilot_progression() -> void:
 		"a maxed GERWALK still cannot outrun an interceptor"
 	)
 
-	# Only kills and scenario are stored; the level comes back derived.
+	# Kills, the scenario and its date are stored; the level comes back derived.
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS))
+	GameProgress.use_path(TEST_PROGRESS)
 	var record: GameProgress = GameProgress.instance()
 	record.total_kills = 37
 	record.remember_scenario(City.SCENE_PATH)
@@ -1178,6 +1350,7 @@ func _test_pilot_progression() -> void:
 	var reloaded: GameProgress = GameProgress.instance()
 	_check(reloaded.total_kills == 37, "the kill count survives a reload")
 	_check(reloaded.last_scenario == City.SCENE_PATH, "the last scenario survives a reload")
+	_check(reloaded.last_played > 0, "the last flight is dated")
 	_check(
 		reloaded.level() == GameProgress.level_for_kills(37),
 		"the level is derived from the count, not stored"

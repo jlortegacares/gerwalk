@@ -13,12 +13,12 @@ decision D-03.
 ```
 
 Opens `ui/menu/main_menu.tscn`, the boot menu: **PLANET** loads the arena,
-**CITY** loads the night district, **CONTINUE** (offered once a save exists)
-reopens the last scenario, **PILOT** shows the level and the five tracks,
+**CITY** loads the night district, **CONTINUE** opens the six save cards and loads
+the one chosen there, **PILOT** shows the level and the five tracks,
 **OPTIONS** opens the fullscreen toggle, the livery picker and the controls table
 that also remaps the pad, and **QUIT** closes the build. The same menu is the pause
 screen: Escape (or B) in flight opens it over the run with **RESUME** in place of
-the destinations. Engine pinned to **Godot 4.7.2 stable, Forward+**.
+the destinations and CONTINUE hidden. Engine pinned to **Godot 4.7.2 stable, Forward+**.
 `./run.sh --editor` opens the editor instead; `./run.sh --headless` runs without a
 window and is what CI uses.
 
@@ -1226,8 +1226,8 @@ they are giving that button two meanings: the action fires and the pause opens.
 It is the same scene with `MainMenu.in_game` set, so the pad table and the livery
 picker are the settings the player already knows, and there is only one menu to
 keep working. The half that only makes sense at boot is hidden: **RESUME** takes
-the place of PLANET and CITY, and CONTINUE is not offered because the run it would
-reopen is the one already on screen. PILOT and OPTIONS stay available.
+the place of PLANET and CITY, and CONTINUE is not offered because the card list is
+chosen before a run, not in the middle of one. PILOT and OPTIONS stay available.
 
 The menu is built on the first press, not carried by every level, because its
 livery preview renders a live airframe in its own SubViewport. The HUD owns the
@@ -1327,17 +1327,44 @@ level-up mid-run only moves the HUD: the ship keeps the numbers it started with
 until the next run. That is the rule that stops a lucky kill from changing the
 fight already in progress.
 
-The save is `user://progress.cfg`, and it holds only `total_kills`,
-`last_scenario` and a `version`. It is written on every kill and when a run
-starts, which is cheap because a kill is seconds apart. A missing or corrupt file
-reads as a level-1 pilot and is left on disk for inspection. The menu's CONTINUE
-button reopens `last_scenario`; it appears only when the file exists, and the
-PILOT panel shows the level, the kills and every track, with a two-press RESET.
+A pilot is stored as one of six save cards: `user://saves/pilot_1.cfg` ..
+`pilot_6.cfg`. A card holds only `total_kills`, `last_scenario`, `last_played`
+and a `version`. It is written on every kill and when a run starts, which is cheap
+because a kill is seconds apart. A missing or corrupt file reads as a level-1
+pilot and is left on disk for inspection.
 
 The HUD prints the level in the top-left and draws a bar of progress to the next
 one; at level 100 the label reads `MAX` and the bar is full. Both come from
 `pilot_progress_changed(total_kills, level, kills_into_level, kills_for_next)`,
 which `GameProgress.register_kill()` emits after each write.
+
+### Save cards
+
+CONTINUE opens the card list instead of loading a run directly, because the game
+keeps six independent pilots rather than one. A card is a pilot, not a saved
+mission: the arena regenerates and its enemies stream, so there is no midpoint to
+serialise, and the only state a run leaves behind is the kill total, the scenario
+it started on and the date.
+
+The panel is a 3x2 grid. An occupied card names its slot, level, kills, scenario
+and date and offers **LOAD** and **DELETE**; an empty card reads `EMPTY SLOT` and
+offers **START PLANET** and **START CITY**. A press only selects a card, so
+DELETE is reachable for a card nobody is flying; LOAD marks it active and opens
+its scenario. The active card is marked on its card and on the line under the menu
+tagline, and it is what PLANET, CITY and CONTINUE fly. DELETE asks twice and lives
+on the panel, so closing the panel is the cancel.
+
+The active card's number lives in `settings.cfg` under `[save] active_slot`, a
+section that file already preserves next to `[display]`, `[livery]` and `[pad]`.
+Livery, pad and fullscreen stay global: they are the player's preferences, not a
+pilot's. The pause screen never opens the card list, because a run in flight
+already belongs to a card.
+
+The single `user://progress.cfg` of earlier builds is imported once, on the first
+launch of this build: it is copied to card 1 and renamed to
+`user://progress.cfg.imported`. The backup blocks any second import, so erasing
+card 1 later cannot resurrect it, and the original is renamed rather than deleted
+so it can be inspected.
 
 ## Audio
 
@@ -1549,7 +1576,8 @@ All values are named constants at the top of each script.
 | Evasion | `entities/player/player.gd`, `combat/projectile.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN`, `ROLL_ANIM_TIME`; `Player.is_evading()` gates the early return in `Projectile._on_body_entered` |
 | Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
-| Pilot level curve and save | `common/game_progress.gd` | `MAX_LEVEL` (100), the two `kills_for_level()` coefficients, `CONFIG_PATH`, `VERSION`; the level is derived, never stored |
+| Pilot level curve and save | `common/game_progress.gd` | `MAX_LEVEL` (100), the two `kills_for_level()` coefficients, `CONFIG_PATH` (the legacy import source), `VERSION`; the level is derived, never stored |
+| Save cards | `common/save_slots.gd` | `SLOT_COUNT` (6), `DIR`, `DEFAULT_SLOT`, `ACTIVE_KEY`; `active_slot()` clamps an out-of-range pointer, and the legacy import runs only while no backup exists |
 | Pilot stat tracks | `common/pilot_stats.gd` | `SPEED_GAIN`, `HP_GAIN`, `TURBO_CAPACITY_GAIN`, `TURBO_RECHARGE_GAIN`, `INTERVAL_GAIN`, `VULCAN_SPREAD_GAIN`, `PLASMA_CONE_GAIN`, `LASER_RANGE_GAIN`; each is the whole budget of its track at level 100 |
 | Level readout | `ui/hud/level_bar.gd` | `BAR_SIZE`, `FILLED_COLOR`; the label text is built in `hud.gd` |
 | Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
@@ -1606,7 +1634,8 @@ All values are named constants at the top of each script.
 
 ```
 common/global_event_bus.gd      lifecycle signals only (< 15 events)
-common/game_progress.gd         persistent pilot record: kill curve, save/load, scenario memory, reset
+common/game_progress.gd         persistent pilot record: kill curve, save/load, scenario memory, reset; reads one save card
+common/save_slots.gd            the six save cards: paths, active card, summaries, delete, one-shot import of the old save
 common/pilot_stats.gd           the five tracks a level buys, as multipliers on the tuned bases
 common/sfx.gd                   autoload: palette, mix, bus + room + limiter, 2D voice pool, 3D events, engine hum
 tools/generate_sfx.gd           deterministic synthesizer that writes audio/sfx/*.wav
@@ -1631,7 +1660,7 @@ entities/enemy/boss.tscn        the hull body, shapeless: the three points own t
 entities/enemy/hull_fire.gd     one persistent hull fire: flame, hot core, smoke plume, intensity
 models/boss-1/*.glb             the capital-ship asset, imported once and preloaded by the boss
 ui/hud/                         event-fed bars (health, turbo, pilot level, boss); the radar polls the enemy group for bearings
-ui/menu/                        boot menu: the planet and the city, CONTINUE and the pilot panel, the display and livery settings, the pad remap panel and the controls reference
+ui/menu/                        boot menu: the planet and the city, the save cards, CONTINUE and the pilot panel, the display and livery settings, the pad remap panel and the controls reference
 ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
 common/pad_bindings.gd          the nine movable pad actions: factory map, swap, file, and the InputMap rewrite
 levels/arena/arena.gd           rolling planet sphere, stars, cloud deck, encounter streaming, mothership trigger
@@ -1728,7 +1757,7 @@ the scene file.
 
 ```sh
 # Headless gameplay assertions (movement, firing, patterns, i-frames, score, pilot
-# progression, cloud cover, HUD layout, the mothership, death)
+# progression, save cards, cloud cover, HUD layout, the mothership, death)
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path . tests/smoke_test.tscn
 
 # Regenerate the sound palette from scratch (reproduces the committed WAVs byte for byte)

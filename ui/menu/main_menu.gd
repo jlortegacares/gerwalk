@@ -1,7 +1,7 @@
 class_name MainMenu
 extends Control
 ## Boot scene. It owns the destinations the game has before a run -- the planet
-## arena, the city district -- and a settings panel.
+## arena, the city district -- the save cards and a settings panel.
 ##
 ## The window mode is the one display option the build honours, so it is applied
 ## here and nowhere else: the level inherits it, and `GameSettings` restores it on
@@ -24,6 +24,11 @@ extends Control
 ## destinations for RESUME and leaves the panel untouched: the pad and the livery
 ## are the same decisions whether the player came from the boot screen or from a
 ## frozen fight.
+##
+## CONTINUE is the door to the save cards: the panel lists the six pilots, and the
+## card chosen there is the one PLANET, CITY and CONTINUE itself fly. A boot menu
+## therefore never hides CONTINUE -- an empty card is how a second pilot starts --
+## while the pause screen does, because a run already belongs to a card.
 
 ## Raised by RESUME (and by Escape on the pause screen) so the run that opened the
 ## menu is the one that closes it: the menu asks, the HUD owns the tree's pause.
@@ -61,6 +66,13 @@ const BINDING_WIDTH: float = 132.0
 ## button and the two together stay close to one.
 const PAIR_WIDTH: float = 100.0
 const IDLE_HINT: String = "Click a pad button, then press the one you want."
+## A save card names a pilot in three lines, so it needs room for the date and
+## the scenario without making the panel taller than the window.
+const SLOT_CARD_SIZE: Vector2 = Vector2(232, 84)
+## The active card is the one PLANET, CITY and CONTINUE fly, so it is the one card
+## in the accent colour and the only one that says ACTIVE.
+const ACTIVE_CARD_COLOR: Color = Color(0.55, 0.98, 0.9, 1.0)
+const CARD_COLOR: Color = Color(1, 1, 1, 0.92)
 
 ## The controls table, top to bottom: the name a player reads, the inputs that are
 ## not a pad button, and the pad actions the row edits. A row with no action is a
@@ -104,6 +116,12 @@ var _binding_buttons: Dictionary = {}
 ## The arm lives on the panel, not on a timer: closing it disarms, which is the
 ## cancel. The pad reset is not armed -- a remap is cheap to make again.
 var _reset_armed: bool = false
+## The card the save panel is acting on. A press only moves the selection; LOAD
+## or START is what makes it active and opens the scene, which is what leaves
+## DELETE reachable for a card nobody is flying yet.
+var _slot_focus: int = SaveSlots.DEFAULT_SLOT
+var _delete_armed: bool = false
+var _slot_buttons: Dictionary = {}
 
 @onready var _start_button: Button = %StartButton
 @onready var _city_button: Button = %CityButton
@@ -122,6 +140,12 @@ var _reset_armed: bool = false
 @onready var _pilot_tracks: Label = %Tracks
 @onready var _reset_button: Button = %ResetButton
 @onready var _pilot_back_button: Button = %PilotBackButton
+@onready var _slot_line: Label = %SlotLine
+@onready var _saves: Control = %Saves
+@onready var _slots: GridContainer = %Slots
+@onready var _slot_primary: Button = %SlotPrimary
+@onready var _slot_secondary: Button = %SlotSecondary
+@onready var _saves_back_button: Button = %SavesBackButton
 @onready var _fullscreen: CheckButton = %Fullscreen
 @onready var _back_button: Button = %BackButton
 @onready var _preview: LiveryPreview = %Preview
@@ -135,6 +159,13 @@ var _reset_armed: bool = false
 func _ready() -> void:
 	_options.visible = false
 	_pilot.visible = false
+	_saves.visible = false
+	# The boot menu is where a card is chosen, so it is also where the record is
+	# pointed at that card's file. The pause screen is looking at a record already
+	# in flight and must not reload it underneath the run.
+	if not in_game:
+		SaveSlots.ensure(settings_path)
+	_build_slot_cards()
 
 	_start_button.pressed.connect(_on_start_pressed)
 	_city_button.pressed.connect(_on_city_pressed)
@@ -148,6 +179,9 @@ func _ready() -> void:
 	_reset_button.pressed.connect(_on_reset_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
 	_fullscreen.toggled.connect(_on_fullscreen_toggled)
+	_slot_primary.pressed.connect(_on_slot_primary_pressed)
+	_slot_secondary.pressed.connect(_on_slot_secondary_pressed)
+	_saves_back_button.pressed.connect(_on_saves_back_pressed)
 
 	refresh()
 
@@ -191,14 +225,18 @@ func _ready() -> void:
 		_start_button.grab_focus()
 
 
-## Repaints the pilot readout and decides whether CONTINUE is offered. Public
-## because the panel calls it after a reset and the smoke suite calls it after
+## Repaints the pilot readout, the active-card line and the save panel. Public
+## because the panels call it after a change and the smoke suite calls it after
 ## writing a save; nothing in the run loop needs it.
 func refresh() -> void:
 	var progress: GameProgress = GameProgress.instance()
 	var stats: PilotStats = PilotStats.new(progress.level())
 
-	_continue_button.visible = GameProgress.has_save() and not in_game
+	# CONTINUE is the door to the card list, so it is offered even when the active
+	# card has never flown. Only the pause screen hides it: a run there belongs to
+	# a card and is not swapped in flight.
+	_continue_button.visible = not in_game
+	_slot_line.text = _slot_line_text()
 	_pilot_level.text = "LEVEL %d" % progress.level()
 	_pilot_kills.text = "%d KILLS   ·   %s" % [
 		progress.total_kills,
@@ -206,6 +244,7 @@ func refresh() -> void:
 	]
 	_pilot_tracks.text = _track_report(stats)
 	_disarm_reset()
+	_refresh_slots()
 
 
 ## One line per track, with the bonus the level has already bought. A level-1
@@ -227,6 +266,172 @@ func _track_report(stats: PilotStats) -> String:
 		"AUTOLOADER   -%d%% INTERVAL" % interval,
 		"GUNNERY      -%d%% SPREAD   +%d%% LOCK   +%d%% RANGE" % [spread, cone, reach],
 	])
+
+
+## The line under the tagline. Without it the active card is invisible, and a
+## player who picked card 3 in the list could not tell it from card 1.
+func _slot_line_text() -> String:
+	var summary: Dictionary = SaveSlots.summary(SaveSlots.active_slot(settings_path))
+	var name: String = "SLOT %d" % int(summary["slot"])
+	if not summary["occupied"]:
+		return "%s · NEW PILOT" % name
+	return "%s · LV %d · %d KILLS · %s" % [
+		name,
+		int(summary["level"]),
+		int(summary["kills"]),
+		_scenario_name(String(summary["scenario"])),
+	]
+
+
+## The cards are built once and only repainted: the panel opens and closes many
+## times in one session, and a rebuilt grid would drop the focus every time.
+func _build_slot_cards() -> void:
+	for slot: int in range(1, SaveSlots.SLOT_COUNT + 1):
+		var card: Button = Button.new()
+		card.custom_minimum_size = SLOT_CARD_SIZE
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		card.add_theme_font_size_override(&"font_size", 14)
+		card.add_theme_color_override(&"font_color", CARD_COLOR)
+		card.add_theme_color_override(&"font_hover_color", ACTIVE_CARD_COLOR)
+		card.add_theme_color_override(&"font_focus_color", ACTIVE_CARD_COLOR)
+		card.add_theme_color_override(&"font_pressed_color", Color(0.02, 0.03, 0.05, 1.0))
+		for state: StringName in [&"normal", &"hover", &"pressed", &"focus"]:
+			card.add_theme_stylebox_override(
+				state, _compact_style(_back_button.get_theme_stylebox(state))
+			)
+		card.pressed.connect(_on_slot_pressed.bind(slot))
+		_slots.add_child(card)
+		_slot_buttons[slot] = card
+
+
+## The card the smoke suite presses. The grid is built in code, so there is no
+## scene node to look up by name.
+func slot_button(slot: int) -> Button:
+	return _slot_buttons.get(slot) as Button
+
+
+func _refresh_slots() -> void:
+	if _slot_buttons.is_empty():
+		return
+	var active: int = SaveSlots.active_slot(settings_path)
+	for slot: int in _slot_buttons:
+		var card: Button = _slot_buttons[slot] as Button
+		var summary: Dictionary = SaveSlots.summary(slot)
+		card.text = _card_text(summary, slot == active)
+		card.add_theme_color_override(
+			&"font_color", ACTIVE_CARD_COLOR if slot == active else CARD_COLOR
+		)
+	_refresh_slot_actions()
+
+
+func _card_text(summary: Dictionary, active: bool) -> String:
+	var name: String = "SLOT %d" % int(summary["slot"])
+	if active:
+		name += "  ·  ACTIVE"
+	if not summary["occupied"]:
+		return "%s\nEMPTY SLOT" % name
+	return "%s\nLV %d  ·  %d KILLS\n%s  ·  %s" % [
+		name,
+		int(summary["level"]),
+		int(summary["kills"]),
+		_scenario_name(String(summary["scenario"])),
+		_date_label(int(summary["played"])),
+	]
+
+
+## The action row is two buttons whose meaning follows the chosen card: a card
+## that has flown offers LOAD and DELETE, an empty one offers the two scenarios
+## the new pilot can start on. Hiding and showing buttons instead would make the
+## panel jump every time the selection crossed an empty card.
+func _refresh_slot_actions() -> void:
+	var occupied: bool = bool(SaveSlots.summary(_slot_focus)["occupied"])
+	if occupied:
+		_slot_primary.text = "LOAD"
+		_slot_secondary.text = "PRESS AGAIN TO CONFIRM" if _delete_armed else "DELETE"
+	else:
+		_slot_primary.text = "START PLANET"
+		_slot_secondary.text = "START CITY"
+
+
+func _scenario_name(path: String) -> String:
+	match path:
+		CITY_SCENE:
+			return "CITY"
+		ARENA_SCENE:
+			return "ARENA"
+		"":
+			return "NO RUN YET"
+	return path.get_file().get_basename().to_upper()
+
+
+func _date_label(unix: int) -> String:
+	if unix <= 0:
+		return "NEVER FLOWN"
+	return Time.get_date_string_from_unix_time(unix)
+
+
+## A press only moves the selection. Nothing is loaded and nothing becomes active
+## until LOAD or START is pressed, which is what leaves DELETE reachable for a
+## card nobody is flying.
+func _on_slot_pressed(slot: int) -> void:
+	Sfx.play(&"ui_select")
+	_slot_focus = slot
+	_delete_armed = false
+	_refresh_slots()
+
+
+func _on_slot_primary_pressed() -> void:
+	Sfx.play(&"ui_select")
+	var summary: Dictionary = SaveSlots.summary(_slot_focus)
+	SaveSlots.select(_slot_focus, settings_path)
+	if not summary["occupied"]:
+		_open_scene(ARENA_SCENE)
+		return
+	var scene: String = String(summary["scenario"])
+	if scene.is_empty() or not ResourceLoader.exists(scene):
+		scene = ARENA_SCENE
+	_open_scene(scene)
+
+
+## The right button is DELETE for a card that has flown and CITY for an empty one:
+## starting on the night district is the other way a new pilot's first flight
+## creates the file.
+func _on_slot_secondary_pressed() -> void:
+	Sfx.play(&"ui_select")
+	var occupied: bool = bool(SaveSlots.summary(_slot_focus)["occupied"])
+	if not occupied:
+		SaveSlots.select(_slot_focus, settings_path)
+		_open_scene(CITY_SCENE)
+		return
+	if not _delete_armed:
+		_delete_armed = true
+		_refresh_slot_actions()
+		return
+	SaveSlots.erase(_slot_focus)
+	_delete_armed = false
+	refresh()
+
+
+func _open_saves() -> void:
+	_slot_focus = SaveSlots.active_slot(settings_path)
+	_delete_armed = false
+	refresh()
+	_saves.visible = true
+	var card: Button = _slot_buttons.get(_slot_focus) as Button
+	if card != null:
+		card.grab_focus()
+
+
+func _on_saves_back_pressed() -> void:
+	Sfx.play(&"ui_select")
+	_close_saves()
+
+
+func _close_saves() -> void:
+	_saves.visible = false
+	_delete_armed = false
+	_continue_button.grab_focus()
 
 
 ## The listening state has to see the press before the button under the cursor
@@ -266,6 +471,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _pilot.visible:
 			get_viewport().set_input_as_handled()
 			_close_pilot()
+		elif _saves.visible:
+			get_viewport().set_input_as_handled()
+			_close_saves()
 		elif _options.visible:
 			get_viewport().set_input_as_handled()
 			_close_options()
@@ -291,16 +499,11 @@ func _on_resume_pressed() -> void:
 	resume_requested.emit()
 
 
-## CONTINUE reopens the scenario the last run started. The path comes from the
-## save, so a future scenario only has to call `remember_scenario` to be
-## resumable; an unknown path falls back to the planet rather than to a dead
-## button.
+## CONTINUE opens the save list. The card chosen there decides what loads, so the
+## button is the door to the six pilots rather than a shortcut past them.
 func _on_continue_pressed() -> void:
 	Sfx.play(&"ui_select")
-	var scene: String = GameProgress.instance().last_scenario
-	if scene.is_empty() or not ResourceLoader.exists(scene):
-		scene = ARENA_SCENE
-	_open_scene(scene)
+	_open_saves()
 
 
 ## Both destinations are one decision -- which run to start -- so they take the
