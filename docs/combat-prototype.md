@@ -986,6 +986,16 @@ own missiles lock it. The turret's roam/orbit state machine, its hull and its
 bullet patterns are all replaced; what survives from the base is the hit flash,
 the damage bookkeeping and the `killed` signal.
 
+**The planet's sky is theirs.** The arena streams interceptors and nothing else.
+The turret and the launcher hold ground — a roam radius, a leash, a hull that
+waits for the ship to come to it — and the planet has no ground to hold, only
+open air, where the chase is the encounter the space can stage. So the turret and
+the launcher stay where the district gives them streets to sit on, and the planet
+produces one streamed contact type plus the mothership, which arrives on its own
+kill trigger. The opening contact is placed at 70 units, outside the
+interceptor's chase radius (62) and attack range (46): a contact that starts
+inside them fires on a player who has not moved the stick yet.
+
 ## The mothership
 
 The planet's final encounter is a capital ship built from
@@ -1515,12 +1525,14 @@ that ships.
    outside the frame, so the planet is sold by the rolling terrain and by the lap,
    not by a visible edge. Surface detail is the orientation landmark: on a uniform
    plane a player cannot tell they are moving, so the ground is an object-space
-   fBm shader with topographic isolines rather than a flat colour. Enemies live on
-   the planet too: they roam the surface, engage when the ship comes close and are
-   left behind when it leaves. `tests/smoke_test.tscn` drives a long run through
-   input actions and fails if the ship stops being able to travel, if the planet
-   drifts off the ship, if the planet turns by anything other than
-   `distance / PLANET_RADIUS`, or if a turret follows the ship.
+   fBm shader with topographic isolines rather than a flat colour. Enemies live
+   there too: interceptors stream in ahead of the ship, chase it, and are left
+   behind when it outruns them, and the mothership is the one other hull the
+   planet produces. `tests/smoke_test.tscn` drives a long run through input
+   actions and fails if the ship stops being able to travel, if the planet drifts
+   off the ship, if the planet turns by anything other than
+   `distance / PLANET_RADIUS`, if the planet streams anything but interceptors, or
+   if a city turret follows the ship.
 
 8. **Does the mode change the fight, or only the speed?** FIGHTER is not a
    faster GERWALK: it removes strafing and free aim, doubles the price of a bad
@@ -1614,10 +1626,9 @@ All values are named constants at the top of each script.
 | Camera shake | `entities/player/player_camera.gd` | `MAX_OFFSET`, `DECAY_PER_SECOND` |
 | Enemy engagement | `entities/enemy/turret.gd` | `AGGRO_RADIUS`, `LEASH_RADIUS`, `ORBIT_RADIUS`, `PURSUIT_SPEED`, `STRAFE_SPEED` |
 | Missile launcher | `entities/enemy/missile_enemy.gd` | `LAUNCHER_HP`, `SALVO_MISSILES`, `MISSILE_SPEED`, `MISSILE_TURN_RATE`, `MISSILE_DAMAGE`, `MISSILE_LIFETIME`, `MISSILE_SPREAD_DEGREES`, `LAUNCH_TELEGRAPH`, `LAUNCH_RECOVER` |
-| Launcher share of the population | `levels/arena/arena.gd` | `MISSILE_ENEMY_SHARE` |
-| Interceptor flight | `entities/enemy/fighter_enemy.gd` | `FIGHTER_HP`, `TOP_SPEED` (34), `FLOOR_SPEED`, `ACCELERATION`, `TURN_RATE`, `CHASE_RADIUS`, `BREAK_OFF_RADIUS`, `ATTACK_RANGE`, `MIN_LAUNCH_RANGE`, `AIM_TOLERANCE_DEGREES` |
+| Interceptor flight | `entities/enemy/fighter_enemy.gd` | `FIGHTER_HP` (8), `TOP_SPEED` (34), `FLOOR_SPEED`, `ACCELERATION`, `TURN_RATE`, `CHASE_RADIUS`, `BREAK_OFF_RADIUS`, `ATTACK_RANGE`, `MIN_LAUNCH_RANGE`, `AIM_TOLERANCE_DEGREES` |
 | Interceptor salvo | `entities/enemy/fighter_enemy.gd` | `SALVO`, `MISSILE_SPEED`, `MISSILE_TURN_RATE`, `MISSILE_DAMAGE`, `MISSILE_SPREAD_DEGREES`, `WARNING_TIME`, `EXTEND_TIME`, `RELOAD_TIME` |
-| Interceptor share of the population | `levels/arena/arena.gd` | `FIGHTER_ENEMY_SHARE` |
+| Planet roster | `levels/arena/arena.gd` | `FIGHTER_ENEMY_SCENE` is the only streamed hull; add a second one to `_spawn_enemy()` to widen it. `FIRST_SPAWN_DISTANCE` (70) sits outside the interceptor's chase (62) and attack (46) radii |
 | Mothership hull and arrival | `entities/enemy/boss.gd`, `levels/arena/arena.gd` | `SCALE` (13.8), `MODEL_SIZE`/`MODEL_CENTER`, `GROUND_Y`, `BOSS_HP` (1200), `BOSS_SCORE` (5000), `BOSS_KILL_THRESHOLD` (12), `BOSS_SPAWN_DISTANCE` (150) |
 | Mothership flight and phases | `entities/enemy/boss.gd` | `CRUISE_SPEED` (7), `PHASE_TWO_SPEED` (10), `TURN_RATE_DEGREES` (12), `PHASE_TWO_TURN_RATE` (18), `PHASE_TWO_RATIO` (0.6), `FIRST_BURST_DELAY` (2.2), `FIRST_BURST_STAGGER` (0.9) |
 | Mothership target points | `entities/enemy/boss.gd`, `entities/enemy/boss_part.gd` | `SECTION_COUNT` (3), `PARTS_PER_SECTION` (2), `PART_COUNT` (6), `PART_HP` (200), `PART_FIRE_THRESHOLDS` (0.90, 0.55), `PART_BLAST_SCALE/SHAKE`, `LOCK_MARK_HALF` (5.0 x 3.2), one `LockAnchor` per section |
@@ -1628,7 +1639,7 @@ All values are named constants at the top of each script.
 | Mothership burning | `entities/enemy/boss.gd`, `entities/enemy/hull_fire.gd` | `PART_FIRE_THRESHOLDS`, `FIRE_ANCHORS`, `FLAME_SIZE` (14), `CORE_SIZE` (6), `FLAME_ASPECT` (1.9), `SMOKE_AMOUNT` (20), `HIT_FLASH_SIZE` (7) |
 | Missile lock mark | `combat/lock_reticle.gd`, `entities/enemy/turret.gd` | `HALF_SIZE` (2.6), `set_mark_size(half, lift)`; `Enemy.lock_mark()` returns zero for the resting box, `Boss` returns the middle third |
 | Enemy roaming | `entities/enemy/turret.gd` | `ROAM_SPEED`, `ROAM_LEG_MIN`, `ROAM_LEG_MAX`, `ROAM_LEG_TIME` |
-| Encounter streaming | `levels/arena/arena.gd` | `MAX_ENEMIES`, `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE` |
+| Encounter streaming | `levels/arena/arena.gd` | `MAX_ENEMIES` (3), `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE`; every streamed contact is an interceptor |
 
 ## Architecture
 
@@ -1973,9 +1984,9 @@ actions, so it exercises the same path a player does.
   ship mesh sets `SHADOW_CASTING_SETTING_OFF`. A dedicated shadow would need its
   own light or a blob quad, and altitude is currently read from the camera framing
   and the plume instead.
-- **No wave escalation.** A population of up to 3 enemies — one in three a missile
-  launcher — is streamed around the ship, so the planet stays inhabited and the
-  difficulty stays flat (FR-10 is still a proposal, not implemented).
+- **No wave escalation.** A population of up to 3 interceptors is streamed around
+  the ship, so the planet stays inhabited and the difficulty stays flat (FR-10 is
+  still a proposal, not implemented).
 - **The planet no longer shows a limb.** At `PLANET_RADIUS = 1600` the surface
   fills the frame, so the star field is effectively scenery and the "globe" read
   comes from rolling terrain, not from a visible edge. The star shell still sits

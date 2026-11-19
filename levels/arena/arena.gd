@@ -15,9 +15,9 @@ extends Node3D
 ## PLANET_RADIUS brings the same terrain back under the ship, which is what makes
 ## the planet finite and circumnavigable without a wall at the edge.
 ##
-## Encounters are streamed rather than placed: turrets roam the surface on their
-## own and are spawned ahead of the ship, so travelling is how the player finds
-## them and leaving them behind is how the planet stays worth crossing.
+## Encounters are streamed rather than placed: interceptors patrol the open air on
+## their own and are spawned ahead of the ship, so travelling is how the player
+## finds them and leaving them behind is how the planet stays worth crossing.
 
 const SCENE_PATH: String = "res://levels/arena/arena.tscn"
 
@@ -42,37 +42,38 @@ const GROUND_Y: float = -1.5
 const PLANET_SEGMENTS: int = 192
 const PLANET_RINGS: int = 96
 
-## Encounters. The planet is far too large to hold a fixed set of turrets around
+## Encounters. The planet is far too large to hold a fixed set of contacts around
 ## the ship, so the arena streams them: a small population follows the player at
 ## a distance, spawning off screen ahead and freeing whoever was left behind.
+##
+## The sky belongs to one archetype. The turret and the launcher are city fights --
+## they hold ground and the district gives them something to hold -- while the
+## planet is open air, where the interceptor's chase is the only encounter the space
+## can stage. So the arena spawns interceptors and nothing else; the mothership is
+## the one other thing that arrives, and it arrives on its own trigger.
 const MAX_ENEMIES: int = 3
 const SPAWN_INTERVAL: float = 2.0
-const FIRST_SPAWN_DISTANCE: float = 30.0
+## The opening contact is deliberately out of the interceptor's chase radius (62)
+## and well outside its attack range (46): a contact that starts inside them fires
+## on a player who has not moved the stick yet.
+const FIRST_SPAWN_DISTANCE: float = 70.0
 const FIRST_SPAWN_ANGLE: float = 0.42
 const SPAWN_DISTANCE_MIN: float = 85.0
 const SPAWN_DISTANCE_MAX: float = 110.0
-## Half-width of the cone around the ship's heading where new turrets appear.
+## Half-width of the cone around the ship's heading where new contacts appear.
 const SPAWN_HEADING_SPREAD: float = 0.7
 const DESPAWN_DISTANCE: float = 190.0
 const SPAWN_SEED: int = 20261022
 
-const ENEMY_SCENE: PackedScene = preload("res://entities/enemy/turret.tscn")
-const MISSILE_ENEMY_SCENE: PackedScene = preload("res://entities/enemy/missile_enemy.tscn")
 const FIGHTER_ENEMY_SCENE: PackedScene = preload("res://entities/enemy/fighter_enemy.tscn")
 const BOSS_SCENE: PackedScene = preload("res://entities/enemy/boss.tscn")
-## The final encounter arrives once the run has earned it. Twelve kills is about
-## the point where the player has met all three archetypes and has the weapons
-## they need, so the mothership is a climax instead of a wall.
+## The final encounter arrives once the run has earned it. Twelve downed
+## interceptors is enough for the player to have learned the chase and to carry
+## the weapons it takes to hurt a capital ship, so the mothership is a climax
+## instead of a wall.
 const BOSS_KILL_THRESHOLD: int = 12
 ## Far enough ahead that the hull clears the horizon before it starts shooting.
 const BOSS_SPAWN_DISTANCE: float = 150.0
-## One launcher in three. It is a priority target, not the baseline pressure: a ring
-## of them would turn every encounter into a missile-only fight.
-const MISSILE_ENEMY_SHARE: float = 0.34
-## And one interceptor in five. It is the only contact that chases the ship across
-## the surface, so it stays a minority: a sky of them would make every fight the
-## same chase, and the planet would stop being a place to explore.
-const FIGHTER_ENEMY_SHARE: float = 0.20
 
 const STAR_COUNT: int = 700
 const STAR_MIN_DISTANCE: float = 320.0
@@ -118,12 +119,12 @@ func _ready() -> void:
 
 	_last_player_position = _player.global_position
 	_rng.seed = SPAWN_SEED
-	# One turret within engagement range so the prototype starts with a fight;
-	# the streaming spawner brings the rest once the ship starts exploring. It is
-	# forced to a turret on purpose: the opening contact is the one the player
-	# learns the game on, and a chase or a launcher is not the first lesson.
+	# One contact in view so the prototype starts with a fight; the streaming
+	# spawner brings the rest once the ship starts exploring. It is placed beyond
+	# the interceptor's attack range on purpose: the opening pass is a chase the
+	# player joins, not a salvo they eat while reading the HUD.
 	_spawn_timer = SPAWN_INTERVAL
-	_spawn_enemy(FIRST_SPAWN_DISTANCE, FIRST_SPAWN_ANGLE, ENEMY_SCENE)
+	_spawn_enemy(FIRST_SPAWN_DISTANCE, FIRST_SPAWN_ANGLE)
 
 
 func _physics_process(delta: float) -> void:
@@ -286,9 +287,9 @@ func _build_clouds() -> void:
 	clouds.setup(_player)
 
 
-## Keeps a small population of turrets around the ship. Whoever was left farther
-## than the despawn radius is freed, which stops a long flight from piling up idle
-## nodes, and the replacement spawns ahead of the ship so exploring keeps
+## Keeps a small population of interceptors around the ship. Whoever was left
+## farther than the despawn radius is freed, which stops a long flight from piling
+## up idle nodes, and the replacement spawns ahead of the ship so exploring keeps
 ## producing encounters instead of emptying the planet.
 func _maintain_population(delta: float) -> void:
 	_spawn_timer = maxf(_spawn_timer - delta, 0.0)
@@ -329,7 +330,7 @@ func _planar_distance(point: Vector3) -> float:
 	).length()
 
 
-## Bias new turrets to the hemisphere the ship is heading into. A plain ring
+## Bias new contacts to the hemisphere the ship is heading into. A plain ring
 ## would drop half of them behind the player, where they are despawned without
 ## ever being seen.
 func _spawn_angle() -> float:
@@ -340,28 +341,14 @@ func _spawn_angle() -> float:
 	return base + _rng.randf_range(-SPAWN_HEADING_SPREAD, SPAWN_HEADING_SPREAD)
 
 
-func _spawn_enemy(
-	distance: float, angle: float, scene: PackedScene = null
-) -> void:
-	if scene == null:
-		scene = _pick_enemy_scene()
-
-	var enemy: Enemy = scene.instantiate()
+## The planet has one archetype, so there is no roll here: every streamed contact
+## is an interceptor. The turret and the launcher stay in the city's pool.
+func _spawn_enemy(distance: float, angle: float) -> void:
+	var enemy: Enemy = FIGHTER_ENEMY_SCENE.instantiate()
 	_enemies.add_child(enemy)
 
 	var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * distance
 	enemy.setup_spawn(_player.global_position + offset)
-
-
-## One roll, three buckets: the share of the launcher and the interceptor are read
-## against the same number so the two cannot drift out of tune with each other.
-func _pick_enemy_scene() -> PackedScene:
-	var roll: float = _rng.randf()
-	if roll < MISSILE_ENEMY_SHARE:
-		return MISSILE_ENEMY_SCENE
-	if roll < MISSILE_ENEMY_SHARE + FIGHTER_ENEMY_SHARE:
-		return FIGHTER_ENEMY_SCENE
-	return ENEMY_SCENE
 
 
 ## Every kill pays what the hull was worth. The enemy emits the event with its own

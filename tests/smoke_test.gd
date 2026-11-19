@@ -55,6 +55,7 @@ func _ready() -> void:
 	_arena.set("_run_kills", -1000)
 
 	_test_player_is_centered()
+	await _test_planet_roster()
 	await _test_pilot_progression()
 	_test_save_slots()
 	_test_render_scale()
@@ -64,7 +65,7 @@ func _ready() -> void:
 	await _test_movement()
 	await _test_firing()
 	await _test_enemy_patterns()
-	await _test_enemies_roam_the_planet()
+	await _test_turret_roams_on_its_own()
 	await _test_missile_enemy()
 	await _test_clouds()
 	await _test_fighter_enemy()
@@ -1193,6 +1194,45 @@ func _test_player_is_centered() -> void:
 	_check(offset < 1.0, "player projects to the screen centre (off by %.2f px)" % offset)
 
 
+## The planet's sky belongs to one archetype: the turret and the launcher are city
+## fights, so the arena streams interceptors and nothing else. The mothership is
+## the one other hull that arrives, and it arrives on its own trigger. This pins
+## the roster at both ends -- the opening contact and the stream -- because a
+## rebalance that quietly re-adds a turret would only show up as a difficulty
+## change nobody asked for.
+func _test_planet_roster() -> void:
+	var enemies: Node3D = _arena.get_node("Enemies") as Node3D
+	var opening: Node = enemies.get_child(0) if enemies.get_child_count() > 0 else null
+	_check(opening is FighterEnemy, "the planet opens with an interceptor")
+
+	_clear_enemies()
+	await get_tree().physics_frame
+	for _spawn: int in range(Arena.MAX_ENEMIES):
+		_arena.set("_spawn_timer", 0.0)
+		_arena.call("_maintain_population", 1.0)
+
+	var impostors: Array[String] = []
+	for node in enemies.get_children():
+		if not (node is FighterEnemy):
+			impostors.append(String(node.name))
+	_check(
+		enemies.get_child_count() > 0 and impostors.is_empty(),
+		"the planet streams nothing but interceptors (%d contact(s))"
+		% enemies.get_child_count()
+	)
+
+	_clear_enemies()
+	await get_tree().physics_frame
+
+	# The stream is parked for the rest of the suite. An interceptor chases and
+	# fires a guided pair, so three of them shoot a stationary run down long before
+	# the last test -- and this suite is stationary by design. What the streamer
+	# does was just proven above by driving it directly, which is also the
+	# deterministic way to check it: no test waits on a wall clock for a contact to
+	# arrive. `_test_radar` parks it the same way for its own bookkeeping.
+	_arena.set("_spawn_timer", 1.0e9)
+
+
 ## A save card is a pilot: the kills, the level derived from them, the scenario
 ## they flew last and when. The suite runs on scratch cards, so it can create,
 ## erase and migrate them freely.
@@ -1375,8 +1415,8 @@ func _test_pilot_progression() -> void:
 	_check(FileAccess.file_exists(TEST_PROGRESS), "the corrupt file is kept for inspection")
 
 	# One enemy, one kill on the record, one event on the bus. The planet's own
-	# population is left alone: the arena spawns its opening turret before this test
-	# runs, and the streaming spawner is what later tests expect to find.
+	# population is left alone: the arena spawns its opening interceptor before this
+	# test runs, and the streaming spawner is what later tests expect to find.
 	GameProgress.use_path(TEST_PROGRESS)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_PROGRESS))
 	var events: Array[int] = []
@@ -3338,9 +3378,19 @@ func _test_firing() -> void:
 	_check(after > before, "firing spawns player projectiles (%d -> %d)" % [before, after])
 
 
+## The turret's two halves are pinned here -- it engages on its own and it holds
+## its ring -- and neither depends on what the arena streamed. The test spawns the
+## turret itself: the planet streams interceptors now, and the stream is parked
+## after `_test_planet_roster`.
 func _test_enemy_patterns() -> void:
-	var enemies: Array[Node] = get_tree().get_nodes_in_group(&"enemy")
-	_check(enemies.size() >= 1, "the planet is populated (found %d)" % enemies.size())
+	_clear_enemies()
+	await get_tree().physics_frame
+	_player.velocity = Vector3.ZERO
+
+	var contact: Enemy = _spawn_turret(_player.global_position + Vector3(30.0, 0.0, 0.0))
+	_check(contact != null, "a contact is on the field for the pattern check")
+	if contact == null:
+		return
 
 	var saw_enemy_bullets: bool = false
 	for _i in 300:
@@ -3351,26 +3401,34 @@ func _test_enemy_patterns() -> void:
 
 	_check(saw_enemy_bullets, "enemy emits a bullet pattern within 5 s")
 
-	if not enemies.is_empty():
-		var enemy: Enemy = enemies[0] as Enemy
-		var distance: float = _flat_distance(enemy.global_position, _player.global_position)
+	if is_instance_valid(contact):
+		var distance: float = _flat_distance(
+			contact.global_position, _player.global_position
+		)
 		_check(
 			absf(distance - Enemy.ORBIT_RADIUS) < 8.0,
 			"the engaged turret holds the ring radius (%.1f units)" % distance
 		)
 
+	_clear_enemies()
+	await get_tree().physics_frame
 
-## A large planet is only worth exploring if enemies belong to it. A turret pinned
-## to the ship would follow the player forever and the trip would change nothing,
-## so this drives the ship away and asserts both halves of the behaviour: the
-## turret is left behind, and it keeps moving on its own.
-func _test_enemies_roam_the_planet() -> void:
-	var enemies: Array[Node] = get_tree().get_nodes_in_group(&"enemy")
-	if enemies.is_empty():
-		_check(false, "an enemy is available for the roaming check")
+
+## The turret is a city enemy: the planet streams interceptors, and an interceptor
+## chases by design. What is pinned here is the turret's own rule -- it patrols
+## instead of following the ship, so travelling past it changes nothing -- because
+## the district still spawns them. The test spawns one instead of taking whatever
+## the arena happened to stream.
+func _test_turret_roams_on_its_own() -> void:
+	_clear_enemies()
+	await get_tree().physics_frame
+	_player.velocity = Vector3.ZERO
+
+	var enemy: Enemy = _spawn_turret(_player.global_position + Vector3(30.0, 0.0, 0.0))
+	if enemy == null:
+		_check(false, "a turret is available for the roaming check")
 		return
 
-	var enemy: Enemy = enemies[0] as Enemy
 	var start: Vector3 = enemy.global_position
 
 	_player.global_position = enemy.global_position + Vector3(0.0, 0.0, 120.0)
@@ -3392,8 +3450,11 @@ func _test_enemies_roam_the_planet() -> void:
 	)
 	_check(
 		roamed > 1.0,
-		"the turret roams the planet on its own (%.1f units in 1.5 s)" % roamed
+		"the turret roams on its own (%.1f units in 1.5 s)" % roamed
 	)
+
+	_clear_enemies()
+	await get_tree().physics_frame
 
 
 ## The launcher is a new threat, not a new rule set: it has to be a real enemy, so
