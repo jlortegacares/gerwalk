@@ -970,15 +970,17 @@ nose, hangs a 5.5-unit aim beam off the nose for 0.72 s, then fires a pair of
 guided missiles from the wing hardpoints. After the launch it extends for 2.1 s
 before it comes back, which is the window to punish the pass.
 
-The salvo is the launcher's, one step faster: 36 u/s against the launcher's 33, so
-it still closes on a hovering ship but stays under the burner. Both the decoy and
-shooting it down work exactly as they do against the launcher, because it is the
-same `Projectile` with the same enemy-missile layer.
+The salvo is the launcher's, one step faster: 47 u/s against the launcher's 45.
+Both fly above the level-1 burner (42) and above the player's own missile (42), so
+committing to a straight line no longer shakes them; both stay under FIGHTER cruise
+(48.2), which is the clean out that is left. The decoy and shooting it down work
+exactly as they do against the launcher, because it is the same `Projectile` with
+the same enemy-missile layer.
 
 Its flight profile is the player's, not the launcher's: the pair holds its heading
 for `MISSILE_GUIDANCE_DELAY` so the two lines separate, then weaves on
 `MISSILE_WEAVE_*` with one phase per shot, and its turn rate is the player's 5.2
-rather than the launcher's 1.6, because the weave cannot bend a path on a 21-unit
+rather than the launcher's 1.6, because the weave cannot bend a path on a 29-unit
 radius. Only the warhead, the speed and the paint stay the enemy's.
 
 It inherits from `Enemy` for the identity rather than for the movement. Being an
@@ -1636,7 +1638,7 @@ All values are named constants at the top of each script.
 | Mothership target points | `entities/enemy/boss.gd`, `entities/enemy/boss_part.gd` | `SECTION_COUNT` (3), `PARTS_PER_SECTION` (2), `PART_COUNT` (6), `PART_HP` (200), `PART_FIRE_THRESHOLDS` (0.90, 0.55), `PART_BLAST_SCALE/SHAKE`, `LOCK_MARK_HALF` (5.0 x 3.2), one `LockAnchor` per section |
 | Mothership section guns | `entities/enemy/boss.gd`, `entities/enemy/boss_weapon.gd` | `WEAPON_KINDS` (vulcan, missiles, laser); vulcan `VULCAN_WINDUP/BURST/INTERVAL/RECOVER/READY/PELLETS/SPREAD_DEGREES/SPEED`; laser `LASER_WINDUP/DURATION/RECOVER/READY/WIDTH/HIT_RADIUS/DAMAGE/PITCH`; missiles `MISSILE_WINDUP/RECOVER/READY/SALVO/SPREAD_DEGREES`; `PHASE_TWO_HURRY` (0.62) |
 | Mothership ring | `entities/enemy/boss.gd` | `RING_READY` (5), `BOSS_RING_BULLETS` (24), `BOSS_RING_SPEED` (26), `_hull_edge()` |
-| Mothership missiles | `entities/enemy/boss.gd` | `BOSS_MISSILE_SPEED` (33), `BOSS_MISSILE_DAMAGE` (2), `BOSS_MISSILE_TURN_RATE` (1.6), `BOSS_MISSILE_LIFETIME` (6), `BOSS_MISSILE_SIZE` |
+| Mothership missiles | `entities/enemy/boss.gd` | `BOSS_MISSILE_SPEED` (45), `BOSS_MISSILE_DAMAGE` (2), `BOSS_MISSILE_TURN_RATE` (1.6), `BOSS_MISSILE_LIFETIME` (6), `BOSS_MISSILE_SIZE` |
 | Mothership break-up | `entities/enemy/boss.gd` | `DEATH_BLASTS` (12), `DEATH_STEP` (0.11), `CASCADE_SHAKE` (0.5), `CASCADE_SCALE` (2.2), `FINAL_SHAKE` (3), `FINAL_SCALE` (6) |
 | Mothership burning | `entities/enemy/boss.gd`, `entities/enemy/hull_fire.gd` | `PART_FIRE_THRESHOLDS`, `FIRE_ANCHORS`, `FLAME_SIZE` (14), `CORE_SIZE` (6), `FLAME_ASPECT` (1.9), `SMOKE_AMOUNT` (20), `HIT_FLASH_SIZE` (7) |
 | Missile lock mark | `combat/lock_reticle.gd`, `entities/enemy/turret.gd` | `HALF_SIZE` (2.6), `set_mark_size(half, lift)`; `Enemy.lock_mark()` returns zero for the resting box, `Boss` returns the middle third |
@@ -1965,10 +1967,15 @@ actions, so it exercises the same path a player does.
   pooled manager or `PhysicsServer3D` (NFR-05). Not measured yet.
 - **No music or voice.** The palette is effects only: no soundtrack, no announcer,
   no dialogue. The ship, the weapons and the interface are the whole voice.
-- **The afterburner outruns everything on purpose.** `BOOST_SPEED` (42) sits far
-  above `PURSUIT_SPEED` (24) and above the launcher's missile (33), so a full
-  reserve buys a clean disengage. The reserve is the price; if escaping stops
-  feeling earned, raise the drain before lowering the speed.
+- **The afterburner outruns the hulls, not the salvos.** `BOOST_SPEED` (42) still
+  sits above `PURSUIT_SPEED` (24) and above the interceptor's ceiling (34), so the
+  burner leaves the airframes behind. It no longer outruns the missiles: the
+  launcher and the mothership fire at 45 and the interceptor at 47, above the
+  level-1 burner on purpose, so a full reserve buys distance from the hulls while a
+  turn, a dash, a decoy, a bank or the FIGHTER transform is what actually beats a
+  shot. A high-level pilot's burner scales past that (50.4 at level 100) and the
+  clean disengage comes back as the reward. If it feels too weak at level 1, raise
+  `BOOST_SPEED`, not the drain: the salvos were tuned against it.
 - **Shift no longer dashes.** It is the afterburner now; the dash is Space. The
   keyboard mapping is the one binding that changed when the burner landed.
 - **No art.** Every visual is a runtime placeholder mesh built in code; the

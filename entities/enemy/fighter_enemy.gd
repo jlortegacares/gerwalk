@@ -72,11 +72,14 @@ const EXTEND_TIME: float = 2.1
 
 ## The salvo is a pair off the wing hardpoints, like the player's own: the shot
 ## leaves from where the wing is, so a swept wing fires from the swept hardpoint.
+## It flies above the launcher's 45 and above every level-1 escape route, but still
+## under FIGHTER cruise (48.2): the interceptor's salvo is the fastest thing in the
+## sky that is not the player's own ship, and the transform is the answer to it.
 const SALVO: int = 2
-const MISSILE_SPEED: float = 36.0
+const MISSILE_SPEED: float = 47.0
 const MISSILE_DAMAGE: int = 2
 ## The player's turn rate, because the weave below needs it: a turn rate is a turn
-## radius, and the interceptor's old 1.7 (a 21-unit radius at this speed) cannot
+## radius, and the interceptor's old 1.7 (a 27-unit radius at this speed) cannot
 ## bend a path more than once before the shot arrives, so the braid would be a
 ## straight line with a kink in it.
 const MISSILE_TURN_RATE: float = 5.2

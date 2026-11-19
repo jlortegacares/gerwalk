@@ -19,12 +19,11 @@ const LAUNCHER_HP: int = 12
 const KILL_SCORE: int = 250
 
 const SALVO_MISSILES: int = 2
-## Faster than the hover's cruise (26.8), so running away in GERWALK does not work:
-## the shot closes about 6 units a second. It stays below the afterburner (42) and
-## well below FIGHTER cruise (48.2), so the burner, the transform, a hard turn, a
-## dash or a decoy all still break it. The threat is the commitment it forces, not
-## an unanswerable chase.
-const MISSILE_SPEED: float = 33.0
+## Outruns every level-1 escape route: the hover's cruise (26.8), the burner (42) and
+## the player's own missile (42). Committing to a straight line no longer shakes it.
+## It stays under FIGHTER's cruise (48.2), which is what is left of the clean out:
+## the threat is the commitment the salvo forces, not an unanswerable chase.
+const MISSILE_SPEED: float = 45.0
 const MISSILE_DAMAGE: int = 2
 const MISSILE_TURN_RATE: float = 1.6
 const MISSILE_SIZE: Vector3 = Vector3(0.50, 0.42, 2.1)

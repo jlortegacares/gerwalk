@@ -67,6 +67,7 @@ func _ready() -> void:
 	await _test_enemy_patterns()
 	await _test_turret_roams_on_its_own()
 	await _test_missile_enemy()
+	_test_enemy_missile_pacing()
 	await _test_clouds()
 	await _test_fighter_enemy()
 	await _test_enemy_death_blast()
@@ -3514,6 +3515,42 @@ func _test_missile_enemy() -> void:
 	_clear_enemies()
 	_clear_projectiles()
 	await get_tree().physics_frame
+
+
+## Every hostile salvo has to out-run the ship's level-1 escape routes, not just the
+## hover: the player's own missile (42) and the burner (42). A straight line no
+## longer shakes a salvo, so the counterplay is the turn, the dash, the decoy, the
+## cloud and the transform. The ceiling matters as much as the floor -- both stay
+## under FIGHTER cruise (48.2), so the next clean out still exists. The mothership
+## keeps the launcher's number on purpose: which hull fired must not change the answer.
+func _test_enemy_missile_pacing() -> void:
+	var slowest: float = minf(MissileEnemy.MISSILE_SPEED, FighterEnemy.MISSILE_SPEED)
+	var fastest: float = maxf(MissileEnemy.MISSILE_SPEED, FighterEnemy.MISSILE_SPEED)
+
+	_check(
+		MissileEnemy.MISSILE_SPEED > Player.BOOST_SPEED,
+		"the launcher's salvo outruns the level-1 burner (%.0f > %.0f)"
+		% [MissileEnemy.MISSILE_SPEED, Player.BOOST_SPEED]
+	)
+	_check(
+		FighterEnemy.MISSILE_SPEED > Player.BOOST_SPEED,
+		"the interceptor's salvo outruns the level-1 burner (%.0f > %.0f)"
+		% [FighterEnemy.MISSILE_SPEED, Player.BOOST_SPEED]
+	)
+	_check(
+		slowest > Arsenal.MISSILE_SPEED,
+		"both salvos outrun the player's own missile (%.0f/%.0f > %.0f)"
+		% [MissileEnemy.MISSILE_SPEED, FighterEnemy.MISSILE_SPEED, Arsenal.MISSILE_SPEED]
+	)
+	_check(
+		is_equal_approx(Boss.BOSS_MISSILE_SPEED, MissileEnemy.MISSILE_SPEED),
+		"the mothership fires the launcher's salvo (%.0f)" % Boss.BOSS_MISSILE_SPEED
+	)
+	_check(
+		fastest < Player.FIGHTER_SPEED,
+		"FIGHTER cruise still leaves a salvo behind (%.0f < %.0f)"
+		% [fastest, Player.FIGHTER_SPEED]
+	)
 
 
 ## The cloud deck is cover, not scenery. One density field drives both the puffs the

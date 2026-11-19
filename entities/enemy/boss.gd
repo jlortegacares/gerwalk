@@ -91,7 +91,7 @@ const BOSS_RING_SPEED: float = 26.0
 ## The middle section's pair. The tuning matches `MissileEnemy` on purpose: the
 ## counterplay — turn, dash, transform, decoy — must not change because the missile
 ## came from a capital ship instead of a launcher.
-const BOSS_MISSILE_SPEED: float = 33.0
+const BOSS_MISSILE_SPEED: float = 45.0
 const BOSS_MISSILE_DAMAGE: int = 2
 const BOSS_MISSILE_TURN_RATE: float = 1.6
 const BOSS_MISSILE_LIFETIME: float = 6.0
