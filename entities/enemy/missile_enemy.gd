@@ -1,11 +1,15 @@
 class_name MissileEnemy
-extends Enemy
+extends Turret
 ## Missile launcher. It keeps the turret's body and movement — roam, engage, orbit,
 ## leash — and replaces the bullet patterns with a guided pair. The threat is the
 ## turn: the shot outruns the hover's cruise, so flying away only works with the
 ## burner or by transforming, and a hard turn, a dash or a decoy breaks the lock.
 ## The fight is about spending the warning window instead of out-drawing a wall of
 ## bullets.
+##
+## It extends `Turret` rather than `Enemy` because that is what it is: the turret's
+## hull and state machine with a different gun. Only the pool, the colour, the two
+## clocks and the firing need to be said here.
 ##
 ## Everything else is inherited on purpose: the arena streams it, the radar sees
 ## it, the bomb damages it and the player's missiles lock it, because it is still
@@ -45,10 +49,13 @@ func score_value() -> int:
 	return KILL_SCORE
 
 
+func max_hp() -> int:
+	return LAUNCHER_HP
+
+
 func _ready() -> void:
 	# A variant repaints and re-times itself before the inherited `_ready` builds
 	# the visual and reads the clock, so the state machine never has to be copied.
-	_hp = LAUNCHER_HP
 	_base_color = LAUNCHER_COLOR
 	_telegraph_time = LAUNCH_TELEGRAPH
 	_recover_time = LAUNCH_RECOVER

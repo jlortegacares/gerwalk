@@ -1585,7 +1585,7 @@ All values are named constants at the top of each script.
 | Weapon sound cues | `entities/player/weapon_system.gd` | one `Sfx.play` per shot; `_laser_sounding` gates the beam ignition; `missile_launch` pitch climbs with the salvo index |
 | Ship sound cues | `entities/player/player.gd` | `Sfx.play` on `_start_transform`, `_start_gerwalk_dash`, `_start_barrel_roll` and `take_damage`; `_burning` hysteresis for the ignition; `Sfx.engine()` every frame |
 | Enemy sound cues | `entities/enemy/*.gd` | `Sfx.play_at` on `_fire_pattern` (`enemy_fire`, `missile_warning`) and on `_spawn_explosion` (`explosion`) |
-| Enemy score | `entities/enemy/*.gd` | `Enemy.SCORE_VALUE` (100), `FighterEnemy.KILL_SCORE` (200), `MissileEnemy.KILL_SCORE` (250); the arena sums them into the run total |
+| Enemy score | `entities/enemy/*.gd` | `Turret.SCORE_VALUE` (100), `FighterEnemy.KILL_SCORE` (200), `MissileEnemy.KILL_SCORE` (250); the arena sums them into the run total |
 | Bomb shockwave look | `combat/bomb_wave.gd` | `RING_BAND`, `RING_COLOR`, `Arsenal.BOMB_WAVE_TIME` |
 | Detonation wave | `common/shock_wave.gd` | `FLASH_START`, `FLASH_END`, `FLASH_TIME`, `RING_HOT`, `RING_COOL`, `RING_START`, `RING_END_RADIUS`, `RING_TIME`, `RING_BAND`; `Projectile._spawn_impact` picks it for `Style.MISSILE`, `ShipExplosion` adds it to every hull death with `WAVE_SCALE` (1.1) and `flash_enabled` off |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
@@ -1641,7 +1641,7 @@ All values are named constants at the top of each script.
 | Mothership missiles | `entities/enemy/boss.gd` | `BOSS_MISSILE_SPEED` (45), `BOSS_MISSILE_DAMAGE` (2), `BOSS_MISSILE_TURN_RATE` (1.6), `BOSS_MISSILE_LIFETIME` (6), `BOSS_MISSILE_SIZE` |
 | Mothership break-up | `entities/enemy/boss.gd` | `DEATH_BLASTS` (12), `DEATH_STEP` (0.11), `CASCADE_SHAKE` (0.5), `CASCADE_SCALE` (2.2), `FINAL_SHAKE` (3), `FINAL_SCALE` (6) |
 | Mothership burning | `entities/enemy/boss.gd`, `entities/enemy/hull_fire.gd` | `PART_FIRE_THRESHOLDS`, `FIRE_ANCHORS`, `FLAME_SIZE` (14), `CORE_SIZE` (6), `FLAME_ASPECT` (1.9), `SMOKE_AMOUNT` (20), `HIT_FLASH_SIZE` (7) |
-| Missile lock mark | `combat/lock_reticle.gd`, `entities/enemy/turret.gd` | `HALF_SIZE` (2.6), `set_mark_size(half, lift)`; `Enemy.lock_mark()` returns zero for the resting box, `Boss` returns the middle third |
+| Missile lock mark | `combat/lock_reticle.gd`, `entities/enemy/enemy.gd`, `entities/enemy/turret.gd` | `HALF_SIZE` (2.6), `set_mark_size(half, lift)`; `Enemy.lock_mark()` returns zero for the resting box, `Turret` inherits it and `Boss` returns the middle third |
 | Enemy roaming | `entities/enemy/turret.gd` | `ROAM_SPEED`, `ROAM_LEG_MIN`, `ROAM_LEG_MAX`, `ROAM_LEG_TIME` |
 | Encounter streaming | `levels/arena/arena.gd` | `MAX_ENEMIES` (3), `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE`; every streamed contact is an interceptor |
 
@@ -1665,8 +1665,9 @@ combat/decoy.gd                 dropped flare: takes the lock of nearby guided s
 combat/lock_reticle.gd          world-space mark on a radar lock, dies with its target; size follows the target's footprint
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
 entities/player/weapon_system.gd  primaries, missiles, the bomb and the decoy, spawned per ship
+entities/enemy/enemy.gd          the hostile contract: enemy group, pool, hit flash, `killed`, death, lock-mark defaults
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
-entities/enemy/missile_enemy.gd launcher variant: the same movement, a guided salvo instead of patterns
+entities/enemy/missile_enemy.gd launcher variant: the turret's movement and hull, a guided salvo instead of patterns
 entities/enemy/fighter_enemy.gd interceptor: the player's airframe and flight model, a missile pass and a break
 entities/enemy/boss.gd          mothership: GLB hull, slow flight, three section guns, two phases, break-up
 entities/enemy/boss_part.gd     one of the hull's three target points, one per section: pool, collider, damage and destroyed signals

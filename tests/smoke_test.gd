@@ -3407,7 +3407,7 @@ func _test_enemy_patterns() -> void:
 			contact.global_position, _player.global_position
 		)
 		_check(
-			absf(distance - Enemy.ORBIT_RADIUS) < 8.0,
+			absf(distance - Turret.ORBIT_RADIUS) < 8.0,
 			"the engaged turret holds the ring radius (%.1f units)" % distance
 		)
 
@@ -5194,7 +5194,7 @@ func _test_bomb(weapons: WeaponSystem) -> void:
 func _test_bomb_refill(weapons: WeaponSystem) -> void:
 	var before: int = weapons.bomb_charges()
 	for _i in Arsenal.BOMB_KILLS_PER_CHARGE:
-		GlobalEventBus.enemy_killed.emit(Enemy.SCORE_VALUE)
+		GlobalEventBus.enemy_killed.emit(Turret.SCORE_VALUE)
 	await get_tree().physics_frame
 	_check(
 		weapons.bomb_charges() == before + 1,
@@ -5203,7 +5203,7 @@ func _test_bomb_refill(weapons: WeaponSystem) -> void:
 	)
 
 	for _i in Arsenal.BOMB_KILLS_PER_CHARGE * Arsenal.BOMB_MAX_CHARGES:
-		GlobalEventBus.enemy_killed.emit(Enemy.SCORE_VALUE)
+		GlobalEventBus.enemy_killed.emit(Turret.SCORE_VALUE)
 	await get_tree().physics_frame
 	_check(
 		weapons.bomb_charges() == Arsenal.BOMB_MAX_CHARGES,
@@ -6006,7 +6006,7 @@ func _test_city_scene() -> void:
 	var ray_to: Vector3 = tower.global_position
 	_check(_world_hit(ray_from, ray_to) == tower, "a tower is solid from above")
 	_check(
-		Building.MAX_HP >= Enemy.MAX_HP * 10,
+		Building.MAX_HP >= Turret.MAX_HP * 10,
 		"a demolition costs at least ten turrets' worth of fire (%d HP)" % Building.MAX_HP
 	)
 

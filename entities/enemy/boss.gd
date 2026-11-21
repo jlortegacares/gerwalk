@@ -166,12 +166,13 @@ func score_value() -> int:
 	return BOSS_SCORE
 
 
+func max_hp() -> int:
+	return BOSS_HP
+
+
 func _ready() -> void:
-	_hp = BOSS_HP
-	add_to_group(&"enemy")
+	super._ready()
 	add_to_group(&"boss")
-	_player = _find_player()
-	_build_visual()
 	_build_parts()
 	_build_lock_anchors()
 	_build_weapons()

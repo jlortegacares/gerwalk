@@ -1,5 +1,5 @@
-class_name Enemy
-extends CharacterBody3D
+class_name Turret
+extends Enemy
 ## Planet turret. It lives on the planet: it roams the surface on its own until
 ## the ship comes close, then it chases the ship, orbits it and fires. Fly far
 ## enough and it loses interest and goes back to roaming, which is what lets the
@@ -12,14 +12,10 @@ extends CharacterBody3D
 ## turret keeps its own world position instead of deriving it from the ship: the
 ## planet is large enough to explore, and an enemy pinned to the ship would make
 ## exploring pointless.
-
-enum State {
-	ROAM,
-	ENGAGED,
-	TELEGRAPH,
-	RECOVER,
-	DEAD,
-}
+##
+## The pool, the death, the hit flash and the lock-mark contract come from `Enemy`.
+## What this file owns is the hull, the roam/engage state machine and the bullet
+## patterns, which is what every subclass of it varies.
 
 enum Pattern {
 	RING,
@@ -64,20 +60,8 @@ const CORE_RADIUS: float = 0.9
 
 const BASE_COLOR: Color = Color(0.93, 0.36, 0.48, 1.0)
 const TELEGRAPH_COLOR: Color = Color(1.0, 0.93, 0.72, 1.0)
-## Lighter than the ship's full-strength kick: the blast is the same one, but the
-## camera should not answer an enemy kill as if the run had ended.
-const DEATH_SHAKE: float = 0.35
 
-signal killed
-
-@export var bullet_scene: PackedScene
-
-var _hp: int = MAX_HP
-var _state: State = State.ROAM
 var _pattern: Pattern = Pattern.RING
-var _timer: float = 0.0
-var _player: Player = null
-var _hit_flash: float = 0.0
 
 var _roam_target: Vector3 = Vector3.ZERO
 var _roam_timer: float = 0.0
@@ -90,16 +74,20 @@ var _base_color: Color = BASE_COLOR
 var _telegraph_time: float = TELEGRAPH_TIME
 var _recover_time: float = RECOVER_TIME
 
-var _visual: Node3D
 var _material: StandardMaterial3D
-var _aim_beam: MeshInstance3D
 
 
 func _ready() -> void:
-	add_to_group(&"enemy")
-	_player = _find_player()
-	_build_visual()
+	super._ready()
 	_build_aim_beam()
+
+
+func max_hp() -> int:
+	return MAX_HP
+
+
+func score_value() -> int:
+	return SCORE_VALUE
 
 
 ## Called by the arena right after the turret enters the tree.
@@ -271,102 +259,6 @@ func _spawn_bullet(direction: Vector3, speed: float) -> void:
 	bullet.setup(direction, speed, Projectile.Team.ENEMY, 1)
 
 
-## Read-only view of the pool. The player still owns damage; this exists so the
-## smoke test can assert what a weapon actually did to a target.
-func current_hp() -> int:
-	return _hp
-
-
-## What the run earns for this kill. Subclasses override it with their own threat.
-func score_value() -> int:
-	return SCORE_VALUE
-
-
-## The footprint the missile lock box should frame, as `(half length, height above
-## the body, half width)`. The default is zero, which tells the radar to use its own
-## resting size: a turret is one unit and a box already frames it. A capital ship
-## overrides this, because a fighter-sized box on its centre reads as no lock at all.
-func lock_mark() -> Vector3:
-	return Vector3.ZERO
-
-
-## Whether the mark's plane sits inside the target's own model. The default is false:
-## a turret's box floats above a body small enough to see past. A capital ship puts
-## its mark on the hull, so the mark has to be drawn over the model to stay visible.
-func lock_mark_on_hull() -> bool:
-	return false
-
-
-## Extra places a missile can be locked on, besides the body itself. The default is
-## none, because a turret is one contact and one mark. A capital ship overrides it
-## with one anchor per section, which is what lets the rack split a salvo over parts
-## of the same hull.
-func lock_mark_anchors() -> Array[Node3D]:
-	var none: Array[Node3D] = []
-	return none
-
-
-func take_damage(amount: int) -> void:
-	if _state == State.DEAD:
-		return
-
-	_hp -= amount
-	_hit_flash = 0.12
-
-	if _hp <= 0:
-		_die()
-
-
-func _die() -> void:
-	_state = State.DEAD
-	# The enemy frees itself at the end of the frame, so the hull and the aim beam
-	# are hidden now: a live model under the fireball reads as two hulls for one
-	# frame, which is exactly the frame the blast is peaking.
-	if is_instance_valid(_visual):
-		_visual.visible = false
-	if is_instance_valid(_aim_beam):
-		_aim_beam.visible = false
-	_spawn_explosion()
-	killed.emit()
-	# The pilot's record grows here, for the same reason the score event is emitted
-	# here: a kill counts no matter which path spawned the enemy, and the level is
-	# earned by the count rather than awarded by the level.
-	GameProgress.instance().register_kill()
-	# The bus event is emitted here, not forwarded by the arena: a kill counts no
-	# matter which path spawned the enemy, and the value travels with it.
-	GlobalEventBus.enemy_killed.emit(score_value())
-	queue_free()
-
-
-## The enemy dies the way the ship does. The blast is a world node, not a child,
-## because the enemy is freed on this frame and the wreck has to outlive it. The
-## camera kick is lighter than the ship's: the explosion is the same, but a kill is
-## not the run ending.
-func _spawn_explosion() -> void:
-	var host: Node = get_tree().current_scene
-	if host == null:
-		host = get_parent()
-	if host == null:
-		return
-	var blast: ShipExplosion = ShipExplosion.new()
-	blast.shake_strength = DEATH_SHAKE
-	host.add_child(blast)
-	blast.global_position = global_position
-	Sfx.play_at(&"explosion", global_position)
-
-
-func _planar_distance_to(point: Vector3) -> float:
-	return Vector2(point.x - global_position.x, point.z - global_position.z).length()
-
-
-func _find_player() -> Player:
-	var players: Array[Node] = get_tree().get_nodes_in_group(&"player")
-	for node in players:
-		if node is Player:
-			return node
-	return null
-
-
 func _set_body_color(color: Color) -> void:
 	_material.albedo_color = color
 	_material.emission = color
@@ -408,20 +300,3 @@ func _build_visual() -> void:
 	core.mesh = core_mesh
 	core.material_override = core_material
 	_visual.add_child(core)
-
-
-func _build_aim_beam() -> void:
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = Color(1.0, 0.43, 0.52, 0.45)
-
-	var beam_mesh: BoxMesh = BoxMesh.new()
-	beam_mesh.size = Vector3(0.14, 0.05, 1.0)
-
-	_aim_beam = MeshInstance3D.new()
-	_aim_beam.mesh = beam_mesh
-	_aim_beam.material_override = material
-	_aim_beam.visible = false
-	_aim_beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(_aim_beam)

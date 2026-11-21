@@ -139,11 +139,12 @@ func score_value() -> int:
 	return KILL_SCORE
 
 
+func max_hp() -> int:
+	return FIGHTER_HP
+
+
 func _ready() -> void:
-	_hp = FIGHTER_HP
-	add_to_group(&"enemy")
-	_player = _find_player()
-	_build_visual()
+	super._ready()
 	if is_instance_valid(_model):
 		_build_thrusters()
 		_build_smoke()
