@@ -66,13 +66,14 @@ Streaming rules and score accounting are written twice and kept in sync by hand.
 | `ui/menu/main_menu.gd` | 832 | navigation, options, livery preview, pad remap, save cards, pause |
 | `entities/player/weapon_system.gd` | 809 | three primaries, missile radar, salvo, bomb, decoy |
 
-### 2.4 The test is a monolith and it is the only safety net
+### 2.4 The test was a monolith
 
-`tests/smoke_test.gd`: 6,115 lines, 65 `_test_` functions, 714 assertions, one
-process, one mutable world. The suite parks the encounter stream by writing
-`_run_kills = -1000` and `_spawn_timer = 1e9` from the outside — it drives a
-rehearsed run, not isolated units. It works, and it is what protects every change,
-which is exactly why it must be split before the god objects are.
+`tests/smoke_test.gd` was 6,115 lines, 65 `_test_` functions, 714 assertions, one
+process, one mutable world. It parked the encounter stream by writing
+`_run_kills = -1000` and `_spawn_timer = 1e9` from the outside — a rehearsed run,
+not isolated units.
+
+**Resolved in P2.** See §5.3. The run order and every assertion are unchanged.
 
 ### 2.5 Static state cannot be injected
 
@@ -177,20 +178,44 @@ weapon_system.gd     ~350  facade
 `PlayerModel` already proves the split works: the airframe left `player.gd` and
 nothing hurt.
 
-### 5.3 Splitting the suite
+### 5.3 Splitting the suite (done)
 
 ```
-tests/smoke_test.tscn       runner: order, exit code
-tests/world_fixture.gd      boots the arena, exposes clear(), park_stream(), spawn_turret()
-tests/suites/movement.gd
-tests/suites/weapons.gd
-tests/suites/enemies.gd
-tests/suites/ui.gd
-tests/suites/persistence.gd
+tests/smoke_test.gd              runner: boots the world, installs the suites, drives the order
+tests/smoke_suite.gd             harness: world refs, `_check`, spawn/scan helpers, scratch paths
+tests/suites/render_suite.gd     the resolution governor, arithmetic and state machine
+tests/suites/ui_suite.gd         menus, HUD, pad panel, livery, pause overlay, radar, score
+tests/suites/persistence_suite.gd  save cards and the pilot record
+tests/suites/movement_suite.gd   flight, transformation, dash, afterburner, death
+tests/suites/weapons_suite.gd    primaries, missile radar and lock, salvo, bomb, decoy
+tests/suites/enemies_suite.gd    turret, launcher, interceptor, death blasts, mothership
+tests/suites/world_suite.gd      planet roster, cloud deck, city district
+tests/suites/audio_suite.gd      the synthesized palette and the mix
 ```
 
-Same integration value, no 6k-line file, and `park_stream()` becomes fixture API
-instead of a hidden hack.
+The split is mechanical and preserves the run exactly: all 65 `_test_` functions
+moved verbatim, and the PASS output is byte-identical to the single-file run.
+
+Three mechanics make that possible:
+
+1. **The harness is a class, not a bag of statics.** `SmokeSuite` holds the world
+   references, the assertions, the spawn and scan helpers, and the scratch paths.
+   The runner and every suite extend it.
+2. **A suite is a node in the tree.** It is added as a child of the runner, so it
+   inherits `PROCESS_MODE_ALWAYS` and keeps running while the pause menu has the
+   tree stopped.
+3. **The world references are injected, the failures array is shared.** `_install_suite`
+   points each suite at the same arena, the same ship and the same `_failures`
+   instance, so `_report` sees every failure. `_died_count` stays per-suite because
+   the base connects the bus itself.
+
+Every `add_child` and `get_children()` that implicitly meant "the scene root" while
+the harness *was* the scene root had to become explicit: gameplay projectiles are
+parented to `get_tree().current_scene`, and the scans had to keep looking there.
+
+Still pending from this movement: turning the hidden world hacks into fixture API
+(`park_stream()`, `spawn_turret()`), which needs the `EncounterDirector` from §5.1
+to have a name to park.
 
 ### 5.4 Injectable adapters
 
@@ -207,18 +232,20 @@ static `configure()` calls the suite depends on today.
 
 | Priority | Movement | Impact | Risk | Effort |
 | --- | --- | --- | --- | --- |
-| P0 | Hostile contract (`enemy.gd`, `Turret`) | High | Low | 3 h |
+| P0 | Hostile contract (`enemy.gd`, `Turret`) | High | Low | 3 h — **done** |
+| P2 | Suite split (`smoke_suite.gd` + `tests/suites/`) | High | Medium | 1 d — **done** |
+| P2 | Fixture API on top of the split | High | Low | 2 h — pending `EncounterDirector` |
 | P1 | `EncounterDirector` + `RunState` | High | Medium | 1 d |
 | P1 | Split `player.gd` | High | Medium | 1 d |
 | P1 | Split `weapon_system.gd` | Medium | Low | 4 h |
 | P1 | Split `main_menu.gd` into panels | Medium | Low | 4 h |
-| P2 | Suite split + fixture | High | Medium | 1 d |
 | P2 | `SaveStore` injection | Medium | Low | 3 h |
 | P3 | Typed payloads | Low | Low | 2 h |
 | P3 | Separated tuning | Low | Low | 3 h |
 
-P0 first because it unblocks the rest and changes no behaviour. P2 before P1 when
-the time comes: secure the net, then cut.
+P0 first because it unblocks the rest and changes no behaviour. P2 next, before
+P1: secure the net, then cut. The suite is split; the fixture API waits for the
+director to have a name to park.
 
 ## 7. What this architecture does not do
 
