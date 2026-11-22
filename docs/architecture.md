@@ -47,16 +47,19 @@ of it.
 
 **Resolved in P0.** See §4.
 
-### 2.2 The two directors are duplicated
+### 2.2 The two directors were duplicated
 
-`levels/arena/arena.gd` and `levels/city/city.gd` share nine functions by name:
+`levels/arena/arena.gd` and `levels/city/city.gd` shared nine functions by name:
 
 ```
 _ready  _physics_process  _build_environment  _maintain_population
 _spawn_enemy  _spawn_angle  _planar_distance  _on_enemy_killed  score
 ```
 
-Streaming rules and score accounting are written twice and kept in sync by hand.
+Streaming rules and score accounting were written twice and kept in sync by hand.
+
+**Resolved in P1.** See §5.1. The loop is `EncounterDirector`; the counters are
+`RunState`; the levels configure both.
 
 ### 2.3 Three god objects
 
@@ -143,19 +146,28 @@ moved were four constants in the smoke suite (`ORBIT_RADIUS`, `MAX_HP`,
 
 ## 5. Movements P1–P3
 
-### 5.1 EncounterDirector and RunState
+### 5.1 EncounterDirector and RunState (done)
 
-Extract from arena and city into `levels/director/`:
+Extracted from arena and city into `levels/director/`:
 
 ```
-EncounterDirector   population, spawn distance/heading, despawn, spawn-ahead,
-                    the roster and its shares               (configured per level)
-RunState            score, kills, boss_spawned, boss ref   (one owner)
+EncounterDirector   population cap, spawn distance band, heading bias, despawn,
+                    the separation retry, a `placer` hook and a `keeper`
+                    predicate                                  (configured per level)
+RunState            score, kills                              (one owner)
 ```
 
-Arena and city become data plus geometry: roster, distances, and a `spawn_point`
-hook (the city snaps to a street crossing, the planet does not). This deletes the
-nine duplicated functions and makes score live in one place.
+Arena and city are now configuration plus geometry. The planet sets a
+single-entry roster, no placer and `keeper = enemy is Boss`; the city sets the
+three-entry roster with its shares, `placer = _street_spawn`, and six attempts at
+40 units of separation. Nine functions vanished from the pair.
+
+Two things stayed in the levels because they are not stream rules: the boss
+arrival (a set piece with a HUD and a lock contract) and the city's geometry.
+
+The bonus is the fixture API the split suite needed: `director().park()`,
+`director().spawn_now()`, `director().resume()` and `run_state().kills` replaced
+the seven places that wrote `_spawn_timer` and `_run_kills` by name.
 
 ### 5.2 Splitting the god objects
 
@@ -234,8 +246,8 @@ static `configure()` calls the suite depends on today.
 | --- | --- | --- | --- | --- |
 | P0 | Hostile contract (`enemy.gd`, `Turret`) | High | Low | 3 h — **done** |
 | P2 | Suite split (`smoke_suite.gd` + `tests/suites/`) | High | Medium | 1 d — **done** |
-| P2 | Fixture API on top of the split | High | Low | 2 h — pending `EncounterDirector` |
-| P1 | `EncounterDirector` + `RunState` | High | Medium | 1 d |
+| P2 | Fixture API on top of the split | High | Low | 2 h — **done with P1** |
+| P1 | `EncounterDirector` + `RunState` | High | Medium | 1 d — **done** |
 | P1 | Split `player.gd` | High | Medium | 1 d |
 | P1 | Split `weapon_system.gd` | Medium | Low | 4 h |
 | P1 | Split `main_menu.gd` into panels | Medium | Low | 4 h |

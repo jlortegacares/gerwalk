@@ -1632,7 +1632,7 @@ All values are named constants at the top of each script.
 | Missile launcher | `entities/enemy/missile_enemy.gd` | `LAUNCHER_HP`, `SALVO_MISSILES`, `MISSILE_SPEED`, `MISSILE_TURN_RATE`, `MISSILE_DAMAGE`, `MISSILE_LIFETIME`, `MISSILE_SPREAD_DEGREES`, `LAUNCH_TELEGRAPH`, `LAUNCH_RECOVER` |
 | Interceptor flight | `entities/enemy/fighter_enemy.gd` | `FIGHTER_HP` (8), `TOP_SPEED` (34), `FLOOR_SPEED`, `ACCELERATION`, `TURN_RATE`, `CHASE_RADIUS`, `BREAK_OFF_RADIUS`, `ATTACK_RANGE`, `MIN_LAUNCH_RANGE`, `AIM_TOLERANCE_DEGREES` |
 | Interceptor salvo | `entities/enemy/fighter_enemy.gd` | `SALVO`, `MISSILE_SPEED`, `MISSILE_TURN_RATE`, `MISSILE_DAMAGE`, `MISSILE_SPREAD_DEGREES`, `WARNING_TIME`, `EXTEND_TIME`, `RELOAD_TIME` |
-| Planet roster | `levels/arena/arena.gd` | `FIGHTER_ENEMY_SCENE` is the only streamed hull; add a second one to `_spawn_enemy()` to widen it. `FIRST_SPAWN_DISTANCE` (70) sits outside the interceptor's chase (62) and attack (46) radii |
+| Planet roster | `levels/arena/arena.gd` | `FIGHTER_ENEMY_SCENE` is the only entry in the director's roster; add a second scene and its share to widen it. `FIRST_SPAWN_DISTANCE` (70) sits outside the interceptor's chase (62) and attack (46) radii |
 | Mothership hull and arrival | `entities/enemy/boss.gd`, `levels/arena/arena.gd` | `SCALE` (13.8), `MODEL_SIZE`/`MODEL_CENTER`, `GROUND_Y`, `BOSS_HP` (1200), `BOSS_SCORE` (5000), `BOSS_KILL_THRESHOLD` (12), `BOSS_SPAWN_DISTANCE` (150) |
 | Mothership flight and phases | `entities/enemy/boss.gd` | `CRUISE_SPEED` (7), `PHASE_TWO_SPEED` (10), `TURN_RATE_DEGREES` (12), `PHASE_TWO_TURN_RATE` (18), `PHASE_TWO_RATIO` (0.6), `FIRST_BURST_DELAY` (2.2), `FIRST_BURST_STAGGER` (0.9) |
 | Mothership target points | `entities/enemy/boss.gd`, `entities/enemy/boss_part.gd` | `SECTION_COUNT` (3), `PARTS_PER_SECTION` (2), `PART_COUNT` (6), `PART_HP` (200), `PART_FIRE_THRESHOLDS` (0.90, 0.55), `PART_BLAST_SCALE/SHAKE`, `LOCK_MARK_HALF` (5.0 x 3.2), one `LockAnchor` per section |
@@ -1643,7 +1643,8 @@ All values are named constants at the top of each script.
 | Mothership burning | `entities/enemy/boss.gd`, `entities/enemy/hull_fire.gd` | `PART_FIRE_THRESHOLDS`, `FIRE_ANCHORS`, `FLAME_SIZE` (14), `CORE_SIZE` (6), `FLAME_ASPECT` (1.9), `SMOKE_AMOUNT` (20), `HIT_FLASH_SIZE` (7) |
 | Missile lock mark | `combat/lock_reticle.gd`, `entities/enemy/enemy.gd`, `entities/enemy/turret.gd` | `HALF_SIZE` (2.6), `set_mark_size(half, lift)`; `Enemy.lock_mark()` returns zero for the resting box, `Turret` inherits it and `Boss` returns the middle third |
 | Enemy roaming | `entities/enemy/turret.gd` | `ROAM_SPEED`, `ROAM_LEG_MIN`, `ROAM_LEG_MAX`, `ROAM_LEG_TIME` |
-| Encounter streaming | `levels/arena/arena.gd` | `MAX_ENEMIES` (3), `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE`; every streamed contact is an interceptor |
+| Encounter streaming | `levels/director/encounter_director.gd`, `levels/arena/arena.gd` | `MAX_ENEMIES` (3), `SPAWN_INTERVAL`, `SPAWN_DISTANCE_MIN/MAX`, `SPAWN_HEADING_SPREAD`, `DESPAWN_DISTANCE`, `FIRST_SPAWN_DISTANCE/ANGLE`; the rules live in the director, the numbers in the level. Every streamed planet contact is an interceptor |
+| Run score and kills | `levels/director/run_state.gd` | `score`, `kills`; `add_score(value)` pays a demolition, `add_kill(value)` also counts toward the mothership threshold |
 
 ## Architecture
 
@@ -1679,9 +1680,11 @@ ui/hud/                         event-fed bars (health, turbo, pilot level, boss
 ui/menu/                        boot menu: the planet and the city, the save cards, CONTINUE and the pilot panel, the display and livery settings, the pad remap panel and the controls reference
 ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
 common/pad_bindings.gd          the nine movable pad actions: factory map, swap, file, and the InputMap rewrite
-levels/arena/arena.gd           rolling planet sphere, stars, cloud deck, encounter streaming, mothership trigger
+levels/director/encounter_director.gd  the contact stream: cap, distance band, heading bias, despawn, retry
+levels/director/run_state.gd           the run's score and kills, and the only place a payout is added
+levels/arena/arena.gd           rolling planet sphere, stars, cloud deck, the director's configuration, mothership trigger
 levels/arena/cloud_field.gd     streamed cloud deck: one density field for the puffs and the missile cover
-levels/city/city.gd             night district: block grid, street-snapped streaming, sight-line occlusion, score
+levels/city/city.gd             night district: block grid, street-snapped placement, sight-line occlusion
 levels/city/city_ground.gdshader asphalt, pavement, curb and centre lines painted from world coordinates
 entities/city/building.gd       tower: HP, hit flash, health bar, rubble, scaled collapse, dither ghost
 entities/city/building.gdshader world-space windows, damage cracks and the Bayer ghost
