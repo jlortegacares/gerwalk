@@ -120,7 +120,7 @@ func _test_audio() -> void:
 
 	# Gunpod: one burst per shot, never one per pellet.
 	weapons.select(Arsenal.Kind.VULCAN)
-	weapons.set("_cooldown", 0.0)
+	weapons.primary().set_cooldown(0.0)
 	Sfx.reset_counts()
 	weapons.tick(0.0, origin, origin, aim, true)
 	_check(
@@ -131,7 +131,7 @@ func _test_audio() -> void:
 
 	# Plasma: one zap per bolt.
 	weapons.select(Arsenal.Kind.PLASMA)
-	weapons.set("_cooldown", 0.0)
+	weapons.primary().set_cooldown(0.0)
 	Sfx.reset_counts()
 	weapons.tick(0.0, origin, origin, aim, true)
 	_check(Sfx.played(&"plasma") == 1, "the plasma bolt asks for its zap")
@@ -157,8 +157,8 @@ func _test_audio() -> void:
 	await get_tree().physics_frame
 	var target: Enemy = _spawn_enemy(origin + aim * 20.0)
 	if target != null:
-		weapons.set("_salvo", 2)
-		weapons.set("_missile_cooldown", 0.0)
+		weapons.radar().set_loaded(2)
+		weapons.radar().set_cooldown(0.0)
 		Sfx.reset_counts()
 		weapons.tick(0.0, origin, origin, aim, false, false, false)
 		_check(
@@ -174,7 +174,7 @@ func _test_audio() -> void:
 	var contact: Enemy = _spawn_enemy(origin + aim * 20.0)
 	if contact != null:
 		# The salvo above left the rack on cooldown, and a cooling rack never marks.
-		weapons.set("_missile_cooldown", 0.0)
+		weapons.radar().set_cooldown(0.0)
 		Sfx.reset_counts()
 		# The tone belongs to the first missile, not to the contact: an empty rack
 		# marks nothing, so the hold has to load one before anything rings.
@@ -195,11 +195,11 @@ func _test_audio() -> void:
 	await get_tree().physics_frame
 
 	# Bomb and decoy are world events, and they count on the positional path too.
-	weapons.set("_bombs", Arsenal.BOMB_MAX_CHARGES)
+	weapons.set_bomb_charges(Arsenal.BOMB_MAX_CHARGES)
 	Sfx.reset_counts()
 	_check(weapons.fire_bomb(origin), "the bomb fires for the audio check")
 	_check(Sfx.played(&"bomb") == 1, "the bomb asks for its blast")
-	weapons.set("_decoy_cooldown", 0.0)
+	weapons.reset_decoy()
 	Sfx.reset_counts()
 	_check(weapons.drop_decoy(origin), "the decoy drops for the audio check")
 	_check(Sfx.played(&"decoy") == 1, "the decoy asks for its flare")

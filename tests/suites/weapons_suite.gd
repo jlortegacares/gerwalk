@@ -109,8 +109,8 @@ func _test_laser(weapons: WeaponSystem) -> void:
 	weapons.select(Arsenal.Kind.LASER)
 	# The automatic missile battery fires on its own schedule and would look like
 	# a laser projectile, so park it for the measurement.
-	var parked_cooldown: float = weapons.get("_missile_cooldown")
-	weapons.set("_missile_cooldown", 99.0)
+	var parked_cooldown: float = weapons.radar().cooldown()
+	weapons.radar().set_cooldown(99.0)
 	_clear_projectiles()
 	var before: int = enemy.current_hp()
 
@@ -125,7 +125,7 @@ func _test_laser(weapons: WeaponSystem) -> void:
 		"the laser burns the target it points at (%d -> %d hp)" % [before, enemy.current_hp()]
 	)
 	_check(_player_projectiles().is_empty(), "the laser emits no projectile (hit-scan)")
-	weapons.set("_missile_cooldown", parked_cooldown)
+	weapons.radar().set_cooldown(parked_cooldown)
 
 	_clear_enemies()
 	await get_tree().physics_frame
@@ -769,7 +769,7 @@ func _test_lock_scan(weapons: WeaponSystem) -> void:
 	Input.action_release(&"missile")
 	await _wait_frames(30)
 	# The previous block leaves the rack cooling, and a cooling rack never marks.
-	weapons.set("_missile_cooldown", 0.0)
+	weapons.radar().set_cooldown(0.0)
 
 	var aim: Vector3 = _aim()
 	var spawned: Array[Enemy] = []
@@ -850,7 +850,7 @@ func _test_lock_scan(weapons: WeaponSystem) -> void:
 		"only the newest lock is still being acquired (%d of 3)" % acquired
 	)
 	_check(settled == 2, "the earlier locks have settled back (%d of 3)" % settled)
-	var active: Variant = weapons.get("_active_mark")
+	var active: LockSlot = weapons.radar().active_mark()
 	_check(
 		active != null and active.host == by_distance[1],
 		"the scan ends on the contact the last missile takes"
@@ -871,7 +871,7 @@ func _test_lock_reacquires_per_missile(weapons: WeaponSystem) -> void:
 	_clear_enemies()
 	Input.action_release(&"missile")
 	await _wait_frames(30)
-	weapons.set("_missile_cooldown", 0.0)
+	weapons.radar().set_cooldown(0.0)
 
 	var aim: Vector3 = _aim()
 	_spawn_enemy(_player.global_position + aim * 18.0)

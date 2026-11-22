@@ -419,7 +419,7 @@ func _test_transformation() -> void:
 	# S4: fighter rounds leave faster, live 40% longer and keep a tight fan.
 	var weapons: WeaponSystem = _player.get_node("Weapons")
 	weapons.select(Arsenal.Kind.VULCAN)
-	weapons.set("_cooldown", 0.0)
+	weapons.primary().set_cooldown(0.0)
 	_clear_projectiles()
 	weapons.tick(0.016, _player.global_position, _player.global_position, reversed, true, true)
 	var shots: Array[Projectile] = _player_projectiles()
@@ -448,15 +448,15 @@ func _test_transformation() -> void:
 	var target: Enemy = _spawn_enemy(_player.global_position + reversed * 10.0)
 	# The automatic battery would launch at that same target inside this tick and
 	# look like a second plasma bolt, so park it while the count is measured.
-	weapons.set("_missile_cooldown", 99.0)
+	weapons.radar().set_cooldown(99.0)
 	weapons.select(Arsenal.Kind.PLASMA)
-	weapons.set("_cooldown", 0.0)
+	weapons.primary().set_cooldown(0.0)
 	weapons.tick(0.016, _player.global_position, _player.global_position, reversed, true, true)
 	var bolts: Array[Projectile] = _player_projectiles()
 	_check(bolts.size() == 1, "the fighter plasma still fires")
 	if bolts.size() == 1:
 		_check(bolts[0].get("_target") == null, "fighter plasma has no lock-on")
-	weapons.set("_missile_cooldown", 0.0)
+	weapons.radar().set_cooldown(0.0)
 	_clear_projectiles()
 	if target != null:
 		target.queue_free()

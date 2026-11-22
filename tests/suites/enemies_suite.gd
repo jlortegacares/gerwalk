@@ -193,10 +193,8 @@ func _test_boss() -> void:
 		var lock_weapons: WeaponSystem = _player.get_node("Weapons") as WeaponSystem
 		var bow_dir: Vector3 = Vector3(cos(ship.rotation.y), 0.0, -sin(ship.rotation.y))
 		var radar_origin: Vector3 = ship.global_position + bow_dir * 20.0
-		var pool: Array[WeaponSystem.LockSlot] = lock_weapons.call(
-			"_radar_pool", radar_origin, -bow_dir
-		)
-		var hull_slots: Array[WeaponSystem.LockSlot] = []
+		var pool: Array[LockSlot] = lock_weapons.radar().radar_pool(radar_origin, -bow_dir)
+		var hull_slots: Array[LockSlot] = []
 		for slot in pool:
 			if slot.contact == ship:
 				hull_slots.append(slot)
@@ -214,18 +212,18 @@ func _test_boss() -> void:
 			)
 			# A full rack over three slots is the 3/3/2 split the marks promise,
 			# and the missiles steer to the anchor, not to the hull's centre.
-			lock_weapons.set("_salvo", Arsenal.MISSILE_MAX_SALVO)
-			lock_weapons.call("_sync_marks", hull_slots)
+			lock_weapons.radar().set_loaded(Arsenal.MISSILE_MAX_SALVO)
+			lock_weapons.radar().sync_marks(hull_slots)
 			_check(
 				_tally_texts() == ["×2", "×3", "×3"],
 				"the three marks promise the 3/3/2 split (%s)" % str(_tally_texts())
 			)
-			var marked_after: Array = lock_weapons.get("_marked")
+			var marked_after: Array[LockSlot] = lock_weapons.radar().marks()
 			_check(
 				marked_after.size() == Boss.SECTION_COUNT,
 				"the rack carries one mark per anchor (%d)" % marked_after.size()
 			)
-			lock_weapons.call("_discharge")
+			lock_weapons.radar().discharge()
 
 	for index in parts.size():
 		var part: BossPart = parts[index]
