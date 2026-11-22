@@ -84,18 +84,16 @@ const SURFACE_SHADER: Shader = preload("res://levels/arena/planet_surface.gdshad
 const PLANET_FIELD: String = "res://levels/arena/planet_field.res"
 const PLANET_DETAIL: String = "res://levels/arena/planet_detail.res"
 
-var _spawn_timer: float = 0.0
-var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _planet: Node3D
 var _sun: DirectionalLight3D
 var _surface: ShaderMaterial
 var _last_player_position: Vector3 = Vector3.ZERO
-## The run's score. The arena owns it because the arena is the run: reloading the
-## scene on a death starts a fresh one at zero.
-var _score: int = 0
-## Kills this run. The boss threshold is a run fact, not a pilot fact: the record
-## across sessions must never decide when a fresh run meets the ship.
-var _run_kills: int = 0
+## The run: the score on the HUD and the kills the boss threshold counts. Owned by
+## the level because the level is the run: reloading the scene on a death starts a
+## fresh one at zero, and the pilot's record must never decide the arrival.
+var _run: RunState = RunState.new()
+## The stream of contacts. See `EncounterDirector`.
+var _director: EncounterDirector = null
 var _boss_spawned: bool = false
 var _boss: Boss = null
 
@@ -118,13 +116,29 @@ func _ready() -> void:
 	_build_clouds()
 
 	_last_player_position = _player.global_position
-	_rng.seed = SPAWN_SEED
+	_director = EncounterDirector.new()
+	_director.player = _player
+	_director.container = _enemies
+	# The planet has one archetype, so there is no roll here: every streamed
+	# contact is an interceptor. The turret and the launcher stay in the city's
+	# pool. The mothership is exempt from the despawn: it is the encounter.
+	_director.set_roster([FIGHTER_ENEMY_SCENE])
+	_director.spawn_interval = SPAWN_INTERVAL
+	_director.max_enemies = MAX_ENEMIES
+	_director.spawn_distance_min = SPAWN_DISTANCE_MIN
+	_director.spawn_distance_max = SPAWN_DISTANCE_MAX
+	_director.despawn_distance = DESPAWN_DISTANCE
+	_director.heading_spread = SPAWN_HEADING_SPREAD
+	_director.spawn_seed = SPAWN_SEED
+	_director.keeper = func(enemy: Enemy) -> bool: return enemy is Boss
+	_director.begin()
 	# One contact in view so the prototype starts with a fight; the streaming
 	# spawner brings the rest once the ship starts exploring. It is placed beyond
 	# the interceptor's attack range on purpose: the opening pass is a chase the
 	# player joins, not a salvo they eat while reading the HUD.
-	_spawn_timer = SPAWN_INTERVAL
-	_spawn_enemy(FIRST_SPAWN_DISTANCE, FIRST_SPAWN_ANGLE)
+	_director.spawn_opening(
+		FIGHTER_ENEMY_SCENE, FIRST_SPAWN_DISTANCE, FIRST_SPAWN_ANGLE
+	)
 
 
 func _physics_process(delta: float) -> void:
@@ -135,7 +149,7 @@ func _physics_process(delta: float) -> void:
 	_planet.global_position = Vector3(current.x, GROUND_Y - PLANET_RADIUS, current.z)
 	_roll_planet(movement)
 	_update_sun()
-	_maintain_population(delta)
+	_director.maintain(delta)
 
 
 ## Rotates the planet so the surface moves opposite to the ship, by exactly the
@@ -287,78 +301,13 @@ func _build_clouds() -> void:
 	clouds.setup(_player)
 
 
-## Keeps a small population of interceptors around the ship. Whoever was left
-## farther than the despawn radius is freed, which stops a long flight from piling
-## up idle nodes, and the replacement spawns ahead of the ship so exploring keeps
-## producing encounters instead of emptying the planet.
-func _maintain_population(delta: float) -> void:
-	_spawn_timer = maxf(_spawn_timer - delta, 0.0)
-
-	var alive: int = 0
-	for node in _enemies.get_children():
-		var enemy: Enemy = node as Enemy
-		if enemy == null or enemy.is_queued_for_deletion():
-			continue
-		# The boss is the encounter, not part of the stream: freeing it for being
-		# far away would delete the fight the player is meant to chase.
-		if enemy is Boss:
-			alive += 1
-			continue
-		if _planar_distance(enemy.global_position) > DESPAWN_DISTANCE:
-			enemy.queue_free()
-			continue
-		alive += 1
-
-	# The fighters already on the field stay when the ship arrives, and the stream
-	# keeps producing: the boss is an escalation of the run, not a scene change. The
-	# hull counts against `MAX_ENEMIES`, so the fight keeps a couple of escorts instead
-	# of the whole population, which is enough for the set piece to stay readable.
-	if alive >= MAX_ENEMIES or _spawn_timer > 0.0:
-		return
-
-	_spawn_timer = SPAWN_INTERVAL
-	_spawn_enemy(
-		_rng.randf_range(SPAWN_DISTANCE_MIN, SPAWN_DISTANCE_MAX),
-		_spawn_angle()
-	)
-
-
-func _planar_distance(point: Vector3) -> float:
-	return Vector2(
-		point.x - _player.global_position.x,
-		point.z - _player.global_position.z
-	).length()
-
-
-## Bias new contacts to the hemisphere the ship is heading into. A plain ring
-## would drop half of them behind the player, where they are despawned without
-## ever being seen.
-func _spawn_angle() -> float:
-	var heading: Vector2 = Vector2(_player.velocity.x, _player.velocity.z)
-	var base: float = _rng.randf() * TAU
-	if heading.length() > 2.0:
-		base = heading.angle()
-	return base + _rng.randf_range(-SPAWN_HEADING_SPREAD, SPAWN_HEADING_SPREAD)
-
-
-## The planet has one archetype, so there is no roll here: every streamed contact
-## is an interceptor. The turret and the launcher stay in the city's pool.
-func _spawn_enemy(distance: float, angle: float) -> void:
-	var enemy: Enemy = FIGHTER_ENEMY_SCENE.instantiate()
-	_enemies.add_child(enemy)
-
-	var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * distance
-	enemy.setup_spawn(_player.global_position + offset)
-
-
 ## Every kill pays what the hull was worth. The enemy emits the event with its own
-## value, so the total does not depend on which spawn path produced it.
+## value, so the total does not depend on which spawn path produced it. The kill
+## also counts toward the arrival: the fighters already on the field stay when the
+## mothership comes, because the boss escalates the run instead of resetting it.
 func _on_enemy_killed(value: int) -> void:
-	_score += value
-	GlobalEventBus.score_changed.emit(_score)
-
-	_run_kills += 1
-	if not _boss_spawned and _run_kills >= BOSS_KILL_THRESHOLD:
+	_run.add_kill(value)
+	if not _boss_spawned and _run.kills >= BOSS_KILL_THRESHOLD:
 		spawn_boss()
 
 
@@ -374,7 +323,7 @@ func spawn_boss() -> Boss:
 	_boss = BOSS_SCENE.instantiate() as Boss
 	_enemies.add_child(_boss)
 
-	var angle: float = _spawn_angle()
+	var angle: float = _director.angle()
 	var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * BOSS_SPAWN_DISTANCE
 	_boss.setup_spawn(_player.global_position + offset)
 	return _boss
@@ -386,7 +335,18 @@ func boss() -> Boss:
 	return _boss
 
 
-## Read-only view of the run's score. The HUD reads the signal; this exists so the
-## smoke test can assert the total without parsing the label.
+## The contact stream, so a test or the capture tool can park it instead of writing
+## a sentinel into a private timer.
+func director() -> EncounterDirector:
+	return _director
+
+
+## The run's counters. The HUD reads the signal; this exists so the suite can drive
+## the arrival threshold and assert the total without parsing labels.
+func run_state() -> RunState:
+	return _run
+
+
+## Read-only view of the run's score.
 func score() -> int:
-	return _score
+	return _run.score

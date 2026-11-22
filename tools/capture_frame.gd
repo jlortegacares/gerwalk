@@ -406,7 +406,7 @@ func _ready() -> void:
 		var enemies: Node3D = arena.get_node("%Enemies") as Node3D
 		for child in enemies.get_children():
 			child.queue_free()
-		arena.set("_spawn_timer", 9999.0)
+		arena.director().park()
 		for _i in 2:
 			await get_tree().physics_frame
 		var forward: Vector3 = ship.get("_heading") as Vector3

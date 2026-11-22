@@ -17,8 +17,7 @@ func _test_planet_roster() -> void:
 	_clear_enemies()
 	await get_tree().physics_frame
 	for _spawn: int in range(Arena.MAX_ENEMIES):
-		_arena.set("_spawn_timer", 0.0)
-		_arena.call("_maintain_population", 1.0)
+		_arena.director().spawn_now()
 
 	var impostors: Array[String] = []
 	for node in enemies.get_children():
@@ -39,7 +38,7 @@ func _test_planet_roster() -> void:
 	# does was just proven above by driving it directly, which is also the
 	# deterministic way to check it: no test waits on a wall clock for a contact to
 	# arrive. `_test_radar` parks it the same way for its own bookkeeping.
-	_arena.set("_spawn_timer", 1.0e9)
+	_arena.director().park()
 
 
 ## The cloud deck is cover, not scenery. One density field drives both the puffs the

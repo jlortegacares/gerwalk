@@ -48,7 +48,7 @@ func _ready() -> void:
 	# so the run counter is parked below zero and only the boss test drives it up.
 	# Without this the mothership would arrive mid-weapon-test and suppress the
 	# stream every later test depends on.
-	_arena.set("_run_kills", -1000)
+	_arena.run_state().kills = -1000
 
 	# One suite per domain, installed once and reused: the world is
 	# mutable and shared, so a suite is a lens on the same run, not a

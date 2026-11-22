@@ -943,8 +943,7 @@ func _test_radar() -> void:
 
 	# The streamer drops a turret every two seconds; one appearing mid-test would
 	# be indistinguishable from the contact the test placed.
-	var spawn_timer: float = float(_arena.get("_spawn_timer"))
-	_arena.set("_spawn_timer", 999.0)
+	_arena.director().park()
 	_clear_enemies()
 	await _wait_frames(2)
 	_check(radar.contact_offsets().is_empty(), "an empty sky paints no blips")
@@ -987,7 +986,7 @@ func _test_radar() -> void:
 	)
 
 	_clear_enemies()
-	_arena.set("_spawn_timer", spawn_timer)
+	_arena.director().resume()
 	await _wait_frames(2)
 
 

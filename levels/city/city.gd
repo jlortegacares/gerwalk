@@ -79,12 +79,12 @@ const FIGHTER_ENEMY_SHARE: float = 0.20
 
 const GROUND_SHADER: Shader = preload("res://levels/city/city_ground.gdshader")
 
-var _spawn_timer: float = 0.0
-var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _layout_rng: RandomNumberGenerator = RandomNumberGenerator.new()
-## The run's score, owned here for the same reason the arena owns its own: a
-## reload starts a fresh run at zero.
-var _score: int = 0
+## The run's score, owned here for the same reason the arena owns its own: a reload
+## starts a fresh run at zero.
+var _run: RunState = RunState.new()
+## The stream of hostiles. See `EncounterDirector`.
+var _director: EncounterDirector = null
 var _occluders: Array[Building] = []
 
 @onready var _player: Player = %Player
@@ -104,15 +104,40 @@ func _ready() -> void:
 	# The origin is the crossing the grid was centred on, so the first frame is a
 	# street with room to turn instead of the inside of a block.
 	_player.global_position = Vector3.ZERO
-	_rng.seed = SPAWN_SEED
-	_spawn_timer = SPAWN_INTERVAL
-	# One turret at the nearest crossing, for the same reason the planet forces a
-	# turret on load: the opening contact is the one the player learns on.
-	_spawn_enemy(ENEMY_SCENE, _street_spawn(FIRST_SPAWN_ANGLE, FIRST_SPAWN_DISTANCE))
+	_director = EncounterDirector.new()
+	_director.player = _player
+	_director.container = _enemies
+	# One roll, three buckets: the turret holds ground, the launcher presses, the
+	# interceptor chases. The shares are listed in roster order.
+	_director.set_roster(
+		[ENEMY_SCENE, MISSILE_ENEMY_SCENE, FIGHTER_ENEMY_SCENE],
+		[
+			1.0 - MISSILE_ENEMY_SHARE - FIGHTER_ENEMY_SHARE,
+			MISSILE_ENEMY_SHARE,
+			FIGHTER_ENEMY_SHARE,
+		]
+	)
+	_director.spawn_interval = SPAWN_INTERVAL
+	_director.max_enemies = MAX_ENEMIES
+	_director.spawn_distance_min = SPAWN_DISTANCE_MIN
+	_director.spawn_distance_max = SPAWN_DISTANCE_MAX
+	_director.despawn_distance = DESPAWN_DISTANCE
+	_director.heading_spread = SPAWN_HEADING_SPREAD
+	_director.spawn_seed = SPAWN_SEED
+	# A turret on a street, not inside a block, and not on top of the ship.
+	_director.placer = _street_spawn
+	_director.min_spawn_separation = MIN_SPAWN_SEPARATION
+	_director.spawn_attempts = SPAWN_ATTEMPTS
+	_director.begin()
+	# One turret at the nearest crossing, for the same reason the planet forces an
+	# interceptor on load: the opening contact is the one the player learns on.
+	_director.spawn_opening(
+		ENEMY_SCENE, FIRST_SPAWN_DISTANCE, FIRST_SPAWN_ANGLE
+	)
 
 
 func _physics_process(delta: float) -> void:
-	_maintain_population(delta)
+	_director.maintain(delta)
 	_update_occlusion()
 
 
@@ -258,40 +283,8 @@ func _update_occlusion() -> void:
 	_occluders = found
 
 
-func _maintain_population(delta: float) -> void:
-	_spawn_timer = maxf(_spawn_timer - delta, 0.0)
-
-	var alive: int = 0
-	for node in _enemies.get_children():
-		var enemy: Enemy = node as Enemy
-		if enemy == null or enemy.is_queued_for_deletion():
-			continue
-		if _planar_distance(enemy.global_position) > DESPAWN_DISTANCE:
-			enemy.queue_free()
-			continue
-		alive += 1
-
-	if alive >= MAX_ENEMIES or _spawn_timer > 0.0:
-		return
-
-	_spawn_timer = SPAWN_INTERVAL
-	_spawn_enemy(_pick_enemy_scene(), _spawn_point())
-
-
-## The spawn is snapped to a crossing, so it can land much nearer than asked. The
-## bearings are retried before the nearest one is accepted, which keeps a contact
-## from appearing on top of the ship.
-func _spawn_point() -> Vector3:
-	var angle: float = _spawn_angle()
-	var point: Vector3 = Vector3.ZERO
-	for _attempt in SPAWN_ATTEMPTS:
-		point = _street_spawn(angle, _rng.randf_range(SPAWN_DISTANCE_MIN, SPAWN_DISTANCE_MAX))
-		if _planar_distance(point) >= MIN_SPAWN_SEPARATION:
-			return point
-		angle += TAU / float(SPAWN_ATTEMPTS)
-	return point
-
-
+## Snap a point to the nearest crossing. The director retries the bearings around
+## the circle before it accepts a near one, so a contact cannot land on the ship.
 func _street_spawn(angle: float, distance: float) -> Vector3:
 	var wanted: Vector3 = (
 		_player.global_position
@@ -312,57 +305,29 @@ func _nearest_street_centre(value: float, origin: float) -> float:
 	return origin + index * PITCH + BLOCK + STREET * 0.5
 
 
-func _planar_distance(point: Vector3) -> float:
-	return Vector2(
-		point.x - _player.global_position.x,
-		point.z - _player.global_position.z
-	).length()
-
-
-## Bias new contacts to the streets the ship is heading into, the same way the
-## planet does: a plain ring would put half of them behind the ship.
-func _spawn_angle() -> float:
-	var heading: Vector2 = Vector2(_player.velocity.x, _player.velocity.z)
-	var base: float = _rng.randf() * TAU
-	if heading.length() > 2.0:
-		base = heading.angle()
-	return base + _rng.randf_range(-SPAWN_HEADING_SPREAD, SPAWN_HEADING_SPREAD)
-
-
-func _spawn_enemy(scene: PackedScene, point: Vector3) -> void:
-	var enemy: Enemy = scene.instantiate()
-	_enemies.add_child(enemy)
-	enemy.setup_spawn(point)
-
-
-## One roll, three buckets, the same shares the planet uses so the two scenarios
-## present the same threat mix.
-func _pick_enemy_scene() -> PackedScene:
-	var roll: float = _rng.randf()
-	if roll < MISSILE_ENEMY_SHARE:
-		return MISSILE_ENEMY_SCENE
-	if roll < MISSILE_ENEMY_SHARE + FIGHTER_ENEMY_SHARE:
-		return FIGHTER_ENEMY_SCENE
-	return ENEMY_SCENE
-
-
 func _on_enemy_killed(value: int) -> void:
-	_add_score(value)
+	_run.add_score(value)
 
 
 func _on_building_destroyed(value: int) -> void:
-	_add_score(value)
+	_run.add_score(value)
 
 
-func _add_score(value: int) -> void:
-	_score += value
-	GlobalEventBus.score_changed.emit(_score)
+## The contact stream, so a test can park it instead of writing a sentinel into a
+## private timer.
+func director() -> EncounterDirector:
+	return _director
+
+
+## The run's counters.
+func run_state() -> RunState:
+	return _run
 
 
 ## Read-only view of the run's score, so the smoke test can assert a demolition
 ## pays without parsing the HUD label.
 func score() -> int:
-	return _score
+	return _run.score
 
 
 ## The towers, in build order. Read-only: the city owns placement.

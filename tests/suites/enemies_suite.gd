@@ -11,7 +11,7 @@ func _test_boss() -> void:
 	_clear_projectiles()
 	# The spawner is parked for the test: the arrival is what is under test, and a
 	# fighter wandering into the set piece would make the projectile counts ambiguous.
-	_arena.set("_spawn_timer", 1.0e9)
+	_arena.director().park()
 	await get_tree().physics_frame
 
 	var hud: CanvasLayer = _arena.get_node("HUD") as CanvasLayer
@@ -39,7 +39,7 @@ func _test_boss() -> void:
 
 	# Drive the real trigger: one kill short of the threshold, then a kill. The
 	# suite parked the counter, so this is the only place the arrival path runs.
-	_arena.set("_run_kills", Arena.BOSS_KILL_THRESHOLD - 1)
+	_arena.run_state().kills = Arena.BOSS_KILL_THRESHOLD - 1
 	var trigger: Enemy = _spawn_turret(_player.global_position + Vector3(24.0, 0.0, 0.0))
 	# A fighter already in the stream has to survive the arrival: the ship escalates
 	# the run instead of wiping the field. It sits in the stream's own container, which
