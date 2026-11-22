@@ -171,24 +171,33 @@ the seven places that wrote `_spawn_timer` and `_run_kills` by name.
 
 ### 5.2 Splitting the god objects
 
+`weapon_system.gd` is done:
+
 ```
-player.gd            ~250  orchestrator: input, state, timers
+weapon_system.gd     295  facade: bullet scene, stats, one spawn path, cone
+│                          query, bomb rack, decoy clock
+├ primary_fire.gd    218  vulcan / laser / plasma cadence and the lock
+├ missile_radar.gd   414  pool, marks, salvo, launch, cooldown  (RefCounted)
+├ beam_visual.gd      47  the drawn line, presentation only
+└ lock_slot.gd        19  contact + host, now a global class
+```
+
+41 functions became 22 in the facade, and the two new pieces own no scene graph:
+the rack is a clock plus a picture and the primaries are a cadence, so neither
+needs a parent. `PlayerModel` had already proved the movement works.
+
+Still pending:
+
+```
+player.gd           1,556  orchestrator: input, state, timers
 ├ player_flight.gd         gerwalk / fighter
 ├ player_actions.gd        dash, double-tap, transform, roll, i-frames
 ├ player_visuals.gd        thrusters, smoke, wingtip ribbons, aim beam, bank
 └ player_audio.gd          hum and cues
 
-main_menu.gd         ~150  panel router
+main_menu.gd          832  panel router
 ├ options_panel / livery_panel / pad_panel / save_panel
-
-weapon_system.gd     ~350  facade
-├ primary_fire.gd          vulcan / laser / plasma
-├ missile_radar.gd         pool, marks, salvo, launch
-└ beam_visual.gd
 ```
-
-`PlayerModel` already proves the split works: the airframe left `player.gd` and
-nothing hurt.
 
 ### 5.3 Splitting the suite (done)
 
@@ -225,9 +234,10 @@ Every `add_child` and `get_children()` that implicitly meant "the scene root" wh
 the harness *was* the scene root had to become explicit: gameplay projectiles are
 parented to `get_tree().current_scene`, and the scans had to keep looking there.
 
-Still pending from this movement: turning the hidden world hacks into fixture API
-(`park_stream()`, `spawn_turret()`), which needs the `EncounterDirector` from §5.1
-to have a name to park.
+Still pending from this movement: turning the hidden world hacks into fixture API.
+The director half is done (`director().park()` / `spawn_now()` / `resume()`,
+`run_state().kills`); what remains are the suite's spawn helpers, which build the
+world through the harness instead of through a level API.
 
 ### 5.4 Injectable adapters
 
@@ -249,7 +259,7 @@ static `configure()` calls the suite depends on today.
 | P2 | Fixture API on top of the split | High | Low | 2 h — **done with P1** |
 | P1 | `EncounterDirector` + `RunState` | High | Medium | 1 d — **done** |
 | P1 | Split `player.gd` | High | Medium | 1 d |
-| P1 | Split `weapon_system.gd` | Medium | Low | 4 h |
+| P1 | Split `weapon_system.gd` | Medium | Low | 4 h — **done** |
 | P1 | Split `main_menu.gd` into panels | Medium | Low | 4 h |
 | P2 | `SaveStore` injection | Medium | Low | 3 h |
 | P3 | Typed payloads | Low | Low | 2 h |

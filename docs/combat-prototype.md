@@ -1569,7 +1569,7 @@ All values are named constants at the top of each script.
 | Fighter gun profile | `combat/arsenal.gd` | `FIGHTER_RANGE_MULTIPLIER`, `FIGHTER_SPEED_MULTIPLIER`, `FIGHTER_VULCAN_SPREAD_DEGREES` |
 | Weapon cadence and damage | `combat/arsenal.gd` | `VULCAN_*`, `LASER_*`, `PLASMA_*` (interval, damage, speed, spread, lock cone) |
 | Missiles | `combat/arsenal.gd` | `MISSILE_*` (radar cone, load time and derived load interval, max salvo, salvo cooldown, damage, turn rate, range, launch fan step and cap, weave amplitude/rate/hit range/fade); `MISSILE_SALVO_LOAD_TIME` is the commitment, the interval follows from it |
-| Missile hardpoints | `entities/player/player_model.gd`, `entities/player/weapon_system.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
+| Missile hardpoints | `entities/player/player_model.gd`, `entities/player/missile_radar.gd` | `WING_HARDPOINT`; `wing_anchors()` reads the span axis from `Bone.Wing.L/R`, and `MISSILE_CLEARANCE` keeps the shot off the pylon |
 | Lock reticle | `combat/lock_reticle.gd` | `HALF_SIZE`, `ARM`, `THICKNESS`, `PIP`, `HEIGHT`, `COLOR`, `PULSE_SPEED`, `PULSE_DEPTH`, `GLOW`, `GLOW_DEPTH`, `LOCK_IN_SCALE`, `LOCK_IN_TIME`, `OVERSHOOT`, `HELD_SCALE`, `HELD_GLOW`, `HELD_SCAN_ALPHA`, `HELD_SPIN_SPEED`, `SCAN_HALF`, `SCAN_THICKNESS`, `SCAN_SPIN`, `SCAN_ALPHA`, `BURST_HALF`, `BURST_THICKNESS`, `BURST_SCALE`, `BURST_TIME`, `FLASH_GLOW`, `FLASH_DECAY`, `LABEL_POP`, `LABEL_POP_DECAY` |
 | Radar scope | `ui/hud/radar.gd` | `DETECTION_RANGE`, `BLIP_RADIUS`, `SWEEP_PERIOD`, `SWEEP_ARC`; world-fixed, and every contact inside the range is drawn |
 | Death countdown | `ui/hud/game_over.gd` | `RESPAWN_SECONDS`, `FADE_IN` |
@@ -1582,7 +1582,7 @@ All values are named constants at the top of each script.
 | Audio palette and mixing | `common/sfx.gd` | `VOICES`, `MAX_SPATIAL`, `SPATIAL_UNIT`, `SPATIAL_REACH` (covers the despawn ring), `SPATIAL_FLAT` (kills keep their level), `ENGINE_REST_DB`, `ENGINE_TOP_DB`, `SFX_BUS`, `GAIN_DB` (the mix), `PITCH_JITTER` (per-sound variation), `STACK_WINDOW` (same-key ducking), the bus reverb (`wet 0.12`, 18 ms), and the loaded `KEYS` |
 | Sound synthesis | `tools/generate_sfx.gd` | `RATE`, `PEAK`, `SHAPE_SINE/SAW/SQUARE`, `FILTER_LOW/HIGH`, `_tone`, `_noise` (with a cutoff sweep), `_ring` (inharmonic metal), `_crush` (sample-and-hold and quantisation, the console grain of the lock tone), one builder per key in `_catalogue()`; each sound seeds the noise from its name, so the WAVs are reproducible and one builder cannot shift the others |
 | Blast spectrum | `tools/generate_sfx.gd` | `_explosion` crack sweeping ~7 kHz to 3.6 kHz, body opening 2.4 kHz to 900 Hz, sub and rumble; the suite requires at least 30% of the energy above 1 kHz |
-| Weapon sound cues | `entities/player/weapon_system.gd` | one `Sfx.play` per shot; `_laser_sounding` gates the beam ignition; `missile_launch` pitch climbs with the salvo index |
+| Weapon sound cues | `entities/player/primary_fire.gd`, `entities/player/missile_radar.gd`, `entities/player/weapon_system.gd` | one `Sfx.play` per shot; `_laser_sounding` gates the beam ignition; `missile_launch` pitch climbs with the salvo index |
 | Ship sound cues | `entities/player/player.gd` | `Sfx.play` on `_start_transform`, `_start_gerwalk_dash`, `_start_barrel_roll` and `take_damage`; `_burning` hysteresis for the ignition; `Sfx.engine()` every frame |
 | Enemy sound cues | `entities/enemy/*.gd` | `Sfx.play_at` on `_fire_pattern` (`enemy_fire`, `missile_warning`) and on `_spawn_explosion` (`explosion`) |
 | Enemy score | `entities/enemy/*.gd` | `Turret.SCORE_VALUE` (100), `FighterEnemy.KILL_SCORE` (200), `MissileEnemy.KILL_SCORE` (250); the arena sums them into the run total |
@@ -1665,7 +1665,11 @@ combat/bomb_wave.gd             expanding shockwave, presentation only
 combat/decoy.gd                 dropped flare: takes the lock of nearby guided shots, self-freeing
 combat/lock_reticle.gd          world-space mark on a radar lock, dies with its target; size follows the target's footprint
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
-entities/player/weapon_system.gd  primaries, missiles, the bomb and the decoy, spawned per ship
+entities/player/weapon_system.gd  the arsenal facade: scene, stats, spawn path, bomb, decoy
+entities/player/primary_fire.gd   vulcan, laser and plasma cadence, and the drawn beam
+entities/player/missile_radar.gd  the missile rack: pool, marks, salvo, cooldown
+entities/player/beam_visual.gd    the laser's line, presentation only
+entities/player/lock_slot.gd      one missile destination: contact plus the mark's host
 entities/enemy/enemy.gd          the hostile contract: enemy group, pool, hit flash, `killed`, death, lock-mark defaults
 entities/enemy/turret.gd        turret: roam -> engage -> telegraph -> pattern -> recover
 entities/enemy/missile_enemy.gd launcher variant: the turret's movement and hull, a guided salvo instead of patterns
@@ -1732,13 +1736,16 @@ bones rather than to a fixed tail offset, so they stay on the engines when the
 stance swings the nacelles forward. The muzzle distance still clears the nose, so
 bullets leave the airframe instead of spawning inside it.
 
-Weapons follow the same ownership rule. `WeaponSystem` holds the selected weapon,
-the bomb rack, the missile radar and the decoy cooldown, and exposes only `select()`,
-`cycle()`, `fire_bomb()`, `drop_decoy()`, `kind()`, `bomb_charges()`, `salvo_count()`
-and `max_salvo()`; the player owns the input that drives it, and the HUD is a
-projection of `player_weapon_changed`, `player_bombs_changed`,
-`player_missile_salvo_changed` and `player_decoy_changed`. `Arsenal` holds the tuning
-so no weapon hard-codes a cadence inside firing code.
+Weapons follow the same ownership rule. `WeaponSystem` is the facade: it owns the
+loaded scene, the pilot's stats, the one spawn path, the bomb rack and the decoy
+clock, and exposes `select()`, `cycle()`, `fire_bomb()`, `drop_decoy()`, `kind()`,
+`bomb_charges()`, `salvo_count()` and `max_salvo()`. The three primaries live in
+`PrimaryFire` and the rack in `MissileRadar`; both are handed the spawn path and
+the cone query as callables, so the muzzle and the team cannot drift between
+weapons. The player owns the input that drives it, and the HUD is a projection of
+`player_weapon_changed`, `player_bombs_changed`, `player_missile_salvo_changed`
+and `player_decoy_changed`. `Arsenal` holds the tuning so no weapon hard-codes a
+cadence inside firing code.
 
 Ownership rule: the player owns its HP and its turbo reserve, and only exposes
 `take_damage()`. The HUD is a projection of `player_health_changed` and
