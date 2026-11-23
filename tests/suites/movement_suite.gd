@@ -718,7 +718,7 @@ func _test_gerwalk_silhouette() -> void:
 	)
 	# The strips are wiped, not merely faded: a trail laid down in FIGHTER would
 	# otherwise hang in the air for its whole lifetime after the switch.
-	var gerwalk_trails: Array = _player.get("_wingtip_trails")
+	var gerwalk_trails: Array = _player.effects().wingtip_trails
 	for trail in gerwalk_trails:
 		(trail.get("points") as Array).append(Vector3.ONE)
 		(trail.get("born") as Array).append(0.0)
@@ -812,7 +812,7 @@ func _test_gerwalk_silhouette() -> void:
 			"the vapour leaves from the outer edge at cruise (z %.2f / %.2f)"
 			% [tips[0].z, tips[1].z]
 		)
-	var trails: Array = _player.get("_wingtip_trails")
+	var trails: Array = _player.effects().wingtip_trails
 	_check(trails.size() == 2, "the fighter carries a ribbon on each tip")
 	if trails.size() == 2 and tips.size() == 2:
 		# The tips answer airspeed now, not the burner: the vapour is the cue that
@@ -896,7 +896,7 @@ func _test_gerwalk_silhouette() -> void:
 ## the speed itself. The puffs are left in world space, which is what turns a point
 ## emitter into a trail.
 func _test_exhaust_trail() -> void:
-	var smoke: Array = _player.get("_smoke")
+	var smoke: Array = _player.effects().smoke
 	_check(smoke.size() == 2, "the airframe carries one exhaust emitter per nozzle")
 	if smoke.size() < 2:
 		return

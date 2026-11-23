@@ -64,7 +64,6 @@ const YAW_BANK: float = 10.0
 ## drops a wing and pulls.
 const FIGHTER_BANK: float = 50.0
 const BANK_RATE: float = 10.0
-const THRUST_KICK_DECAY: float = 3.0
 
 ## Afterburner. Normal thrust tops out at MAX_SPEED; the burner trades reserve for
 ## a higher top speed, and the reserve only fills back while the burner is off.
@@ -73,8 +72,6 @@ const BOOST_ACCELERATION: float = 420.0
 const TURBO_MAX: float = 100.0
 const TURBO_DRAIN_PER_SECOND: float = 45.0
 const TURBO_RECHARGE_PER_SECOND: float = 24.0
-const FOV_BOOST_KICK: float = 5.0
-const FOV_RATE: float = 18.0
 
 ## Thruster nozzles sit at the tail, one each side of the centreline.
 ## Modes. GERWALK keeps every number above. FIGHTER is the interceptor the spec
@@ -128,24 +125,23 @@ const TRANSFORM_TIME: float = 0.28
 
 ## The nose is long, so the muzzle and the aim beam start past its tip.
 const MUZZLE_DISTANCE: float = 3.05
-const BEAM_START: float = 2.60
-const BEAM_LENGTH: float = 2.0
 
 ## Wing sweep in degrees: nearly straight at rest, a clear contraction at cruise,
 ## and swept back when the burner is lit. The wing already carries about 27 degrees
 ## of leading-edge sweep, so the tip ends up near 65 degrees at full burn.
-const WING_SWEEP_FORWARD: float = 0.0
-const WING_SWEEP_CRUISE: float = 14.0
-const WING_SWEEP_BACK: float = 38.0
+## The stops live with the pose that applies them, in `PlayerEffects`; the names
+## stay here because the interceptor's own sweep and the suite read them.
+const WING_SWEEP_FORWARD: float = PlayerEffects.WING_SWEEP_FORWARD
+const WING_SWEEP_CRUISE: float = PlayerEffects.WING_SWEEP_CRUISE
+const WING_SWEEP_BACK: float = PlayerEffects.WING_SWEEP_BACK
 ## Degrees per second the wings travel between those stops. The throttle changes in
 ## a couple of frames, so the wing needs its own clock to read as a mechanism
 ## instead of a snap: 0 to full sweep takes a bit over half a second.
-const WING_SWEEP_RATE: float = 60.0
+const WING_SWEEP_RATE: float = PlayerEffects.WING_SWEEP_RATE
 
 ## Desert airframe from the reference sheet: the gunpod is the only piece still
 ## built by hand, so only its two materials survive.
 const ACCENT_COLOR: Color = Color(0.34, 0.22, 0.17, 1.0)
-const BEAM_COLOR: Color = Color(0.24, 0.9, 0.8, 1.0)
 ## The GU-11 gunpod is the one near-black piece on the airframe. It is not pure
 ## black: at this scale the faces have to separate or the rifle reads as a smudge.
 const GUNMETAL_COLOR: Color = Color(0.27, 0.28, 0.32, 1.0)
@@ -161,46 +157,6 @@ const GERWALK_LIFT: float = 0.55
 const GUNPOD_STOWED: Vector3 = Vector3(0.48, -0.27, 0.0)
 const GUNPOD_LENGTH: float = 0.90
 const GUNPOD_BARREL: float = 0.46
-
-## The exhaust wake. The puffs are dropped in world space and left behind, so the
-## gap between them -- and therefore the length of the trail -- grows with the
-## speed on its own. Only the density needs a knob: `amount_ratio` drops puffs
-## without reallocating the buffer or restarting the emission.
-##
-## The density answers a change in speed, not the speed itself. A steady throttle
-## leaves the nozzles clean, and what the wake marks is the ship climbing: a puff
-## is born at the nozzle and stays there, so a burst during the climb leaves a
-## short smear behind the hull and then nothing. That also keeps a standing ship
-## from wearing its own trail -- from the game camera the near leg sat behind the
-## plume, and a grey veil over a white leg reads as a shadow the other leg does
-## not have.
-const SMOKE_COLOR: Color = Color(0.74, 0.79, 0.85, 1.0)
-const SMOKE_AMOUNT: int = 450
-const SMOKE_LIFETIME: float = 0.50
-const SMOKE_PUFF: float = 0.80
-const SMOKE_DENSITY_HIGH: float = 0.95
-
-## Wingtip vapour, the speed cue. The cone that used to point the way is gone; a
-## pair of trails off the tips says "this is moving" without painting a shape over
-## the arena.
-##
-## The trail is a ribbon, not a particle wake. Puffs can only ever be as dense as
-## the rate they spawn at, and at 60 u/s that leaves visible gaps, so the tips read
-## as a dotted line. A strip rebuilt through the tip's own history is continuous by
-## construction: two vertices per sample, no gaps to tune away.
-const WINGTIP_COLOR: Color = Color(0.52, 0.86, 1.0, 0.9)
-const WINGTIP_WIDTH: float = 0.18
-## Where the FIGHTER vapour starts, as a fraction of cruise. It cannot wait for the
-## burner any more: from the middle of the throttle up the tips are already saying
-## the ship is moving, and the burner is just the top of that range. FIGHTER is the
-## only mode with a trail at all, so this is the only curve there is.
-const WINGTIP_SPEED_FLOOR: float = 0.55
-## Longer-lived than the exhaust wake on purpose: the two lines have to outlast the
-## grey rope the nozzles drop, or they end inside it and there is nothing to see.
-const WINGTIP_LIFETIME: float = 0.65
-## Distance between samples. Below this the head is just moved instead of a new
-## vertex being added, so a slow ship does not pile up points on one spot.
-const WINGTIP_SPACING: float = 0.30
 
 ## The counter-light that keeps a mirrored airframe reading evenly. Level and tint
 ## only; where it points is `_build_fill_light`'s story. It is cool because it
@@ -248,15 +204,7 @@ var _alive: bool = true
 var _visual_yaw: float = 0.0
 var _visual_yaw_prev: float = 0.0
 var _bank: float = 0.0
-var _forward_speed: float = 0.0
 var _thrust_kick: float = 0.0
-## Whether the burner is already lit. The ignition is an edge, not a level: the
-## sound belongs to crossing into the burner, not to every frame spent in it.
-var _burning: bool = false
-## Wing angle the pose was last built with. The wings travel to their target at a
-## fixed rate instead of following the throttle frame by frame: the fighter reaches
-## cruise in a handful of frames, so a derived angle would snap.
-var _wing_sweep: float = 0.0
 
 var _mode: Mode = Mode.GERWALK
 var _transform_time: float = 0.0
@@ -281,36 +229,30 @@ var _turbo: float = TURBO_MAX
 var _boosting: bool = false
 var _turbo_locked: bool = false
 var _turbo_shown: float = TURBO_MAX
-var _base_fov: float = 58.0
 
+var _effects: PlayerEffects
 var _visual: Node3D
-var _aim_beam: MeshInstance3D
 var _model: PlayerModel
 var _accent_material: StandardMaterial3D
 var _gunpod: Node3D
 var _gunmetal_material: StandardMaterial3D
-## Nozzle positions for the frame, in `_visual` space. They move with the legs,
-## so the flames are rebuilt from them every frame instead of a fixed offset.
-var _nozzle_anchors: Array[Vector3] = []
-var _thruster_plumes_material: StandardMaterial3D
-var _thruster_cores_material: StandardMaterial3D
-var _thruster_plumes: Array[MeshInstance3D] = []
-var _thruster_cores: Array[MeshInstance3D] = []
-var _smoke: Array[GPUParticles3D] = []
-var _wingtip_trails: Array[WingtipTrail] = []
-var _wingtip_material: StandardMaterial3D
 
 
 func _ready() -> void:
 	add_to_group(&"player")
 	_apply_pilot_stats()
 	camera = %Camera
-	_base_fov = camera.fov
 	_build_visual()
-	_build_thrusters()
-	_build_smoke()
-	_build_wingtip_trails()
-	_build_aim_beam()
+
+	_effects = PlayerEffects.new()
+	_effects.name = "Effects"
+	_effects.camera = camera
+	_effects.pose = _apply_afterburner_pose
+	_effects.set_speeds(
+		_max_speed, _boost_speed, _fighter_speed, _fighter_boost_speed, ACCELERATION
+	)
+	add_child(_effects)
+	_effects.build(_visual, _model)
 
 	_weapons = WeaponSystem.new()
 	_weapons.name = "Weapons"
@@ -348,6 +290,11 @@ func _apply_pilot_stats() -> void:
 	# first-run case; a later reapply reaches an existing arsenal.
 	if _weapons != null:
 		_weapons.set_stats(_stats)
+	# Same seam as the arsenal: the wake reads the run's speeds, never the record.
+	if _effects != null:
+		_effects.set_speeds(
+			_max_speed, _boost_speed, _fighter_speed, _fighter_boost_speed, ACCELERATION
+		)
 
 
 ## The hum belongs to this ship, so it goes when the ship does: a restart or a
@@ -522,6 +469,11 @@ func _start_transform() -> void:
 	Sfx.play(&"transform")
 
 
+## The ship's presentation, as a node: the wake, the vapour and the aim beam.
+func effects() -> PlayerEffects:
+	return _effects
+
+
 func mode() -> Mode:
 	return _mode
 
@@ -574,105 +526,36 @@ func _emit_turbo() -> void:
 	GlobalEventBus.player_turbo_changed.emit(_turbo, _turbo_max)
 
 
-## The wake: two nested cones per nozzle, plus the wing sweep. The flame follows
-## the forward component of the velocity, not the input: a ship strafing with its
-## nose elsewhere is not burning towards its nose, and a flame that grew anyway
-## would be a lie. The camera kicks out a little while burning, which reads as
-## speed on a featureless surface.
+## The wake and the pose, fed this frame's numbers. The effects node owns the
+## plumes, the smoke and the camera kick; the ship still owns the velocity, the
+## burner tank and the run's speeds.
 func _update_afterburner_visual(delta: float) -> void:
 	var forward_speed: float = maxf(velocity.dot(_aim_direction), 0.0)
-	var thrust: float = clampf(forward_speed / _boost_speed, 0.0, 1.0)
 	var heat: float = clampf(
 		(forward_speed - _max_speed) / (_boost_speed - _max_speed), 0.0, 1.0
 	)
-	# The burner announces itself once, on the way in. Hysteresis, because a ship
-	# riding the threshold would otherwise stutter the ignition every few frames.
-	var burning: bool = heat > 0.08 if not _burning else heat > 0.02
-	if burning and not _burning and delta > 0.0:
-		Sfx.play(&"afterburner")
-	_burning = burning
+	var visual_mode: Mode = _transform_target if _transform_time > 0.0 else _mode
+	_thrust_kick = _effects.update_afterburner(
+		delta,
+		_thrust_kick,
+		forward_speed,
+		_boosting,
+		heat,
+		visual_mode == Mode.FIGHTER
+	)
 
-	# A kick is a flash, not a speed curve: opening the throttle past a walk, or
-	# punching the dash, spikes the plumes and then decays in about a third of a
-	# second. It is the only cue that the ship has weight at all.
-	var accel: float = (forward_speed - _forward_speed) / maxf(delta, 0.0001)
-	_forward_speed = forward_speed
-	_thrust_kick = maxf(_thrust_kick, clampf(accel / ACCELERATION, 0.0, 1.0))
-	_thrust_kick = move_toward(_thrust_kick, 0.0, THRUST_KICK_DECAY * delta)
-	var kick: float = _thrust_kick
 
+## The airframe owns what the blend and the sweep move: the nose pitch, the stance
+## and the gunpod are the pose, not the wake.
+func _apply_afterburner_pose(delta: float, fighter: bool, sweep: float) -> void:
 	# The silhouette is the mode read from above: FIGHTER dips the nose, GERWALK
 	# holds it level like a hovering airframe. The blend follows the mode the switch
 	# is committing *to*, not the mode the rules still use, so the shape finishes
 	# changing exactly when the rules flip instead of one whole switch later.
-	var visual_mode: Mode = _transform_target if _transform_time > 0.0 else _mode
-	var target_blend: float = 1.0 if visual_mode == Mode.FIGHTER else 0.0
+	var target_blend: float = 1.0 if fighter else 0.0
 	_mode_blend = move_toward(_mode_blend, target_blend, delta / TRANSFORM_TIME)
 	_visual.rotation.z = deg_to_rad(FIGHTER_NOSE_PITCH) * _mode_blend
-
-	# The wings answer speed, not the mode: they contract as the ship reaches cruise
-	# and sweep the rest of the way once it is pushed past it, which is where the
-	# burner lives. The thresholds come from the mode being committed to, not from
-	# the blend, so a transformation never makes the wings flap back and forth on
-	# the way.
-	var fighter: bool = visual_mode == Mode.FIGHTER
-	var cruise: float = _fighter_speed if fighter else _max_speed
-	var ceiling: float = _fighter_boost_speed if fighter else _boost_speed
-	var target_sweep: float
-	if forward_speed <= cruise:
-		var approach: float = clampf(forward_speed / maxf(cruise, 0.001), 0.0, 1.0)
-		# Squared, not linear: a swing wing keeps its span while it is slow and
-		# folds only as it closes on cruise. Linear put the wings a third of the
-		# way back at a walk, which read as the sweep answering the throttle
-		# position rather than the speed.
-		target_sweep = lerpf(WING_SWEEP_FORWARD, WING_SWEEP_CRUISE, approach * approach)
-	else:
-		var past: float = clampf(
-			(forward_speed - cruise) / maxf(ceiling - cruise, 0.001), 0.0, 1.0
-		)
-		target_sweep = lerpf(WING_SWEEP_CRUISE, WING_SWEEP_BACK, past)
-	# The angle is a mechanism, not a readout: the wing travels to the stop at
-	# `WING_SWEEP_RATE` and the throttle is free to jump. A zero delta means "pose
-	# the current speed", which is what the tools use for a still.
-	if delta > 0.0:
-		_wing_sweep = move_toward(_wing_sweep, target_sweep, WING_SWEEP_RATE * delta)
-	else:
-		_wing_sweep = target_sweep
-	_update_mode_pose(_wing_sweep)
-
-	# The flames hang off the nozzles, and the nozzles are the feet: the stance
-	# swings them forward, so the anchors are read back after the pose.
-	_nozzle_anchors = _model.nozzle_anchors() if _model != null else []
-	_layout_flames(_thruster_plumes, 0.35 + thrust * 1.65 + kick * 1.10)
-	_layout_flames(_thruster_cores, 0.28 + thrust * 1.00 + kick * 0.70)
-	_update_smoke(accel)
-
-	_thruster_plumes_material.albedo_color = Color(
-		lerpf(0.22, 0.5, heat),
-		lerpf(0.6, 0.85, heat),
-		1.0,
-		clampf(0.08 + thrust * 0.24 + kick * 0.30, 0.0, 0.8)
-	)
-	_thruster_cores_material.albedo_color = Color(
-		0.88, 0.98, 1.0, clampf(0.18 + thrust * 0.45 + kick * 0.25, 0.0, 0.95)
-	)
-
-	if camera == null:
-		return
-	var target_fov: float = _base_fov + (FOV_BOOST_KICK if _boosting else 0.0)
-	camera.fov = move_toward(camera.fov, target_fov, FOV_RATE * delta)
-
-
-## The cone's tip trails behind the nozzle, so growing it must move it back by the
-## same amount or the base would detach from the hull.
-func _layout_flames(flames: Array[MeshInstance3D], length: float) -> void:
-	for flame in flames:
-		var nozzle: int = int(flame.get_meta("nozzle", 0))
-		var anchor: Vector3 = Vector3.ZERO
-		if nozzle < _nozzle_anchors.size():
-			anchor = _nozzle_anchors[nozzle]
-		flame.scale = Vector3(1.0, length, 1.0)
-		flame.position = Vector3(anchor.x - length * 0.5, anchor.y, anchor.z)
+	_update_mode_pose(sweep)
 
 
 ## The dash gesture. A tap is the movement vector leaving the deadzone, so two
@@ -864,8 +747,7 @@ func _update_aim(delta: float) -> void:
 	else:
 		_visual_yaw = target_yaw
 	_visual.rotation.y = _visual_yaw
-	_aim_beam.position = _aim_direction * (BEAM_START + BEAM_LENGTH * 0.5)
-	_aim_beam.rotation.y = atan2(_aim_direction.x, _aim_direction.z)
+	_effects.aim(_aim_direction)
 
 
 ## Projects the mouse onto the orbital plane so aim works with a perspective
@@ -1027,8 +909,8 @@ func _die() -> void:
 	velocity = Vector3.ZERO
 	Sfx.engine(false)
 	_visual.visible = false
-	_aim_beam.visible = false
-	_clear_wingtip_trails()
+	_effects.hide_beam()
+	_effects.clear_wingtip_trails()
 	_spawn_explosion()
 	GlobalEventBus.player_died.emit()
 
@@ -1191,366 +1073,31 @@ func _mesh_node(mesh: Mesh, material: StandardMaterial3D) -> MeshInstance3D:
 	return node
 
 
-## Two additive, unshaded cones per nozzle: a wide plume and a thin core. The
-## materials are shared by both nozzles, so one colour update per frame is enough
-## and the two sides can never drift apart.
-func _build_thrusters() -> void:
-	_thruster_plumes_material = _make_thruster_material(Color(0.22, 0.6, 1.0, 0.12))
-	_thruster_cores_material = _make_thruster_material(Color(0.88, 0.98, 1.0, 0.25))
-
-	_nozzle_anchors = _model.nozzle_anchors() if _model != null else []
-	for nozzle in _nozzle_anchors.size():
-		_add_thruster(nozzle, 0.19, _thruster_plumes_material, _thruster_plumes)
-		_add_thruster(nozzle, 0.09, _thruster_cores_material, _thruster_cores)
-
-	_update_afterburner_visual(0.0)
-
-
-func _make_thruster_material(tint: Color) -> StandardMaterial3D:
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	material.albedo_color = tint
-	return material
-
-
-## Cone with its tip trailing behind: the mesh axis is local Y, so a quarter turn
-## about Z lays it along X, pointing away from the nose. Each flame remembers which
-## nozzle it belongs to and is placed from that anchor every frame.
-func _add_thruster(
-	nozzle: int,
-	base_radius: float,
-	material: StandardMaterial3D,
-	into: Array[MeshInstance3D]
-) -> void:
-	var flame_mesh: CylinderMesh = CylinderMesh.new()
-	flame_mesh.top_radius = 0.0
-	flame_mesh.bottom_radius = base_radius
-	flame_mesh.height = 1.0
-	flame_mesh.radial_segments = 8
-
-	var flame: MeshInstance3D = MeshInstance3D.new()
-	flame.mesh = flame_mesh
-	flame.material_override = material
-	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	flame.rotation.z = PI * 0.5
-	flame.set_meta("nozzle", nozzle)
-	_visual.add_child(flame)
-	into.append(flame)
-
-
-## One emitter per nozzle, built once with its worst case. The puffs are not
-## carried along with the hull: `local_coords = false` leaves each one where it was
-## born, which is what turns a burst into a trail.
-func _build_smoke() -> void:
-	for nozzle in _nozzle_anchors.size():
-		var smoke: GPUParticles3D = GPUParticles3D.new()
-		smoke.amount = SMOKE_AMOUNT
-		smoke.lifetime = SMOKE_LIFETIME
-		smoke.local_coords = false
-		smoke.emitting = true
-		# At the default 30 Hz the emitter lays the puffs down in batches and the
-		# trail reads as a string of beads; the render rate closes the gaps.
-		smoke.fixed_fps = 0
-		smoke.amount_ratio = 0.0
-		smoke.process_material = _make_smoke_process()
-		smoke.draw_pass_1 = _make_smoke_puff()
-		# The trail is world-space and the sun's shadow map covers the whole arena,
-		# so a puff that drifts back over the hull drops a soft blob on it. From the
-		# game camera that reads as one leg being in shadow and the other not, which
-		# is exactly what a transparent billboard must not do: it is haze, not a
-		# solid. Nothing else on the ship casts either (see `_prepare_meshes`).
-		smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		smoke.set_meta("nozzle", nozzle)
-		_visual.add_child(smoke)
-		_smoke.append(smoke)
-
-
-## Density follows the climb, not the speed: a steady throttle leaves the nozzles
-## clean, and what leaves a trail is the ship gaining speed. The puffs keep their
-## own lifetime, so the burst outlives the acceleration by half a second and then
-## clears itself. Nothing here has to rescale the emitters, and `amount_ratio`
-## changes without restarting the emission.
+## The wake, the vapour and the beam belong to the effects node; these keep the
+## suite's names on the ship and feed them the ship's own state.
 func _update_smoke(accel: float) -> void:
-	var density: float = clampf(accel / ACCELERATION, 0.0, 1.0) * SMOKE_DENSITY_HIGH
-	for smoke in _smoke:
-		var nozzle: int = int(smoke.get_meta("nozzle", 0))
-		if nozzle < _nozzle_anchors.size():
-			smoke.position = _nozzle_anchors[nozzle]
-		smoke.amount_ratio = density
-
-
-## One wingtip's ribbon: the tip positions it has visited, oldest first, plus the
-## moment each was laid down. The strip is rebuilt from this every frame, so the
-## vapour follows the wing exactly -- the sweep moves the tip and the ribbon head
-## moves with it, with no frame of lag.
-class WingtipTrail:
-	var mesh: ImmediateMesh = ImmediateMesh.new()
-	## World-space samples, oldest first. The last one is the live tip.
-	var points: Array[Vector3] = []
-	## The trail's own clock at which each sample was laid down.
-	var born: Array[float] = []
-	var age: float = 0.0
-	## How hard this tip is trailing right now, 0..1. It scales the strip's alpha,
-	## so the vapour fades in as the ship picks up speed instead of popping on at
-	## a threshold.
-	var vapour: float = 0.0
-
-
-## Two ribbons, one per tip. They are children of the hull but `top_level`, because
-## the strip is built in world space from the tip's own history: inheriting the
-## ship's yaw would swing the whole contrail around with every turn, and the roll
-## animation would whip it around the airframe.
-func _build_wingtip_trails() -> void:
-	_wingtip_material = _make_wingtip_material()
-	for _side in 2:
-		var trail: WingtipTrail = WingtipTrail.new()
-		var instance: MeshInstance3D = MeshInstance3D.new()
-		instance.mesh = trail.mesh
-		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		instance.top_level = true
-		instance.transform = Transform3D.IDENTITY
-		add_child(instance)
-		_wingtip_trails.append(trail)
+	_effects.update_smoke(accel)
 
 
 func _update_wingtip_trails(delta: float) -> void:
-	if _model == null:
-		return
-	# GERWALK is a hover, not a wing, and mid-transform the wings are folding. The
-	# tips leave no vapour there at all: it is a wingtip effect and there is no
-	# wingtip doing anything worth reading.
-	if _mode != Mode.FIGHTER or _transform_time > 0.0:
-		_clear_wingtip_trails()
-		return
-	var vapour: float = _wingtip_vapour()
-	var tips: Array[Vector3] = _model.wing_tips()
-	for index in _wingtip_trails.size():
-		var trail: WingtipTrail = _wingtip_trails[index]
-		var has_tip: bool = index < tips.size()
-		var tip: Vector3 = _visual.global_transform * tips[index] if has_tip else Vector3.ZERO
-		_advance_wingtip_trail(trail, tip, vapour if has_tip else 0.0, delta)
-
-
-## How hard the tips are trailing, 0..1. FIGHTER only: GERWALK has no wingtip
-## vapour at all, and the caller clears the strips there.
-##
-## It answers airspeed, not the burner: the vapour is the cue that the ship is
-## moving, so it starts at the middle of the throttle and reaches full strength at
-## cruise. The burner is simply the top of that range, which is also where the
-## burst rule applies.
-##
-## It is the speed through the air, not the component along the nose. In a turn the
-## nose outruns the course -- that lag is the skid -- so the forward component
-## collapses while the wing is still moving through the air at cruise, and the tips
-## went quiet exactly when the airframe was loaded. The jink is subtracted for the
-## same reason the flight model subtracts it: it is a step the hull takes, not air
-## it flies through.
-func _wingtip_vapour() -> float:
-	if not _alive or _mode != Mode.FIGHTER:
-		return 0.0
-	var airspeed: float = (velocity - _roll_velocity).length()
-	var floor_speed: float = _fighter_speed * WINGTIP_SPEED_FLOOR
-	return clampf(
-		(airspeed - floor_speed) / maxf(_fighter_speed - floor_speed, 0.001), 0.0, 1.0
+	_effects.update_wingtips(
+		delta,
+		_mode == Mode.FIGHTER and _transform_time <= 0.0,
+		(velocity - _roll_velocity).length()
 	)
 
 
-## Lays down one frame of vapour and redraws the strip. While the tips are trailing
-## the head tracks the tip; when the ship slows the head stays where it was and the
-## tail is retired by age, so the line dissolves from its far end instead of
-## vanishing.
+func _wingtip_vapour() -> float:
+	return _effects.wingtip_vapour(
+		_alive and _mode == Mode.FIGHTER, (velocity - _roll_velocity).length()
+	)
+
+
 func _advance_wingtip_trail(
-	trail: WingtipTrail, tip: Vector3, vapour: float, delta: float
+	trail: PlayerEffects.WingtipTrail, tip: Vector3, vapour: float, delta: float
 ) -> void:
-	trail.vapour = vapour
-	trail.age += delta
-	while not trail.born.is_empty() and trail.age - trail.born[0] > WINGTIP_LIFETIME:
-		trail.born.pop_front()
-		trail.points.pop_front()
-
-	if vapour > 0.0:
-		if trail.points.is_empty():
-			trail.points.append(tip)
-			trail.born.append(trail.age)
-		else:
-			var from: Vector3 = trail.points[-1]
-			var gap: float = from.distance_to(tip)
-			if gap < WINGTIP_SPACING:
-				# Barely moved: move the head instead of stacking a vertex on it.
-				trail.points[-1] = tip
-				trail.born[-1] = trail.age
-			else:
-				# A frame at 60 u/s is a whole unit, so one vertex per frame would
-				# show a turn as a corner. Split the step into even pieces.
-				var steps: int = clampi(int(ceil(gap / WINGTIP_SPACING)), 1, 8)
-				for step in steps:
-					trail.points.append(from.lerp(tip, float(step + 1) / float(steps)))
-					trail.born.append(trail.age)
-
-	_rebuild_wingtip_ribbon(trail)
+	_effects.advance_wingtip_trail(trail, tip, vapour, delta)
 
 
-## Rebuilds the strip as a camera-facing band: each sample is split sideways along
-## the sample's own direction, so the ribbon keeps its width however the ship turns.
-## The head is bright and the tail fades to nothing, which is what reads as a
-## contrail rather than as a drawn line.
-func _rebuild_wingtip_ribbon(trail: WingtipTrail) -> void:
-	trail.mesh.clear_surfaces()
-	var count: int = trail.points.size()
-	if count < 2:
-		return
-
-	var camera: Camera3D = get_viewport().get_camera_3d()
-	trail.mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP, _wingtip_material)
-	for index in count:
-		var point: Vector3 = trail.points[index]
-		var before: Vector3 = trail.points[maxi(index - 1, 0)]
-		var after: Vector3 = trail.points[mini(index + 1, count - 1)]
-		var along: Vector3 = after - before
-		if along.length_squared() < 0.000001:
-			along = Vector3.RIGHT
-		along = along.normalized()
-
-		var view: Vector3 = Vector3.UP
-		if camera != null:
-			view = camera.global_position - point
-		if view.length_squared() < 0.000001:
-			view = Vector3.UP
-		var side: Vector3 = along.cross(view)
-		if side.length_squared() < 0.000001:
-			side = along.cross(Vector3.UP)
-		if side.length_squared() < 0.000001:
-			side = along.cross(Vector3.RIGHT)
-		side = side.normalized() * (WINGTIP_WIDTH * 0.5)
-
-		var fade: float = float(index) / float(count - 1)
-		var color: Color = Color(
-			WINGTIP_COLOR.r,
-			WINGTIP_COLOR.g,
-			WINGTIP_COLOR.b,
-			WINGTIP_COLOR.a * fade * fade * trail.vapour
-		)
-		trail.mesh.surface_set_color(color)
-		trail.mesh.surface_add_vertex(point - side)
-		trail.mesh.surface_set_color(color)
-		trail.mesh.surface_add_vertex(point + side)
-	trail.mesh.surface_end()
-
-
-## The hull is hidden the moment the ship dies and `_physics_process` stops with
-## it, so without this the last strip would stay painted in the arena forever. It
-## also runs every frame outside FIGHTER, so an already-clean strip is skipped.
 func _clear_wingtip_trails() -> void:
-	for trail: WingtipTrail in _wingtip_trails:
-		if trail.points.is_empty() and trail.born.is_empty():
-			continue
-		trail.points.clear()
-		trail.born.clear()
-		trail.mesh.clear_surfaces()
-
-
-## Additive, unlike the exhaust wake: the tips have sky behind them, and a bright
-## line against a dark arena is what makes the speed readable from the game camera.
-func _make_wingtip_material() -> StandardMaterial3D:
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.vertex_color_use_as_albedo = true
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	return material
-
-
-func _make_smoke_process() -> ParticleProcessMaterial:
-	var process: ParticleProcessMaterial = ParticleProcessMaterial.new()
-	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	process.emission_sphere_radius = 0.05
-	# Local -X is aft: the emitter turns with the ship, the puff does not.
-	process.direction = Vector3(-1.0, 0.0, 0.0)
-	process.spread = 18.0
-	process.initial_velocity_min = 0.5
-	process.initial_velocity_max = 2.0
-	process.gravity = Vector3(0.0, 0.4, 0.0)
-	process.damping_min = 0.6
-	process.damping_max = 1.6
-	process.angle_min = -180.0
-	process.angle_max = 180.0
-	process.scale_min = 0.45
-	process.scale_max = 1.15
-	process.scale_curve = _make_smoke_curve()
-	process.color = SMOKE_COLOR
-	process.color_ramp = _make_smoke_ramp()
-	return process
-
-
-## Puffs grow as they age and fade out instead of vanishing, which is what keeps a
-## short trail from reading as a dotted line.
-func _make_smoke_curve() -> CurveTexture:
-	var curve: Curve = Curve.new()
-	curve.add_point(Vector2(0.0, 0.7))
-	curve.add_point(Vector2(1.0, 2.6))
-	var texture: CurveTexture = CurveTexture.new()
-	texture.curve = curve
-	return texture
-
-
-func _make_smoke_ramp() -> GradientTexture1D:
-	var gradient: Gradient = Gradient.new()
-	gradient.set_color(0, Color(1.0, 1.0, 1.0, 0.30))
-	gradient.add_point(0.35, Color(1.0, 1.0, 1.0, 0.18))
-	gradient.set_color(2, Color(1.0, 1.0, 1.0, 0.0))
-	var texture: GradientTexture1D = GradientTexture1D.new()
-	texture.gradient = gradient
-	texture.width = 64
-	return texture
-
-
-## A radial fade generated in code, so a puff is a soft disc instead of a square
-## and the repository does not have to carry art for one effect.
-func _make_smoke_puff() -> QuadMesh:
-	var quad: QuadMesh = QuadMesh.new()
-	quad.size = Vector2(SMOKE_PUFF, SMOKE_PUFF)
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	material.vertex_color_use_as_albedo = true
-	material.albedo_texture = _make_smoke_texture()
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	quad.material = material
-	return quad
-
-
-func _make_smoke_texture() -> GradientTexture2D:
-	var gradient: Gradient = Gradient.new()
-	gradient.set_color(0, Color(1.0, 1.0, 1.0, 1.0))
-	gradient.add_point(0.45, Color(1.0, 1.0, 1.0, 0.75))
-	gradient.set_color(2, Color(1.0, 1.0, 1.0, 0.0))
-	var texture: GradientTexture2D = GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.fill = GradientTexture2D.FILL_RADIAL
-	texture.fill_from = Vector2(0.5, 0.5)
-	texture.fill_to = Vector2(1.0, 0.5)
-	texture.width = 64
-	texture.height = 64
-	return texture
-
-
-func _build_aim_beam() -> void:
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = Color(BEAM_COLOR.r, BEAM_COLOR.g, BEAM_COLOR.b, 0.45)
-
-	var beam_mesh: BoxMesh = BoxMesh.new()
-	beam_mesh.size = Vector3(0.08, 0.08, 1.0)
-
-	_aim_beam = MeshInstance3D.new()
-	_aim_beam.mesh = beam_mesh
-	_aim_beam.material_override = material
-	_aim_beam.scale.z = BEAM_LENGTH
-	_aim_beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(_aim_beam)
+	_effects.clear_wingtip_trails()

@@ -289,8 +289,7 @@ func _ready() -> void:
 	# shadow map off. Between them, a dark patch on the hull can be pinned on the
 	# trail, on a cast shadow, or on neither.
 	if no_smoke:
-		for smoke in ship.get("_smoke") as Array:
-			var puff: GPUParticles3D = smoke as GPUParticles3D
+		for puff in ship.effects().smoke:
 			puff.emitting = false
 			puff.visible = false
 	if no_shadow:

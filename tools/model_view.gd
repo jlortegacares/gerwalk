@@ -106,14 +106,13 @@ func _build_model(fighter: bool) -> void:
 
 	# Nothing in this shot is in motion, so the engine plumes and the aim beam
 	# only add noise to the silhouette.
-	for flame in player.get("_thruster_plumes") as Array:
-		(flame as MeshInstance3D).visible = false
-	for core in player.get("_thruster_cores") as Array:
-		(core as MeshInstance3D).visible = false
+	for flame in player.effects().thruster_plumes():
+		flame.visible = false
+	for core in player.effects().thruster_cores():
+		core.visible = false
 	# The wake is world-space and stays where it was born, so in a still it sits
 	# on top of the hull it is supposed to trail behind.
-	for smoke in player.get("_smoke") as Array:
-		var puff: GPUParticles3D = smoke as GPUParticles3D
+	for puff in player.effects().smoke:
 		puff.emitting = false
 		puff.visible = false
 	# The ship's counter-light would otherwise make `--nosun` a lie: with it on, the
@@ -121,7 +120,7 @@ func _build_model(fighter: bool) -> void:
 	var fill: DirectionalLight3D = player.get_node_or_null("CameraRig/FillLight") as DirectionalLight3D
 	if fill != null:
 		fill.light_energy = 0.0
-	var beam: MeshInstance3D = player.get("_aim_beam") as MeshInstance3D
+	var beam: MeshInstance3D = player.effects().aim_beam()
 	if beam != null:
 		beam.visible = false
 
