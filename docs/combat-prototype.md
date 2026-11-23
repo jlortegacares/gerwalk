@@ -1599,7 +1599,8 @@ All values are named constants at the top of each script.
 | Thruster plume and launch flash | `entities/player/player_effects.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `update_afterburner()`; the anchors come from the model's exhaust bones |
 | Exhaust wake | `entities/player/player_effects.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows the measured acceleration in `update_smoke()`, so the nozzles are clean at a steady throttle |
 | Wingtip vapour | `entities/player/player_effects.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`, `WINGTIP_SPEED_FLOOR`, `WING_TIP_L`, `WING_TIP_R`; a ribbon rebuilt each frame from `wing_tips()`, which carries the measured mesh tip in the posed wing bone's frame, faded in by `wingtip_vapour()` from the FIGHTER airspeed and wiped entirely outside FIGHTER |
-| Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
+| Airframe fill light | `entities/player/player_hull.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
+| Hand-built gunpod | `entities/player/player_hull.gd` | `GUNPOD_LENGTH`, `GUNPOD_BARREL`, `ACCENT_COLOR`, `GUNMETAL_COLOR`; the GU-11 is the only piece of the airframe that is not in the model file |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |
 | Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH`/`NOSE_MATERIAL`/`NOSE_GAP` for the cone cut out of the forward fuselage; every other material keeps the file's paint |
@@ -1666,6 +1667,7 @@ combat/decoy.gd                 dropped flare: takes the lock of nearby guided s
 combat/lock_reticle.gd          world-space mark on a radar lock, dies with its target; size follows the target's footprint
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
 entities/player/player_effects.gd   the wake, the wingtip vapour and the aim beam, fed by the ship
+entities/player/player_hull.gd      the airframe build: model, livery, fill light and the hand-built GU-11
 entities/player/weapon_system.gd  the arsenal facade: scene, stats, spawn path, bomb, decoy
 entities/player/primary_fire.gd   vulcan, laser and plasma cadence, and the drawn beam
 entities/player/missile_radar.gd  the missile rack: pool, marks, salvo, cooldown

@@ -186,12 +186,13 @@ weapon_system.gd     295  facade: bullet scene, stats, one spawn path, cone
 the rack is a clock plus a picture and the primaries are a cadence, so neither
 needs a parent. `PlayerModel` had already proved the movement works.
 
-The player split is in progress. `player.gd` went from 1,556 to 1,103 lines:
+The player split is in progress. `player.gd` went from 1,556 to 993 lines:
 
 ```
-player.gd           1,103  input, flight, actions, HP, audio, the pose
+player.gd           993  input, flight, actions, HP, audio, the pose
 ├ player_effects.gd   642  thrusters, wake, wingtip vapour, aim beam, sweep
 ├ player_model.gd     655  the airframe and its bones
+├ player_hull.gd      144  the airframe build: materials, livery, fill, gunpod
 └ player_camera.gd     61  the spring rig
 ```
 
@@ -200,8 +201,12 @@ Still pending:
 ```
 player.gd                 orchestrator: input, state, timers
 ├ player_flight.gd         gerwalk / fighter
-├ player_actions.gd        dash, double-tap, transform, roll, i-frames
-└ player_audio.gd          hum and cues
+└ player_actions.gd        dash, double-tap, transform, roll, i-frames
+```
+
+Audio is deliberately not a file: the ship makes eight `Sfx` calls and decides
+nothing else about sound, so a wrapper would add a layer without taking a decision
+out of the ship.
 
 main_menu.gd          676  panel router: scenes, save cards, pilot, livery
 └ pad_panel.gd        231  the controls table, its listening state, its writes
@@ -284,7 +289,7 @@ static `configure()` calls the suite depends on today.
 | P2 | Suite split (`smoke_suite.gd` + `tests/suites/`) | High | Medium | 1 d — **done** |
 | P2 | Fixture API on top of the split | High | Low | 2 h — **done with P1** |
 | P1 | `EncounterDirector` + `RunState` | High | Medium | 1 d — **done** |
-| P1 | Split `player.gd` | High | Medium | 1 d |
+| P1 | Split `player.gd` | High | Medium | 1 d — **in progress: 1,556 → 993 lines** |
 | P1 | Split `weapon_system.gd` | Medium | Low | 4 h — **done** |
 | P1 | Split `main_menu.gd` into panels | Medium | Low | 4 h — **started: `pad_panel.gd` done** |
 | P2 | `SaveStore` injection | Medium | Low | 3 h |
