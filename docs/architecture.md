@@ -186,13 +186,21 @@ weapon_system.gd     295  facade: bullet scene, stats, one spawn path, cone
 the rack is a clock plus a picture and the primaries are a cadence, so neither
 needs a parent. `PlayerModel` had already proved the movement works.
 
+The player split is in progress. `player.gd` went from 1,556 to 1,103 lines:
+
+```
+player.gd           1,103  input, flight, actions, HP, audio, the pose
+├ player_effects.gd   642  thrusters, wake, wingtip vapour, aim beam, sweep
+├ player_model.gd     655  the airframe and its bones
+└ player_camera.gd     61  the spring rig
+```
+
 Still pending:
 
 ```
-player.gd           1,556  orchestrator: input, state, timers
+player.gd                 orchestrator: input, state, timers
 ├ player_flight.gd         gerwalk / fighter
 ├ player_actions.gd        dash, double-tap, transform, roll, i-frames
-├ player_visuals.gd        thrusters, smoke, wingtip ribbons, aim beam, bank
 └ player_audio.gd          hum and cues
 
 main_menu.gd          832  panel router

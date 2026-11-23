@@ -1590,25 +1590,25 @@ All values are named constants at the top of each script.
 | Detonation wave | `common/shock_wave.gd` | `FLASH_START`, `FLASH_END`, `FLASH_TIME`, `RING_HOT`, `RING_COOL`, `RING_START`, `RING_END_RADIUS`, `RING_TIME`, `RING_BAND`; `Projectile._spawn_impact` picks it for `Style.MISSILE`, `ShipExplosion` adds it to every hull death with `WAVE_SCALE` (1.1) and `flash_enabled` off |
 | Risk margin | `entities/player/player.gd` | `MAX_HP`, `IFRAME_DURATION` |
 | Evasion | `entities/player/player.gd`, `combat/projectile.gd` | `DASH_SPEED`, `DASH_DURATION`, `DASH_COOLDOWN`, `ROLL_ANIM_TIME`; `Player.is_evading()` gates the early return in `Projectile._on_body_entered` |
-| Afterburner speed | `entities/player/player.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION`, `FOV_BOOST_KICK`, `FOV_RATE` |
+| Afterburner speed | `entities/player/player.gd`, `entities/player/player_effects.gd` | `BOOST_SPEED`, `BOOST_ACCELERATION` in flight; `FOV_BOOST_KICK`, `FOV_RATE` in the effects node, which owns the camera kick |
 | Turbo economy | `entities/player/player.gd` | `TURBO_MAX`, `TURBO_DRAIN_PER_SECOND`, `TURBO_RECHARGE_PER_SECOND` |
 | Pilot level curve and save | `common/game_progress.gd` | `MAX_LEVEL` (100), the two `kills_for_level()` coefficients, `CONFIG_PATH` (the legacy import source), `VERSION`; the level is derived, never stored |
 | Save cards | `common/save_slots.gd` | `SLOT_COUNT` (6), `DIR`, `DEFAULT_SLOT`, `ACTIVE_KEY`; `active_slot()` clamps an out-of-range pointer, and the legacy import runs only while no backup exists |
 | Pilot stat tracks | `common/pilot_stats.gd` | `SPEED_GAIN`, `HP_GAIN`, `TURBO_CAPACITY_GAIN`, `TURBO_RECHARGE_GAIN`, `INTERVAL_GAIN`, `VULCAN_SPREAD_GAIN`, `PLASMA_CONE_GAIN`, `LASER_RANGE_GAIN`; each is the whole budget of its track at level 100 |
 | Level readout | `ui/hud/level_bar.gd` | `BAR_SIZE`, `FILLED_COLOR`; the label text is built in `hud.gd` |
-| Thruster plume and launch flash | `entities/player/player.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `_update_afterburner_visual()`; the anchors come from the model's exhaust bones |
-| Exhaust wake | `entities/player/player.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows the measured acceleration in `_update_smoke()`, so the nozzles are clean at a steady throttle |
-| Wingtip vapour | `entities/player/player.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`, `WINGTIP_SPEED_FLOOR`, `WING_TIP_L`, `WING_TIP_R`; a ribbon rebuilt each frame from `wing_tips()`, which carries the measured mesh tip in the posed wing bone's frame, faded in by `_wingtip_vapour()` from the FIGHTER airspeed and wiped entirely outside FIGHTER |
+| Thruster plume and launch flash | `entities/player/player_effects.gd` | `THRUST_KICK_DECAY`, flame lengths and alphas in `update_afterburner()`; the anchors come from the model's exhaust bones |
+| Exhaust wake | `entities/player/player_effects.gd` | `SMOKE_AMOUNT`, `SMOKE_LIFETIME`, `SMOKE_PUFF`, `SMOKE_DENSITY_HIGH`, `SMOKE_COLOR`; density follows the measured acceleration in `update_smoke()`, so the nozzles are clean at a steady throttle |
+| Wingtip vapour | `entities/player/player_effects.gd`, `entities/player/player_model.gd` | `WINGTIP_WIDTH`, `WINGTIP_LIFETIME`, `WINGTIP_SPACING`, `WINGTIP_COLOR`, `WINGTIP_SPEED_FLOOR`, `WING_TIP_L`, `WING_TIP_R`; a ribbon rebuilt each frame from `wing_tips()`, which carries the measured mesh tip in the posed wing bone's frame, faded in by `wingtip_vapour()` from the FIGHTER airspeed and wiped entirely outside FIGHTER |
 | Airframe fill light | `entities/player/player.gd` | `FILL_ENERGY`, `FILL_COLOR`; it rides the camera rig and culls on `PlayerModel.AIRFRAME_LAYER` |
 | Ship silhouette | `models/vf-1s/source/Vf-01_BRoid_ULa.glb` | the imported airframe: hull, wings, tails and canopy are model geometry, not code |
 | Livery palette | `ui/menu/main_menu.gd` | `PALETTE`, `SWATCH_SIZE`; the first four swatches are the factory hull, stripe, canopy and lines, and the hull white is also the factory nose |
 | Livery materials | `entities/player/player_model.gd` | `HULL_MATERIAL`, `TRIM_MATERIAL`, `LINE_MATERIAL` (name prefixes), `CANOPY_BONES`/`CANOPY_MESH` for the glass, `NOSE_MESH`/`NOSE_MATERIAL`/`NOSE_GAP` for the cone cut out of the forward fuselage; every other material keeps the file's paint |
 | Livery preview | `ui/menu/livery_preview.gd` | `TURN_SPEED`, `CAMERA_POSITION`, `CAMERA_TARGET` |
 | Pad bindings | `common/pad_bindings.gd` | `SECTION` (`pad`), `ACTIONS` (the nine movable actions), `DEFAULTS` (the factory map `project.godot` ships), `LABELS`, `BUTTON_LABELS`; `apply()` rewrites only the pad event, `assign()` swaps, `load_bindings()` discards a file where two actions share a button |
-| Wing sweep | `entities/player/player.gd` | `WING_SWEEP_FORWARD` (0 deg), `WING_SWEEP_CRUISE` (14 deg), `WING_SWEEP_BACK` (38 deg), `WING_SWEEP_RATE` (60 deg/s), applied to `Bone.Wing.L/R` in `player_model.gd` |
+| Wing sweep | `entities/player/player_effects.gd` | `WING_SWEEP_FORWARD` (0 deg), `WING_SWEEP_CRUISE` (14 deg), `WING_SWEEP_BACK` (38 deg), `WING_SWEEP_RATE` (60 deg/s); the effects compute the angle and hand it to the ship's pose, which applies it to `Bone.Wing.L/R` in `player_model.gd` |
 | GERWALK limbs | `entities/player/player_model.gd` | `THIGH_ANGLE`, `KNEE_ANGLE`, `LEG_SPLAY`, `ARM_ANGLE`, `ELBOW_ANGLE`, `ARM_SPLAY`; `GERWALK_LIFT` in the player |
 | Model preview | `tools/model_view.gd` | `--view front\|side\|top\|quarter\|game`, `--fighter 1`, `--size`, `--nosun 1`, `--sunrot`, `--out` (orthographic turntable for silhouette and lighting checks) |
-| Muzzle clears the nose | `entities/player/player.gd` | `MUZZLE_DISTANCE`, `BEAM_START` |
+| Muzzle clears the nose | `entities/player/player.gd`, `entities/player/player_effects.gd` | `MUZZLE_DISTANCE` in flight, `BEAM_START` with the drawn aim beam |
 | Pattern cadence | `entities/enemy/turret.gd` | `TELEGRAPH_TIME`, `RECOVER_TIME` |
 | Pattern shape | `entities/enemy/turret.gd` | `RING_BULLETS`, `RING_SPEED`, `FAN_BULLETS`, `FAN_CONVERGENCE`, `FAN_SPEED` |
 | Planet scale and lap length | `levels/arena/arena.gd` | `PLANET_RADIUS` (lap = `2 * PI * PLANET_RADIUS`), `PLANET_SEGMENTS`, `PLANET_RINGS` |
@@ -1665,6 +1665,7 @@ combat/bomb_wave.gd             expanding shockwave, presentation only
 combat/decoy.gd                 dropped flare: takes the lock of nearby guided shots, self-freeing
 combat/lock_reticle.gd          world-space mark on a radar lock, dies with its target; size follows the target's footprint
 entities/player/                CharacterBody3D, camera rig, aim, dash, afterburner, HP
+entities/player/player_effects.gd   the wake, the wingtip vapour and the aim beam, fed by the ship
 entities/player/weapon_system.gd  the arsenal facade: scene, stats, spawn path, bomb, decoy
 entities/player/primary_fire.gd   vulcan, laser and plasma cadence, and the drawn beam
 entities/player/missile_radar.gd  the missile rack: pool, marks, salvo, cooldown
