@@ -230,8 +230,7 @@ func _test_audio() -> void:
 	Sfx.reset_counts()
 	_player.take_damage(1)
 	_check(Sfx.played(&"hit") == 1, "a hit asks for the hull impact")
-	_player.set("_hp", Player.MAX_HP)
-	_player.set("_invulnerable", 0.0)
+	_park_ship()
 
 	# Enemy weapons speak in their own voices, positioned at the shooter.
 	_clear_enemies()

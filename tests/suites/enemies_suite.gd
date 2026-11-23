@@ -474,7 +474,7 @@ func _test_boss() -> void:
 		"the final explosion is scaled to the hull (%.1f)" % biggest
 	)
 
-	_player.set("_invulnerable", 0.0)
+	_park_ship()
 
 	GlobalEventBus.boss_appeared.disconnect(on_appeared)
 	GlobalEventBus.boss_health_changed.disconnect(on_health)

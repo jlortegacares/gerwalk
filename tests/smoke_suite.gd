@@ -45,6 +45,20 @@ var _arena: Arena = null
 var _player: Player = null
 var _died_count: int = 0
 
+## The suite is one long run, and only the death test may end it. A stray shot that
+## lands while a check has cleared the frames would kill the ship, stop the world for
+## every later check, and hand the run to the death screen's countdown -- whose reload
+## restarts the suite in the middle and reports the old run's tail from a fresh boot.
+## A test that needs a vulnerable hull goes back under this sentinel when it is done.
+const SUITE_INVULNERABLE: float = 1.0e9
+
+
+## Puts the hull back at full health under the sentinel's frames, so the run keeps
+## going after a check that had to take a real hit.
+func _park_ship() -> void:
+	_player.set("_hp", Player.MAX_HP)
+	_player.set("_invulnerable", SUITE_INVULNERABLE)
+
 
 ## A governor that is not fed by anything but the test.
 func _fresh_governor() -> Node:

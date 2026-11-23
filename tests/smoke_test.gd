@@ -44,6 +44,24 @@ func _ready() -> void:
 	_check(_player != null, "arena exposes a Player")
 	_check(_player is CharacterBody3D, "player is a CharacterBody3D")
 
+	# The suite is one long run, so the ship may not die between checks. A stray shot
+	# landing while a test has cleared the frames would kill it and stop the world for
+	# everything after it, which reads as a dozen unrelated failures.
+	_player.set("_invulnerable", SUITE_INVULNERABLE)
+
+	# The death screen is a node under test, not a navigator. The HUD turns both of
+	# its answers into scene changes, and either one would restart the scene this
+	# suite runs in: the countdown's reload doubles the run and reports the tail of
+	# the old one from a fresh boot. The death test still drives the signals directly.
+	var death_screen: GameOver = (
+		_arena.get_node("HUD").get_node("%GameOver") as GameOver
+	)
+	if death_screen != null:
+		for connection in death_screen.respawn_requested.get_connections():
+			death_screen.respawn_requested.disconnect(connection["callable"])
+		for connection in death_screen.menu_requested.get_connections():
+			death_screen.menu_requested.disconnect(connection["callable"])
+
 	# The suite is one very long run that kills far more than the boss threshold,
 	# so the run counter is parked below zero and only the boss test drives it up.
 	# Without this the mothership would arrive mid-weapon-test and suppress the

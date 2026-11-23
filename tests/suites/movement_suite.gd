@@ -622,7 +622,7 @@ func _test_transformation() -> void:
 		for _i in 60:
 			await get_tree().physics_frame
 		coast.append(_flat_speed())
-	_player.set("_invulnerable", 0.0)
+	_park_ship()
 	_check(
 		absf(coast[0] - Player.FIGHTER_STALL_SPEED) < 1.0,
 		"the glide holds the stall floor (%.1f u/s)" % coast[0]
@@ -1223,6 +1223,7 @@ func _test_dash_evasion() -> void:
 
 	_clear_projectiles()
 	await get_tree().physics_frame
+	_park_ship()
 
 
 func _test_damage_and_iframes() -> void:
@@ -1249,6 +1250,7 @@ func _test_damage_and_iframes() -> void:
 		not event_bus_health.is_empty(),
 		"health changes reach the event bus for the HUD"
 	)
+	_park_ship()
 
 
 func _test_death() -> void:
