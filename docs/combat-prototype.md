@@ -1682,7 +1682,8 @@ entities/enemy/boss.tscn        the hull body, shapeless: the three points own t
 entities/enemy/hull_fire.gd     one persistent hull fire: flame, hot core, smoke plume, intensity
 models/boss-1/*.glb             the capital-ship asset, imported once and preloaded by the boss
 ui/hud/                         event-fed bars (health, turbo, pilot level, boss); the radar polls the enemy group for bearings
-ui/menu/                        boot menu: the planet and the city, the save cards, CONTINUE and the pilot panel, the display and livery settings, the pad remap panel and the controls reference
+ui/menu/                        boot menu: the planet and the city, the save cards, CONTINUE and the pilot panel, the display and livery settings
+ui/menu/pad_panel.gd            the controls table: one row per control, the pad cell that edits it, its listening state and its file writes
 ui/menu/livery_preview.gd       SubViewport turntable of the same airframe, built when the panel opens
 common/pad_bindings.gd          the nine movable pad actions: factory map, swap, file, and the InputMap rewrite
 levels/director/encounter_director.gd  the contact stream: cap, distance band, heading bias, despawn, retry

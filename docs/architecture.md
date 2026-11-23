@@ -203,14 +203,25 @@ player.gd                 orchestrator: input, state, timers
 ├ player_actions.gd        dash, double-tap, transform, roll, i-frames
 └ player_audio.gd          hum and cues
 
-main_menu.gd          832  panel router
-├ options_panel / livery_panel / pad_panel / save_panel
+main_menu.gd          676  panel router: scenes, save cards, pilot, livery
+└ pad_panel.gd        231  the controls table, its listening state, its writes
 ```
+
+The menu split has started with the panel that owns the most state of its own:
+`PadPanel` is a `RefCounted`, not a node, because a table plus "the action waiting
+for a press" needs no place in the tree. It takes the three nodes it draws into
+and a `Callable` for the menu's button style, the same shape as the effects node's
+pose and the director's placer. `_input` stays on the menu, which forwards the
+press and marks it handled, because GUI input runs between `_input` and
+`_unhandled_input`: a focused binding button would otherwise swallow its own bind.
+
+Still pending: `options_panel` (the livery picker and the display toggle) and
+`save_panel` (the six cards and the delete arm).
 
 ### 5.3 Splitting the suite (done)
 
 ```
-tests/smoke_test.gd              runner: boots the world, installs the suites, drives the order
+tests/smoke_test.gd              runner: boots the world, installs the suites, drives the order, keeps the run alive
 tests/smoke_suite.gd             harness: world refs, `_check`, spawn/scan helpers, scratch paths
 tests/suites/render_suite.gd     the resolution governor, arithmetic and state machine
 tests/suites/ui_suite.gd         menus, HUD, pad panel, livery, pause overlay, radar, score
@@ -237,6 +248,13 @@ Three mechanics make that possible:
    points each suite at the same arena, the same ship and the same `_failures`
    instance, so `_report` sees every failure. `_died_count` stays per-suite because
    the base connects the bus itself.
+4. **The run is one long run, and nothing may end it early.** The ship is parked
+   under a sentinel `_invulnerable` between checks, so a stray enemy shot cannot kill
+   it and stop the world for every later check; and the runner detaches the death
+   screen's two answers from the HUD's scene changes, so the respawn countdown cannot
+   reload the scene mid-suite. Without both, one unlucky hit restarts the run: the
+   suite boots a second time, the old run's tail is reported from a fresh world, and
+   `_report` only ever sees the second boot's failures.
 
 Every `add_child` and `get_children()` that implicitly meant "the scene root" while
 the harness *was* the scene root had to become explicit: gameplay projectiles are
@@ -268,7 +286,7 @@ static `configure()` calls the suite depends on today.
 | P1 | `EncounterDirector` + `RunState` | High | Medium | 1 d — **done** |
 | P1 | Split `player.gd` | High | Medium | 1 d |
 | P1 | Split `weapon_system.gd` | Medium | Low | 4 h — **done** |
-| P1 | Split `main_menu.gd` into panels | Medium | Low | 4 h |
+| P1 | Split `main_menu.gd` into panels | Medium | Low | 4 h — **started: `pad_panel.gd` done** |
 | P2 | `SaveStore` injection | Medium | Low | 3 h |
 | P3 | Typed payloads | Low | Low | 2 h |
 | P3 | Separated tuning | Low | Low | 3 h |
