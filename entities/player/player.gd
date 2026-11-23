@@ -139,12 +139,8 @@ const WING_SWEEP_BACK: float = PlayerEffects.WING_SWEEP_BACK
 ## instead of a snap: 0 to full sweep takes a bit over half a second.
 const WING_SWEEP_RATE: float = PlayerEffects.WING_SWEEP_RATE
 
-## Desert airframe from the reference sheet: the gunpod is the only piece still
-## built by hand, so only its two materials survive.
-const ACCENT_COLOR: Color = Color(0.34, 0.22, 0.17, 1.0)
-## The GU-11 gunpod is the one near-black piece on the airframe. It is not pure
-## black: at this scale the faces have to separate or the rifle reads as a smudge.
-const GUNMETAL_COLOR: Color = Color(0.27, 0.28, 0.32, 1.0)
+## The gunpod's two materials and the airframe's fill light live in `PlayerHull`,
+## with the geometry they dress.
 
 ## GERWALK is the VF-1's bird-legged stance: the model's legs are the nacelles and
 ## the skeleton swings them down and out. They reach further below the hull than
@@ -155,14 +151,6 @@ const GERWALK_LIFT: float = 0.55
 ## Where the gunpod rides in FIGHTER: centreline, under the belly, which is where
 ## a VF-1 carries it.
 const GUNPOD_STOWED: Vector3 = Vector3(0.48, -0.27, 0.0)
-const GUNPOD_LENGTH: float = 0.90
-const GUNPOD_BARREL: float = 0.46
-
-## The counter-light that keeps a mirrored airframe reading evenly. Level and tint
-## only; where it points is `_build_fill_light`'s story. It is cool because it
-## stands in for sky bounce rather than for a second sun.
-const FILL_ENERGY: float = 0.45
-const FILL_COLOR: Color = Color(0.62, 0.72, 0.95)
 
 @export var bullet_scene: PackedScene
 @export var impact_scene: PackedScene
@@ -942,98 +930,16 @@ func _spawn_impact() -> void:
 ## The airframe is the imported VF-1S, posed by its own skeleton. Everything that
 ## used to be hand-built here (hull, wings, tails, canopy, limbs) ships inside the
 ## model; only the gunpod stays procedural, because the model carries none.
+## The airframe's construction is `PlayerHull`'s story. The ship keeps the handles
+## because the mode pose, the i-frame blink and the pod all read them every frame.
 func _build_visual() -> void:
-	_visual = Node3D.new()
-	add_child(_visual)
-
-	_accent_material = _ship_material(ACCENT_COLOR, 0.05)
-	_gunmetal_material = _ship_material(GUNMETAL_COLOR, 0.0)
-
-	_model = PlayerModel.new()
-	_model.name = "Model"
-	# The livery is read once, at build: the ship the player flies is the ship the
-	# options preview showed, and nothing in flight repaints it.
-	_model.set_livery(
-		GameSettings.load_hull(),
-		GameSettings.load_trim(),
-		GameSettings.load_canopy(),
-		GameSettings.load_lines(),
-		GameSettings.load_nose()
-	)
-	_visual.add_child(_model)
-	_model.build()
-
-	_build_fill_light()
-	_gunpod = _build_gunpod()
-
-
-## The arena is lit by a single sun from one side and the airframe is a mirror, so
-## the two legs present opposite facets to it. One spine caught the sun and read as
-## warm grey; its twin, turned away, crushed to black -- which from the game camera
-## reads as one leg wearing a shadow the other does not have. That is what a single
-## key light does to symmetric geometry, and no angle fixes it: a counter-light from
-## the far side just makes the other leg the dark one.
-##
-## The fill therefore rides the camera rig, not the sun: the game camera is fixed
-## behind and above the ship, so a light along its axis lands on exactly the facets
-## the player can see, equally, whichever leg they belong to. It is shadowless and
-## cool because it stands in for sky bounce, and `light_cull_mask` keeps it on the
-## airframe's own render layer, so the planet, the stars and the enemies keep the
-## single-sun look they were tuned with.
-func _build_fill_light() -> void:
-	var fill: DirectionalLight3D = DirectionalLight3D.new()
-	fill.name = "FillLight"
-	fill.light_color = FILL_COLOR
-	fill.light_energy = FILL_ENERGY
-	fill.shadow_enabled = false
-	fill.light_cull_mask = PlayerModel.AIRFRAME_LAYER_MASK
-	camera.get_parent().add_child(fill)
-
-
-func _ship_material(color: Color, glow: float) -> StandardMaterial3D:
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.albedo_color = color
-	material.roughness = 0.55
-	material.metallic = 0.15
-	# The hull is hand-built, so a flipped face must never punch a hole in it.
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	material.emission_enabled = true
-	material.emission = color
-	material.emission_energy_multiplier = glow
-	return material
-
-
-## The GU-11. The origin is the grip, so placing the pod at the hand puts the
-## receiver in front of it and the stock behind, exactly as it is carried.
-func _build_gunpod() -> Node3D:
-	var pod: Node3D = Node3D.new()
-	_visual.add_child(pod)
-
-	var body: MeshInstance3D = _block(
-		Vector3(GUNPOD_LENGTH, 0.26, 0.26), _gunmetal_material
-	)
-	body.position = Vector3(GUNPOD_LENGTH * 0.5 - 0.30, 0.0, 0.0)
-	pod.add_child(body)
-
-	var barrel: MeshInstance3D = _block(
-		Vector3(GUNPOD_BARREL, 0.11, 0.11), _gunmetal_material
-	)
-	barrel.position = Vector3(GUNPOD_LENGTH - 0.30 + GUNPOD_BARREL * 0.5, 0.0, 0.0)
-	pod.add_child(barrel)
-
-	var stock: MeshInstance3D = _block(Vector3(0.22, 0.18, 0.16), _accent_material)
-	stock.position = Vector3(-0.40, 0.0, 0.0)
-	pod.add_child(stock)
-
-	var grip: MeshInstance3D = _block(Vector3(0.12, 0.22, 0.16), _accent_material)
-	grip.position = Vector3(0.0, -0.18, 0.0)
-	pod.add_child(grip)
-
-	var sight: MeshInstance3D = _block(Vector3(0.24, 0.10, 0.10), _accent_material)
-	sight.position = Vector3(0.08, 0.17, 0.0)
-	pod.add_child(sight)
-
-	return pod
+	var hull: PlayerHull = PlayerHull.new()
+	hull.build(self, camera.get_parent())
+	_visual = hull.visual
+	_model = hull.model
+	_accent_material = hull.accent_material
+	_gunmetal_material = hull.gunmetal_material
+	_gunpod = hull.gunpod
 
 
 ## The mode switch is a pose, not a swap: the skeleton carries a FIGHTER keyframe
@@ -1055,22 +961,6 @@ func _update_mode_pose(sweep: float) -> void:
 	if _model != null:
 		held = _model.hand_anchor()
 	_gunpod.position = GUNPOD_STOWED.lerp(held, gerwalk)
-
-
-func _block(size: Vector3, material: StandardMaterial3D) -> MeshInstance3D:
-	var mesh: BoxMesh = BoxMesh.new()
-	mesh.size = size
-	return _mesh_node(mesh, material)
-
-
-func _mesh_node(mesh: Mesh, material: StandardMaterial3D) -> MeshInstance3D:
-	var node: MeshInstance3D = MeshInstance3D.new()
-	node.mesh = mesh
-	node.material_override = material
-	# The ship is small and the directional light covers the whole planet, so its
-	# shadow lands as a dotted smear instead of a silhouette. Better no shadow.
-	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	return node
 
 
 ## The wake, the vapour and the beam belong to the effects node; these keep the
